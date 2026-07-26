@@ -2,6 +2,7 @@ package com.agentgrid.mobile
 
 import android.app.Application
 import android.provider.Settings
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.agentgrid.mobile.domain.ControlAction
@@ -29,6 +30,7 @@ data class AgentGridUiState(
     val pendingRequests: List<PendingRequest> = emptyList(),
     val pairingError: String? = null,
     val terminalMode: Boolean = true,
+    val activeTaskBrightness: Float = ScreenBrightnessPolicy.DEFAULT_ACTIVE_BRIGHTNESS,
 ) {
     val focusedTask: TaskSnapshot?
         get() = tasks.firstOrNull { it.id == focusedTaskID } ?: TaskFocus.focused(tasks)
@@ -43,6 +45,12 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
         AgentGridUiState(
             pairing = pairingStore.load(),
             terminalMode = preferences.getBoolean("terminal-mode", true),
+            activeTaskBrightness = ScreenBrightnessPolicy.sanitizeActiveBrightness(
+                preferences.getFloat(
+                    "active-task-brightness",
+                    ScreenBrightnessPolicy.DEFAULT_ACTIVE_BRIGHTNESS,
+                ),
+            ),
         ),
     )
     val state: StateFlow<AgentGridUiState> = mutableState.asStateFlow()
@@ -91,7 +99,11 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
     fun unpair() {
         client.disconnect()
         pairingStore.clear()
-        mutableState.value = AgentGridUiState(terminalMode = mutableState.value.terminalMode)
+        val previousState = mutableState.value
+        mutableState.value = AgentGridUiState(
+            terminalMode = previousState.terminalMode,
+            activeTaskBrightness = previousState.activeTaskBrightness,
+        )
     }
 
     fun control(taskID: String, action: ControlAction, value: String? = null) {
@@ -103,8 +115,14 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setTerminalMode(enabled: Boolean) {
-        preferences.edit().putBoolean("terminal-mode", enabled).apply()
+        preferences.edit { putBoolean("terminal-mode", enabled) }
         mutableState.value = mutableState.value.copy(terminalMode = enabled)
+    }
+
+    fun setActiveTaskBrightness(value: Float) {
+        val brightness = ScreenBrightnessPolicy.sanitizeActiveBrightness(value)
+        preferences.edit { putFloat("active-task-brightness", brightness) }
+        mutableState.value = mutableState.value.copy(activeTaskBrightness = brightness)
     }
 
     override fun onCleared() {

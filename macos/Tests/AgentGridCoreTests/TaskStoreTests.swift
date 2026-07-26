@@ -52,6 +52,43 @@ func purgeOnlyExpiredTerminalTasks() {
     #expect(store.tasks.map(\.id) == ["active"])
 }
 
+@Test("过期的测试与模拟任务会自动清理")
+func staleSyntheticTasksArePurged() {
+    let now = Date(timeIntervalSince1970: 20_000)
+    let realTask = TaskSnapshot(
+        id: "019f9dd6-c2f1-7ae2-b045-a07223786c08",
+        source: .codexDesktop,
+        projectName: "真实任务",
+        lifecycle: .running,
+        startedAt: now.addingTimeInterval(-600),
+        updatedAt: now.addingTimeInterval(-600)
+    )
+    let staleE2E = TaskSnapshot(
+        id: "agentgrid-e2e-1",
+        source: .codexCLI,
+        projectName: "端到端测试",
+        lifecycle: .running,
+        startedAt: now.addingTimeInterval(-600),
+        updatedAt: now.addingTimeInterval(-600)
+    )
+    let recentSimulator = TaskSnapshot(
+        id: "agentgrid-simulator",
+        source: .codexDesktop,
+        projectName: "状态模拟器",
+        lifecycle: .starting,
+        startedAt: now.addingTimeInterval(-30),
+        updatedAt: now.addingTimeInterval(-30)
+    )
+    var store = TaskStore(tasks: [realTask, staleE2E, recentSimulator])
+
+    store.purge(now: now)
+
+    #expect(store.tasks.map(\.id) == [
+        "019f9dd6-c2f1-7ae2-b045-a07223786c08",
+        "agentgrid-simulator",
+    ])
+}
+
 @Test("容量不足时优先清理最旧的终态任务")
 func capacityPurgesOldestTerminalTask() {
     let now = Date(timeIntervalSince1970: 20_000)
@@ -112,4 +149,46 @@ func terminalSubagentsAreRemovedAfterGracePeriod() {
 
     #expect(changed)
     #expect(store.tasks[0].subagents.map(\.id) == ["running-child", "recent-child"])
+}
+
+@Test("Codex 总结标题更新后保留项目名前缀")
+func codexTitleOverridesPromptFallback() {
+    let task = TaskSnapshot(
+        id: "session-1",
+        source: .codexDesktop,
+        projectName: "AgentGrid",
+        title: "AgentGrid · 修改手机标题",
+        userPrompt: "修改手机标题",
+        lifecycle: .running
+    )
+    var store = TaskStore(tasks: [task])
+
+    let changed = store.applyTitles([
+        "session-1": "手机端优先显示 Codex 总结标题",
+    ])
+
+    #expect(changed)
+    #expect(store.tasks[0].title == "AgentGrid · 手机端优先显示 Codex 总结标题")
+    #expect(store.tasks[0].userPrompt == "修改手机标题")
+}
+
+@Test("重复同步标题不会叠加项目名前缀")
+func repeatedCodexTitleSyncDoesNotDuplicateProjectPrefix() {
+    let task = TaskSnapshot(
+        id: "session-1",
+        source: .codexDesktop,
+        projectName: "AgentGrid",
+        lifecycle: .running
+    )
+    var store = TaskStore(tasks: [task])
+    let titles = [
+        "session-1": "AgentGrid · 更新手机标题",
+    ]
+
+    let firstChanged = store.applyTitles(titles)
+    let secondChanged = store.applyTitles(titles)
+
+    #expect(firstChanged)
+    #expect(!secondChanged)
+    #expect(store.tasks[0].title == "AgentGrid · 更新手机标题")
 }

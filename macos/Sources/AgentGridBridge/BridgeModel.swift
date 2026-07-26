@@ -20,6 +20,8 @@ final class BridgeModel {
     private var pairingSecret = Data()
     private let persistence = TaskSnapshotPersistence()
     private var rolloutReader = CodexRolloutReader()
+    private let sessionTitleReader = CodexSessionTitleReader()
+    private var sessionTitleSynchronizer = CodexSessionTitleSynchronizer()
     private var hookServer: HookBridgeServer?
     private var webSocketServer: WebSocketServer?
     private var refreshTask: Task<Void, Never>?
@@ -101,6 +103,9 @@ final class BridgeModel {
                 if Date.now >= nextDiscovery {
                     self.discoverRolloutSessions()
                     nextDiscovery = Date.now.addingTimeInterval(3)
+                    if self.refreshCodexTitles() {
+                        self.publishStore()
+                    }
                 }
                 if self.rolloutReader.hasTrackedFiles {
                     self.handleRolloutSignals()
@@ -177,7 +182,7 @@ final class BridgeModel {
                 SubagentSnapshot(
                     id: "simulator-protocol",
                     path: "/root/protocol_v2",
-                    lifecycle: lifecycle == .failed ? .failed : .running,
+                    lifecycle: lifecycle == .interrupted ? .interrupted : .running,
                     activity: .editing,
                     latestStep: "apply_patch protocol/README.md",
                     tokenUsage: TokenUsage(input: 3_200, output: 680, total: 3_880),
@@ -199,13 +204,13 @@ final class BridgeModel {
             activity: lifecycle == .running ? .editing : nil,
             startedAt: now.addingTimeInterval(-42),
             updatedAt: now,
-            completedAt: [.succeeded, .failed, .interrupted].contains(lifecycle) ? now : nil,
-            isUnread: lifecycle == .succeeded || lifecycle == .failed,
+            completedAt: [.succeeded, .interrupted].contains(lifecycle) ? now : nil,
+            isUnread: lifecycle == .succeeded,
             capabilities: lifecycle == .waitingApproval ? [.approve, .deny] : []
         )
         store.upsert(task)
         addEvent("模拟状态：\(lifecycle.rawValue)")
-        publishStore()
+        publishStore(focusedTaskIDOverride: task.id)
     }
 
     func clearError() {
@@ -410,7 +415,7 @@ final class BridgeModel {
             }
             hookServer?.resolve(sessionID: task.id, decision: .deny)
             pendingRequests.removeValue(forKey: task.id)
-            task.lifecycle = .failed
+            task.lifecycle = .interrupted
             task.activity = nil
             task.completedAt = .now
             task.isUnread = true
@@ -456,15 +461,26 @@ final class BridgeModel {
         )
     }
 
-    private func publishStore() {
+    private func publishStore(focusedTaskIDOverride: String? = nil) {
+        _ = refreshCodexTitles()
         tasks = store.tasks.sorted { $0.updatedAt > $1.updatedAt }
-        focusedTaskID = store.focusedTask()?.id
+        focusedTaskID = focusedTaskIDOverride ?? store.focusedTask()?.id
         do {
             try persistence.save(tasks)
         } catch {
             lastError = "保存临时任务状态失败：\(error.localizedDescription)"
         }
         broadcastSnapshot()
+    }
+
+    private func refreshCodexTitles() -> Bool {
+        guard sessionTitleSynchronizer.needsRefresh(for: store.tasks) else {
+            return false
+        }
+        return sessionTitleSynchronizer.applyAvailableTitles(
+            sessionTitleReader.loadTitles(),
+            to: &store
+        )
     }
 
     private func broadcastSnapshot() {

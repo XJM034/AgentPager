@@ -13,14 +13,12 @@ public enum AgentLifecycle: String, Codable, CaseIterable, Sendable {
     case waitingApproval
     case waitingAnswer
     case succeeded
-    case failed
     case interrupted
 
     public var attentionPriority: Int {
         switch self {
         case .waitingApproval: 600
         case .waitingAnswer: 500
-        case .failed: 400
         case .succeeded: 300
         case .starting, .running: 200
         case .offline, .idle, .interrupted: 100
@@ -104,7 +102,7 @@ public struct SubagentSnapshot: Identifiable, Codable, Equatable, Sendable {
     }
 
     public var isTerminal: Bool {
-        [.succeeded, .failed, .interrupted].contains(lifecycle)
+        [.succeeded, .interrupted].contains(lifecycle)
     }
 
     public func elapsed(at now: Date = .now) -> TimeInterval {
@@ -132,7 +130,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
     public var source: AgentSource
     public var projectName: String
     public var title: String
-    /// 只存在内存和实时协议中，绝不写入任务快照文件。
+    /// 最近一条用户消息，只存在内存和实时协议中，绝不写入任务快照文件。
     public var userPrompt: String?
     /// 只存在内存和实时协议中，绝不写入任务快照文件。
     public var latestStep: String?
@@ -188,7 +186,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
     }
 
     public var isTerminal: Bool {
-        [.succeeded, .failed, .interrupted].contains(lifecycle)
+        [.succeeded, .interrupted].contains(lifecycle)
     }
 
     public var effectivePriority: Int {
@@ -229,22 +227,51 @@ public struct UsageWindow: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public struct DailyUsagePoint: Identifiable, Codable, Equatable, Sendable {
+    public var id: String { date }
+    public var date: String
+    public var inputTokens: Int
+    public var cachedInputTokens: Int
+    public var outputTokens: Int
+    public var reasoningOutputTokens: Int
+    public var totalTokens: Int
+
+    public init(
+        date: String,
+        inputTokens: Int = 0,
+        cachedInputTokens: Int = 0,
+        outputTokens: Int = 0,
+        reasoningOutputTokens: Int = 0,
+        totalTokens: Int = 0
+    ) {
+        self.date = date
+        self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.outputTokens = outputTokens
+        self.reasoningOutputTokens = reasoningOutputTokens
+        self.totalTokens = totalTokens
+    }
+}
+
 public struct UsageSnapshot: Codable, Equatable, Sendable {
     public var capturedAt: Date?
     public var planType: String?
     public var limitID: String?
     public var windows: [UsageWindow]
+    public var dailyUsage: [DailyUsagePoint]
 
     public init(
         capturedAt: Date?,
         planType: String?,
         limitID: String?,
-        windows: [UsageWindow]
+        windows: [UsageWindow],
+        dailyUsage: [DailyUsagePoint] = []
     ) {
         self.capturedAt = capturedAt
         self.planType = planType
         self.limitID = limitID
         self.windows = windows
+        self.dailyUsage = dailyUsage
     }
 }
 

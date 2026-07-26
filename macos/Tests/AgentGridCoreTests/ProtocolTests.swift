@@ -85,3 +85,43 @@ func stateProtocolUsesIntegerMilliseconds() throws {
     #expect((encodedTask["startedAt"] as? NSNumber)?.doubleValue == 100_123)
     #expect((encodedTask["updatedAt"] as? NSNumber)?.int64Value == 101_654)
 }
+
+@Test("状态快照发送前过滤内部工具包装")
+func stateSnapshotFiltersInternalToolWrappersBeforeSending() throws {
+    let commandTask = TaskSnapshot(
+        id: "command-task",
+        source: .codexDesktop,
+        projectName: "AgentGrid",
+        latestStep: """
+        const r = await tools.exec_command({cmd:"swift test",workdir:"/tmp/AgentGrid"});text(r.output)
+        """,
+        lifecycle: .running
+    )
+    let patchTask = TaskSnapshot(
+        id: "patch-task",
+        source: .codexDesktop,
+        projectName: "AgentGrid",
+        latestStep: """
+        apply_patch *** Begin Patch *** Update File: /tmp/AgentGrid/App.swift @@ -旧内容 +新内容 *** End Patch
+        """,
+        lifecycle: .running
+    )
+    let envelope = MessageEnvelope(
+        type: "state.snapshot",
+        payload: StateSnapshotPayload(
+            tasks: [commandTask, patchTask],
+            usage: nil,
+            focusedTaskID: commandTask.id
+        )
+    )
+
+    let object = try #require(
+        JSONSerialization.jsonObject(with: ProtocolCodec.encode(envelope))
+            as? [String: Any]
+    )
+    let payload = try #require(object["payload"] as? [String: Any])
+    let tasks = try #require(payload["tasks"] as? [[String: Any]])
+
+    #expect(tasks[0]["latestStep"] as? String == "swift test")
+    #expect(tasks[1]["latestStep"] as? String == "/tmp/AgentGrid/App.swift")
+}

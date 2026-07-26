@@ -51,7 +51,7 @@ public enum CodexEventReducer {
             task.activity = .executing
             task.capabilities = [.approve, .deny]
         case .stop:
-            if task.lifecycle != .interrupted && task.lifecycle != .failed {
+            if task.lifecycle != .interrupted {
                 task.lifecycle = .succeeded
             }
             task.activity = nil
@@ -72,6 +72,11 @@ public enum CodexEventReducer {
         let tool = normalized(toolName)
         let detail = normalized(summary)
         switch (tool, detail) {
+        case let (tool?, detail?) where isCommandTool(tool):
+            // 工具名属于内部实现细节；有可读内容时只展示用户真正关心的命令或参数。
+            return String(detail.prefix(220))
+        case let (tool?, nil) where isCommandTool(tool):
+            return nil
         case let (tool?, detail?):
             return String("\(tool) \(detail)".prefix(220))
         case let (tool?, nil):
@@ -113,5 +118,21 @@ public enum CodexEventReducer {
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isCommandTool(_ name: String) -> Bool {
+        let leafName = name
+            .split(separator: ".")
+            .last?
+            .lowercased()
+        return [
+            "exec",
+            "exec_command",
+            "terminal_interaction",
+            "bash",
+            "shell",
+            "apply_patch",
+        ]
+            .contains(leafName)
     }
 }

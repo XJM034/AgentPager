@@ -162,7 +162,21 @@ public struct StateSnapshotPayload: Codable, Equatable, Sendable {
         focusedTaskID: String?,
         pendingRequests: [PendingRequest] = []
     ) {
-        self.tasks = tasks
+        // 状态发送前统一清洗，防止任一事件入口把内部工具包装泄漏到手机。
+        self.tasks = tasks.map { task in
+            var sanitizedTask = task
+            sanitizedTask.latestStep = ToolStepSanitizer.sanitizedForTransport(
+                task.latestStep
+            )
+            sanitizedTask.subagents = task.subagents.map { subagent in
+                var sanitizedSubagent = subagent
+                sanitizedSubagent.latestStep = ToolStepSanitizer.sanitizedForTransport(
+                    subagent.latestStep
+                )
+                return sanitizedSubagent
+            }
+            return sanitizedTask
+        }
         self.usage = usage
         self.focusedTaskID = focusedTaskID
         self.pendingRequests = pendingRequests

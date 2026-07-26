@@ -28,6 +28,8 @@ let controlAccepted = false;
 let permissionAllowed = false;
 let permissionStarted = false;
 let controlSent = false;
+let stopSent = false;
+let sawSucceeded = false;
 const timeout = setTimeout(() => {
   socket.close();
   console.error("未在限定时间内收到 Hook 状态");
@@ -144,6 +146,24 @@ function sendApproval() {
   );
 }
 
+function sendStop() {
+  stopSent = true;
+  const result = spawnSync(hookExecutable, {
+    input: JSON.stringify({
+      cwd: root,
+      hook_event_name: "Stop",
+      session_id: taskID,
+      source: "cli",
+    }),
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    clearTimeout(timeout);
+    socket.close();
+    throw new Error(result.stderr || `结束 Hook 退出码 ${result.status}`);
+  }
+}
+
 function maybeFinish() {
   if (
     completed ||
@@ -153,6 +173,13 @@ function maybeFinish() {
     !controlAccepted ||
     !permissionAllowed
   ) {
+    return;
+  }
+  if (!stopSent) {
+    sendStop();
+    return;
+  }
+  if (!sawSucceeded) {
     return;
   }
   livenessCheckStarted = true;
@@ -166,7 +193,7 @@ function maybeFinish() {
         throw new Error(`Bridge 返回 ${response.status}`);
       }
       completed = true;
-      console.log("端到端通过：状态同步、签名校验、反向审批与关闭帧存活");
+      console.log("端到端通过：状态同步、反向审批、结束收敛与关闭帧存活");
     } catch (error) {
       console.error(`Bridge 在关闭帧后退出：${error.message}`);
       process.exitCode = 1;
@@ -200,6 +227,9 @@ socket.addEventListener("message", (event) => {
     if (!controlSent) {
       sendApproval();
     }
+  }
+  if (task?.lifecycle === "succeeded") {
+    sawSucceeded = true;
   }
   maybeFinish();
 });

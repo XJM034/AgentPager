@@ -21,22 +21,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.attributes = window.attributes.apply {
-            screenBrightness = 0.35f
+            screenBrightness = ScreenBrightnessPolicy.brightnessFor(
+                lifecycle = viewModel.state.value.focusedTask?.lifecycle,
+                activeBrightness = viewModel.state.value.activeTaskBrightness,
+            )
         }
         enterTerminalMode()
         importPairing(intent)
 
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
-            LaunchedEffect(state.focusedTask?.lifecycle) {
-                val active = state.focusedTask?.lifecycle in setOf(
-                    com.agentgrid.mobile.domain.AgentLifecycle.STARTING,
-                    com.agentgrid.mobile.domain.AgentLifecycle.RUNNING,
-                    com.agentgrid.mobile.domain.AgentLifecycle.WAITING_APPROVAL,
-                    com.agentgrid.mobile.domain.AgentLifecycle.WAITING_ANSWER,
-                )
+            LaunchedEffect(
+                state.focusedTask?.lifecycle,
+                state.activeTaskBrightness,
+            ) {
                 window.attributes = window.attributes.apply {
-                    screenBrightness = if (active) 0.35f else 0.15f
+                    screenBrightness = ScreenBrightnessPolicy.brightnessFor(
+                        lifecycle = state.focusedTask?.lifecycle,
+                        activeBrightness = state.activeTaskBrightness,
+                    )
                 }
             }
             AgentGridScreen(
@@ -45,6 +48,7 @@ class MainActivity : ComponentActivity() {
                 onUnpair = viewModel::unpair,
                 onControl = viewModel::control,
                 onFocus = viewModel::focus,
+                onActiveTaskBrightnessChange = viewModel::setActiveTaskBrightness,
                 onExitTerminal = {
                     viewModel.setTerminalMode(false)
                     exitTerminalMode()

@@ -8,6 +8,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 data class PixelSample(
@@ -24,6 +25,19 @@ data class PixelGlowLayer(
 )
 
 object PixelMotionEngine {
+    const val TRANSITION_DURATION_SECONDS = 0.24
+    const val INNER_GLOW_OPACITY = 0.68f
+    const val MIDDLE_GLOW_OPACITY = 0.36f
+    const val OUTER_GLOW_OPACITY = 0.17f
+    const val INNER_GLOW_RADIUS = 3.8f
+    const val MIDDLE_GLOW_RADIUS = 9f
+    const val OUTER_GLOW_RADIUS = 18f
+
+    private val spiralOrder = intArrayOf(4, 1, 2, 5, 8, 7, 6, 3, 0)
+    private val perimeterOrder = intArrayOf(0, 1, 2, 5, 8, 7, 6, 3)
+    private val successOrder = intArrayOf(6, 7, 5, 2)
+    private val thinkingOrder = intArrayOf(0, 2, 8, 6)
+
     fun sample(
         lifecycle: AgentLifecycle,
         activity: AgentActivity?,
@@ -32,7 +46,15 @@ object PixelMotionEngine {
         val row = (index / 3 - 1).toDouble()
         val column = (index % 3 - 1).toDouble()
         val phase = index * 0.73
-        val values = motion(lifecycle, activity, row, column, phase, max(0.0, elapsed))
+        val values = motion(
+            lifecycle = lifecycle,
+            activity = activity,
+            index = index,
+            row = row,
+            column = column,
+            phase = phase,
+            t = max(0.0, elapsed),
+        )
         PixelSample(
             index = index,
             intensity = values.intensity.coerceIn(0.0, 1.0).toFloat(),
@@ -42,14 +64,54 @@ object PixelMotionEngine {
         )
     }
 
-    /** 每个亮格独立计算三层 Bloom；暗格返回三层零透明度。 */
+    /**
+     * 每个亮格独立计算三层 Bloom。先压掉暗格能量，再加强中高亮格，
+     * 让负空间保持干净，同时让真正发光的像素更像硬件灯珠。
+     */
     fun glowLayers(intensity: Float, burst: Float): List<PixelGlowLayer> {
-        val energy = (intensity * burst).coerceIn(0f, 1.4f)
+        val energy = glowEnergy(intensity, burst)
         return listOf(
-            PixelGlowLayer(energy * 0.46f, 2.8f),
-            PixelGlowLayer(energy * 0.22f, 6.5f),
-            PixelGlowLayer(energy * 0.09f, 12f),
+            PixelGlowLayer(energy * INNER_GLOW_OPACITY, INNER_GLOW_RADIUS),
+            PixelGlowLayer(energy * MIDDLE_GLOW_OPACITY, MIDDLE_GLOW_RADIUS),
+            PixelGlowLayer(energy * OUTER_GLOW_OPACITY, OUTER_GLOW_RADIUS),
         )
+    }
+
+    /** 绘制热路径只计算能量，不创建 Bloom 图层对象。 */
+    fun glowEnergy(intensity: Float, burst: Float): Float {
+        val visibleIntensity = ((intensity - 0.06f) / 0.94f).coerceIn(0f, 1f)
+        return (visibleIntensity * burst * 1.18f).coerceIn(0f, 1.45f)
+    }
+
+    /** 保持原有状态帧率；完成类状态播放完一次后不再请求空帧。 */
+    fun targetFps(
+        lifecycle: AgentLifecycle,
+        elapsed: Double,
+        motionEnabled: Boolean,
+    ): Long = when {
+        !motionEnabled -> 0
+        lifecycle == AgentLifecycle.STARTING && elapsed >= 1.2 -> 0
+        (
+            lifecycle == AgentLifecycle.SUCCEEDED ||
+                lifecycle == AgentLifecycle.INTERRUPTED
+            ) && elapsed >= 1.2 -> 0
+        lifecycle == AgentLifecycle.IDLE || lifecycle == AgentLifecycle.OFFLINE -> 30
+        else -> 60
+    }
+
+    /**
+     * 为不同设备的 VSync 时钟保留 1 毫秒容差，避免理论 60 FPS 被误节流为 30 FPS。
+     */
+    fun shouldRenderFrame(
+        lastFrameNanos: Long,
+        frameTimeNanos: Long,
+        fps: Long,
+    ): Boolean {
+        if (fps <= 0) return false
+        if (lastFrameNanos == 0L) return true
+        val frameInterval = 1_000_000_000L / fps
+        val tolerance = min(1_000_000L, frameInterval / 10)
+        return frameTimeNanos - lastFrameNanos >= frameInterval - tolerance
     }
 
     fun burst(lifecycle: AgentLifecycle, elapsed: Double): Float {
@@ -58,10 +120,47 @@ object PixelMotionEngine {
             AgentLifecycle.WAITING_APPROVAL,
             AgentLifecycle.WAITING_ANSWER,
             AgentLifecycle.SUCCEEDED,
-            AgentLifecycle.FAILED,
             -> (1 + 0.4 * easeOutCubic(1 - elapsed / 1.2)).toFloat()
             else -> 1f
         }
+    }
+
+    /** 状态切换使用强减速曲线，快速响应并平稳落位。 */
+    fun transitionProgress(elapsed: Double): Float {
+        val linear = (elapsed / TRANSITION_DURATION_SECONDS).coerceIn(0.0, 1.0)
+        return easeOutQuint(linear).toFloat()
+    }
+
+    /** 对两组 3×3 样本逐格插值，供 View 在连续状态切换时复用。 */
+    fun blendSamples(
+        from: List<PixelSample>,
+        to: List<PixelSample>,
+        progress: Float,
+    ): List<PixelSample> {
+        val amount = progress.coerceIn(0f, 1f)
+        if (amount <= 0f) return from
+        if (amount >= 1f) return to
+        return to.mapIndexed { position, target ->
+            val start = from.getOrNull(position)
+                ?.takeIf { it.index == target.index }
+                ?: target
+            PixelSample(
+                index = target.index,
+                intensity = lerp(start.intensity, target.intensity, amount),
+                offsetX = lerp(start.offsetX, target.offsetX, amount),
+                offsetY = lerp(start.offsetY, target.offsetY, amount),
+                scale = lerp(start.scale, target.scale, amount),
+            )
+        }
+    }
+
+    /** 关闭系统动画时选择有辨识度的静止帧，而不是退回没有语义的满格。 */
+    fun reducedMotionElapsed(lifecycle: AgentLifecycle): Double = when (lifecycle) {
+        AgentLifecycle.STARTING -> 0.82
+        AgentLifecycle.SUCCEEDED,
+        AgentLifecycle.INTERRUPTED,
+        -> 1.2
+        else -> 0.68
     }
 
     private data class Values(
@@ -74,60 +173,150 @@ object PixelMotionEngine {
     private fun motion(
         lifecycle: AgentLifecycle,
         activity: AgentActivity?,
+        index: Int,
         row: Double,
         column: Double,
         phase: Double,
         t: Double,
     ): Values = when (lifecycle) {
-        AgentLifecycle.OFFLINE -> Values(0.16, 0.0, 0.0, 0.82)
+        AgentLifecycle.OFFLINE -> {
+            val cycle = positiveModulo(t, 3.6)
+            val pulse = max(
+                pulse(cycle, center = 0.12, radius = 0.10),
+                pulse(cycle, center = 0.34, radius = 0.10) * 0.42,
+            )
+            val belongsToCross = abs(abs(row) - abs(column)) < 0.01
+            Values(
+                if (belongsToCross) 0.20 + 0.24 * pulse else 0.025,
+                if (row == 0.0) column * 0.08 else 0.0,
+                if (belongsToCross) -0.035 * pulse else 0.04,
+                if (belongsToCross) 0.80 + 0.08 * pulse else 0.66,
+            )
+        }
         AgentLifecycle.IDLE -> {
-            val breath = wave(t * 1.25 + phase * 0.28)
-            Values(0.22 + breath * 0.26, 0.0, -0.05 * breath, 0.88 + breath * 0.08)
+            val distance = abs(row) + abs(column)
+            val breath = wave(t * 1.12)
+            val base = when (distance) {
+                0.0 -> 0.58
+                1.0 -> 0.18
+                else -> 0.035
+            }
+            val amplitude = when (distance) {
+                0.0 -> 0.32
+                1.0 -> 0.18
+                else -> 0.045
+            }
+            Values(
+                base + amplitude * breath,
+                column * 0.015 * breath,
+                row * 0.015 * breath,
+                0.76 + (0.08 + 0.12 * breath) / (distance + 1),
+            )
         }
         AgentLifecycle.STARTING -> {
-            val rise = easeOutCubic(min(1.0, t / 0.55))
-            val orbit = t * 4.8 + phase
+            val order = spiralOrder.indexOf(index).coerceAtLeast(0)
+            val localProgress = ((t - order * 0.055) / 0.24).coerceIn(0.0, 1.0)
+            val ignition = easeOutQuint(localProgress)
+            val spark = pulse(t, center = order * 0.055 + 0.13, radius = 0.13)
+            val settle = easeOutCubic(((t - 0.66) / 0.30).coerceIn(0.0, 1.0))
+            val belongsToCore = abs(row) + abs(column) <= 1
+            val settledIntensity = if (belongsToCore) 0.72 else 0.12
+            val settledScale = if (belongsToCore) 0.96 else 0.74
+            val ignitionIntensity = 0.08 + 0.58 * ignition + 0.34 * spark
+            val ignitionScale = 0.68 + 0.28 * ignition + 0.08 * spark
             Values(
-                0.28 + 0.72 * rise,
-                cos(orbit) * (1 - rise) * 0.65,
-                sin(orbit) * (1 - rise) * 0.65,
-                0.70 + 0.30 * rise,
+                lerp(ignitionIntensity, settledIntensity, settle),
+                -column * 0.54 * (1 - ignition),
+                -row * 0.54 * (1 - ignition),
+                lerp(ignitionScale, settledScale, settle),
             )
         }
         AgentLifecycle.WAITING_APPROVAL -> {
-            val pulse = wave(t * 5.2 + phase * 0.18)
-            val outward = 0.10 + 0.16 * pulse
-            Values(0.46 + 0.54 * pulse, column * outward, row * outward, 0.92 + 0.14 * pulse)
+            val cycle = positiveModulo(t, 1.55)
+            val beat = max(
+                pulse(cycle, center = 0.13, radius = 0.12),
+                pulse(cycle, center = 0.39, radius = 0.11) * 0.76,
+            )
+            val centerImpact = max(
+                pulse(cycle, center = 0.19, radius = 0.12),
+                pulse(cycle, center = 0.45, radius = 0.11) * 0.76,
+            )
+            val isCenter = row == 0.0 && column == 0.0
+            Values(
+                if (isCenter) 0.24 + 0.76 * centerImpact else 0.34 + 0.66 * beat,
+                if (isCenter) 0.0 else -column * 0.16 * beat,
+                if (isCenter) 0.0 else -row * 0.16 * beat,
+                0.88 + 0.16 * if (isCenter) centerImpact else beat,
+            )
         }
         AgentLifecycle.WAITING_ANSWER -> {
-            val pulse = wave(t * 4.3 + phase * 0.62)
-            Values(0.34 + 0.66 * pulse, sin(t * 2.8 + phase) * 0.12, -0.12 * pulse, 0.88 + 0.16 * pulse)
+            val cycle = positiveModulo(t, 1.75)
+            val columnOrder = (column + 1).roundToInt()
+            val dot = pulse(
+                cycle,
+                center = 0.20 + columnOrder * 0.27,
+                radius = 0.18,
+            )
+            val belongsToEllipsis = row == 0.0
+            Values(
+                if (belongsToEllipsis) 0.28 + 0.72 * dot else 0.025 + 0.12 * dot,
+                0.0,
+                if (belongsToEllipsis) -0.10 * dot else -row * 0.14 * dot,
+                if (belongsToEllipsis) 0.86 + 0.18 * dot else 0.68 + 0.12 * dot,
+            )
         }
         AgentLifecycle.SUCCEEDED -> {
-            val progress = min(1.0, t / 1.2)
-            val explosion = sin(progress * PI) * 0.64
-            val settled = if (progress >= 1) 1.0 else 0.72 + 0.28 * easeOutCubic(progress)
-            Values(settled, column * explosion, row * explosion, 0.82 + 0.26 * sin(progress * PI))
-        }
-        AgentLifecycle.FAILED -> {
-            val progress = min(1.0, t)
-            val jitter = (1 - progress) * sin(t * 55 + phase) * 0.16
-            val fall = easeInCubic(progress) * (0.26 + max(0.0, row) * 0.10)
-            val broken = if (progress >= 1) (((phase * 10).toInt() % 3) - 1) * 0.10 else jitter
+            val burstProgress = min(1.0, t / 0.30)
+            val explosion = sin(burstProgress * PI) * 0.58
+            val resolve = easeOutQuint(((t - 0.16) / 0.48).coerceIn(0.0, 1.0))
+            val pathOrder = successOrder.indexOf(index)
+            val belongsToCheck = pathOrder >= 0
+            val draw = if (belongsToCheck) {
+                easeOutQuint(((t - 0.32 - pathOrder * 0.055) / 0.18).coerceIn(0.0, 1.0))
+            } else {
+                0.0
+            }
+            val flourish = if (belongsToCheck) {
+                pulse(t, center = 0.78 + pathOrder * 0.035, radius = 0.10)
+            } else {
+                0.0
+            }
             Values(
-                if (progress >= 1) 0.64 else 0.42 + wave(t * 10 + phase) * 0.58,
-                broken,
-                fall,
-                1 - progress * 0.14,
+                if (belongsToCheck) {
+                    0.20 + 0.74 * draw + 0.06 * flourish
+                } else {
+                    0.82 * (1 - resolve) + 0.035
+                },
+                column * explosion * (1 - resolve),
+                row * explosion * (1 - resolve),
+                if (belongsToCheck) 0.82 + 0.16 * draw + 0.08 * flourish else 0.70,
             )
         }
         AgentLifecycle.INTERRUPTED -> {
-            val progress = min(1.0, t / 0.8)
+            val progress = easeOutQuint(min(1.0, t / 0.42))
+            val severed = (row == 0.0 && column == 0.0) ||
+                (row == 1.0 && column == -1.0)
+            val flicker = if (t < 0.34) 0.30 + 0.70 * wave(t * 34 + phase) else 0.0
+            val settledIntensity = if (severed) {
+                0.025
+            } else if (row == 0.0) {
+                0.22
+            } else {
+                0.42
+            }
+            val settledX = if (row == 0.0) {
+                if (column < 0) -0.18 else 0.18
+            } else {
+                column * 0.035
+            }
+            val settledY = if (row == 0.0) 0.12 else row * 0.02
+            val jitter = sin(t * 58 + phase) * 0.22 * (1 - progress)
             Values(
-                0.62 - progress * 0.24,
-                sin(t * 5 + phase) * 0.10 * (1 - progress),
-                0.0,
-                0.96 - progress * 0.08,
+                flicker * (1 - progress) + settledIntensity * progress,
+                jitter + settledX * progress,
+                settledY * progress,
+                (0.92 + 0.08 * wave(t * 9 + phase)) * (1 - progress) +
+                    (if (severed) 0.68 else 0.86) * progress,
             )
         }
         AgentLifecycle.RUNNING -> activityMotion(activity, row, column, phase, t)
@@ -141,18 +330,52 @@ object PixelMotionEngine {
         t: Double,
     ): Values = when (activity) {
         AgentActivity.READING -> {
-            val scan = wave(t * 4.2 - row * 1.2 + phase * 0.12)
-            Values(0.22 + 0.78 * scan, column * 0.04, -0.16 + 0.32 * scan, 0.88 + 0.14 * scan)
+            val scanPosition = -1.0 + positiveModulo(t * 0.72, 1.0) * 2.0
+            val scan = (1 - abs(row - scanPosition) / 0.82).coerceIn(0.0, 1.0)
+            Values(
+                0.10 + 0.90 * scan,
+                column * 0.035 * scan,
+                -0.08 + 0.16 * scan,
+                0.84 + 0.18 * scan,
+            )
         }
-        AgentActivity.SEARCHING, AgentActivity.BROWSING -> {
-            val orbit = t * 3.8 + phase
-            val energy = wave(orbit)
-            Values(0.20 + 0.80 * energy, cos(orbit) * 0.24, sin(orbit) * 0.24, 0.86 + 0.16 * energy)
+        AgentActivity.SEARCHING -> {
+            val order = perimeterOrder.indexOf((row + 1).roundToInt() * 3 + (column + 1).roundToInt())
+            val travel = positiveModulo(t * 0.48, 1.0)
+            val energy = if (order >= 0) {
+                cyclicPulse(travel, order / perimeterOrder.size.toDouble(), 0.17)
+            } else {
+                0.18 + 0.12 * wave(t * 2.2)
+            }
+            Values(
+                0.08 + 0.92 * energy,
+                column * 0.08 * energy,
+                row * 0.08 * energy,
+                0.80 + 0.22 * energy,
+            )
+        }
+        AgentActivity.BROWSING -> {
+            val pagePosition = 1.25 - positiveModulo(t * 0.62, 1.0) * 2.5
+            val band = (1 - abs(row - pagePosition) / 0.72).coerceIn(0.0, 1.0)
+            val columnLead = 1 - (column + 1) * 0.10
+            Values(
+                0.10 + 0.90 * band * columnLead,
+                0.0,
+                -0.18 * band,
+                0.82 + 0.18 * band,
+            )
         }
         AgentActivity.EDITING -> {
-            val exchange = sin(t * 4.6 + row * 1.35 + phase * 0.16)
-            val energy = wave(t * 5.0 + phase * 0.72)
-            Values(0.24 + 0.76 * energy, exchange * 0.42, -exchange * 0.08, 0.86 + 0.18 * energy)
+            val stroke = wave(t * 5.0 - row * 1.18)
+            val caret = pulse(positiveModulo(t, 1.12), center = 0.14, radius = 0.12)
+            val isCaret = column == 0.0
+            val energy = if (isCaret) max(caret, stroke * 0.56) else stroke
+            Values(
+                0.12 + 0.88 * energy,
+                if (isCaret) 0.0 else -column * (0.08 + 0.10 * stroke),
+                -row * 0.035 * stroke,
+                0.84 + 0.18 * energy,
+            )
         }
         AgentActivity.EXECUTING -> {
             val stream = positiveModulo(t * 2.4 + ((phase * 10).toInt() % 3) / 3.0, 1.0)
@@ -160,21 +383,69 @@ object PixelMotionEngine {
             Values(0.24 + 0.76 * energy, column * 0.05, 0.48 - stream * 0.96, 0.86 + 0.17 * energy)
         }
         AgentActivity.TESTING -> {
-            val scan = wave(t * 5.4 + (row + column) * 1.35)
-            Values(0.18 + 0.82 * scan, column * 0.10 * scan, row * 0.10 * scan, 0.84 + 0.18 * scan)
+            val cycle = positiveModulo(t, 1.46)
+            val diagonal = row + column + 2
+            val sweepPosition = (cycle / 0.94).coerceIn(0.0, 1.0) * 4
+            val scan = (1 - abs(diagonal - sweepPosition) / 0.82).coerceIn(0.0, 1.0)
+            val verdict = pulse(cycle, center = 1.15, radius = 0.15)
+            val energy = max(scan, verdict)
+            Values(
+                0.08 + 0.92 * energy,
+                column * 0.08 * scan,
+                row * 0.08 * scan,
+                0.82 + 0.20 * energy,
+            )
         }
         AgentActivity.DELEGATING -> {
-            val split = sin(t * 3.5 + phase * 0.44)
-            Values(0.28 + 0.72 * wave(t * 3.9 + phase), column * 0.30 * split, row * 0.22 * split, 0.88 + 0.12 * abs(split))
+            val cycle = positiveModulo(t, 1.34)
+            val distance = (abs(row) + abs(column)) / 2
+            val branch = pulse(
+                cycle,
+                center = 0.14 + distance * 0.62,
+                radius = 0.19,
+            )
+            val isCenter = distance == 0.0
+            Values(
+                (if (isCenter) 0.48 else 0.10) + (if (isCenter) 0.42 else 0.90) * branch,
+                column * 0.20 * branch,
+                row * 0.14 * branch,
+                0.82 + 0.20 * branch,
+            )
         }
         AgentActivity.THINKING, null -> {
-            val orbit = t * 3.25 + phase
-            val energy = wave(t * 3.9 + phase * 0.74)
-            Values(0.20 + 0.80 * energy, cos(orbit) * 0.22, sin(orbit) * 0.22, 0.86 + 0.16 * energy)
+            val index = (row + 1).roundToInt() * 3 + (column + 1).roundToInt()
+            val order = thinkingOrder.indexOf(index)
+            val travel = positiveModulo(t * 0.34, 1.0)
+            val cornerEnergy = if (order >= 0) {
+                cyclicPulse(travel, order / thinkingOrder.size.toDouble(), 0.22)
+            } else {
+                0.0
+            }
+            val isCenter = row == 0.0 && column == 0.0
+            val energy = if (isCenter) 0.46 + 0.18 * wave(t * 1.8) else cornerEnergy
+            Values(
+                if (isCenter || order >= 0) 0.08 + 0.92 * energy else 0.035,
+                if (order >= 0) -column * 0.08 * cornerEnergy else 0.0,
+                if (order >= 0) -row * 0.08 * cornerEnergy else 0.0,
+                0.78 + 0.24 * energy,
+            )
         }
     }
 
     private fun wave(value: Double): Double = (sin(value) + 1) / 2
+
+    private fun pulse(value: Double, center: Double, radius: Double): Double {
+        val distance = abs(value - center)
+        if (distance >= radius) return 0.0
+        return (cos(PI * distance / radius) + 1) / 2
+    }
+
+    private fun cyclicPulse(value: Double, center: Double, radius: Double): Double {
+        val directDistance = abs(value - center)
+        val distance = min(directDistance, 1 - directDistance)
+        if (distance >= radius) return 0.0
+        return (cos(PI * distance / radius) + 1) / 2
+    }
 
     private fun positiveModulo(value: Double, divisor: Double): Double {
         val result = value % divisor
@@ -184,6 +455,12 @@ object PixelMotionEngine {
     private fun easeOutCubic(value: Double): Double =
         1 - (1 - value.coerceIn(0.0, 1.0)).pow(3)
 
-    private fun easeInCubic(value: Double): Double =
-        value.coerceIn(0.0, 1.0).pow(3)
+    private fun easeOutQuint(value: Double): Double =
+        1 - (1 - value.coerceIn(0.0, 1.0)).pow(5)
+
+    private fun lerp(from: Float, to: Float, progress: Float): Float =
+        from + (to - from) * progress
+
+    private fun lerp(from: Double, to: Double, progress: Double): Double =
+        from + (to - from) * progress
 }

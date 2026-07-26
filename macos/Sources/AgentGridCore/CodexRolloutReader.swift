@@ -212,7 +212,15 @@ public struct CodexRolloutReader: Sendable {
             trackedFiles[key] = tracked
         }
 
-        return signals
+        // 同一任务可能存在多个续接记录，必须按事件时间合并，避免旧消息覆盖最新输入。
+        return signals.enumerated()
+            .sorted { left, right in
+                if left.element.timestamp == right.element.timestamp {
+                    return left.offset < right.offset
+                }
+                return left.element.timestamp < right.element.timestamp
+            }
+            .map(\.element)
     }
 
     private mutating func trackSubagent(
@@ -306,8 +314,6 @@ public struct CodexRolloutReader: Sendable {
             return signal(.succeeded, nil, timestamp: timestamp)
         case "turn_aborted":
             return signal(.interrupted, nil, timestamp: timestamp)
-        case "error", "task_failed", "turn_failed":
-            return signal(.failed, nil, timestamp: timestamp)
         case "agent_reasoning", "agent_reasoning_raw_content",
              "agent_reasoning_section_break", "context_compacted":
             return signal(.running, .thinking, timestamp: timestamp)
@@ -435,7 +441,7 @@ public struct CodexRolloutReader: Sendable {
         let rawArguments = payload["arguments"] as? String
             ?? payload["input"] as? String
         let detail = argumentSummary(rawArguments, toolName: name)
-        let step = prefixed(name, detail)
+        let step = CodexEventReducer.latestStep(toolName: name, summary: detail)
         let activity = CodexEventReducer.activity(for: name)
         return CodexRolloutSignal(
             sessionID: sessionID,
@@ -450,7 +456,25 @@ public struct CodexRolloutReader: Sendable {
     }
 
     private static func argumentSummary(_ raw: String?, toolName: String?) -> String? {
-        guard let raw, let data = raw.data(using: .utf8),
+        guard let raw else {
+            return nil
+        }
+        if ToolStepSanitizer.isApplyPatchTool(toolName) {
+            // 补丁协议头和具体差异不适合作为状态摘要，只展示首个修改目标。
+            return ToolStepSanitizer.patchTargetSummary(raw)
+        }
+        if ToolStepSanitizer.isExecScriptTool(toolName) {
+            // exec 的输入是 JavaScript 包装代码，展示时只保留内部工具真正收到的参数。
+            for key in ["cmd", "command", "query", "path", "ref_id", "step"] {
+                if let value = ToolStepSanitizer.javascriptStringArgument(
+                    named: key,
+                    in: raw
+                ) {
+                    return clipped(value)
+                }
+            }
+        }
+        guard let data = raw.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) else {
             return clipped(raw)
         }
@@ -475,7 +499,7 @@ public struct CodexRolloutReader: Sendable {
     private static func commandSummary(_ payload: [String: Any]) -> String? {
         let command = displayValue(payload["command"])
             ?? displayValue(payload["cmd"])
-        return prefixed("Bash", clipped(command))
+        return clipped(command)
     }
 
     private static func toolSummary(_ payload: [String: Any]) -> String? {
@@ -484,7 +508,7 @@ public struct CodexRolloutReader: Sendable {
             ?? payload["app_name"] as? String
         let detail = clipped(payload["reason"] as? String)
             ?? clipped(payload["message"] as? String)
-        return prefixed(name, detail)
+        return CodexEventReducer.latestStep(toolName: name, summary: detail)
     }
 
     private static func tokenUsage(from payload: [String: Any]) -> TokenUsage? {

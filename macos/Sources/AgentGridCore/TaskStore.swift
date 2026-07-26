@@ -3,15 +3,18 @@ import Foundation
 public struct TaskStore: Sendable {
     public private(set) var tasks: [TaskSnapshot]
     public var retention: TimeInterval
+    public var syntheticRetention: TimeInterval
     public var capacity: Int
 
     public init(
         tasks: [TaskSnapshot] = [],
         retention: TimeInterval = 2 * 60 * 60,
+        syntheticRetention: TimeInterval = 60,
         capacity: Int = 20
     ) {
         self.tasks = tasks
         self.retention = retention
+        self.syntheticRetention = syntheticRetention
         self.capacity = capacity
     }
 
@@ -28,8 +31,45 @@ public struct TaskStore: Sendable {
         tasks.removeAll { $0.id == id }
     }
 
+    @discardableResult
+    public mutating func applyTitles(_ titlesByTaskID: [String: String]) -> Bool {
+        var changed = false
+        for index in tasks.indices {
+            guard let codexTitle = titlesByTaskID[tasks[index].id] else {
+                continue
+            }
+            let title = Self.displayTitle(
+                projectName: tasks[index].projectName,
+                codexTitle: codexTitle
+            )
+            guard tasks[index].title != title else {
+                continue
+            }
+            tasks[index].title = title
+            changed = true
+        }
+        return changed
+    }
+
+    private static func displayTitle(
+        projectName: String,
+        codexTitle: String
+    ) -> String {
+        let prefix = "\(projectName) · "
+        guard codexTitle != projectName,
+              !codexTitle.hasPrefix(prefix) else {
+            return codexTitle
+        }
+        return "\(prefix)\(codexTitle)"
+    }
+
     public mutating func purge(now: Date = .now) {
         tasks.removeAll { task in
+            // 测试与状态模拟任务没有真实 Codex 会话，短暂展示后必须主动收敛。
+            if task.id.hasPrefix("agentgrid-"),
+               now.timeIntervalSince(task.updatedAt) >= syntheticRetention {
+                return true
+            }
             guard task.isTerminal, let completedAt = task.completedAt else {
                 return false
             }

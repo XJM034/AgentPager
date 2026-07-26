@@ -64,16 +64,22 @@ public enum HookJSONValue: Equatable, Codable, Sendable {
 }
 
 public struct HookToolInput: Equatable, Codable, Sendable {
+    public var cmd: HookJSONValue?
     public var command: HookJSONValue?
     public var description: String?
 
-    public init(command: HookJSONValue? = nil, description: String? = nil) {
+    public init(
+        cmd: HookJSONValue? = nil,
+        command: HookJSONValue? = nil,
+        description: String? = nil
+    ) {
+        self.cmd = cmd
         self.command = command
         self.description = description
     }
 
     public var summary: String? {
-        description ?? command?.displayText
+        cmd?.displayText ?? command?.displayText ?? description
     }
 }
 

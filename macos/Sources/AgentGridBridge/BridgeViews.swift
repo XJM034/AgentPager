@@ -1,39 +1,55 @@
+import AppKit
 import AgentGridCore
 import SwiftUI
 
 struct BridgeMenuView: View {
     let model: BridgeModel
-
-    private var focusedTask: TaskSnapshot? {
-        model.tasks.first { $0.id == model.focusedTaskID }
-    }
+    @Environment(\.openSettings) private var openSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var coreChangedAt = Date.now
+    @State private var menuAppeared = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                PixelCoreView(
-                    lifecycle: focusedTask?.lifecycle ?? .idle,
-                    activity: focusedTask?.activity,
-                    changedAt: focusedTask?.updatedAt ?? .now
-                )
+                ZStack {
+                    PixelCoreView(
+                        lifecycle: serviceLifecycle,
+                        activity: nil,
+                        changedAt: coreChangedAt
+                    )
+                    .id(serviceLifecycle)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
                 .frame(width: 58, height: 58)
+                .animation(statusAnimation, value: serviceLifecycle)
+                .accessibilityLabel("AgentGrid 配置状态：\(model.serviceStatus)")
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(focusedTask?.title ?? "AGENTGRID BRIDGE")
+                    Text("AGENTGRID BRIDGE")
                         .font(.pixel(15, weight: .bold))
                         .foregroundStyle(PixelTheme.text)
                         .lineLimit(1)
-                    Text(statusText)
+                    Text(model.serviceStatus)
                         .font(.pixel(11))
                         .foregroundStyle(statusColor)
-                    Text(connectionSummary)
+                        .contentTransition(.interpolate)
+                        .animation(statusAnimation, value: model.serviceStatus)
+                    Text("\(model.phoneCount) 台手机连接")
                         .font(.pixel(10))
                         .foregroundStyle(PixelTheme.muted)
+                        .contentTransition(.numericText(value: Double(model.phoneCount)))
+                        .animation(statusAnimation, value: model.phoneCount)
                 }
                 Spacer(minLength: 0)
             }
 
             HStack(spacing: 7) {
+                StatusCell(
+                    label: "SERVER",
+                    value: serviceValue,
+                    active: serviceLifecycle == .idle
+                )
                 StatusCell(
                     label: "HOOK",
                     value: model.hookInstalled ? "READY" : "OFF",
@@ -44,25 +60,36 @@ struct BridgeMenuView: View {
                     value: model.phoneCount > 0 ? "LIVE" : "WAIT",
                     active: model.phoneCount > 0
                 )
-                StatusCell(
-                    label: "TASK",
-                    value: "\(model.tasks.count)",
-                    active: !model.tasks.isEmpty
-                )
             }
 
             PixelDivider()
 
-            Button(model.hookInstalled ? "修复 CODEX HOOK" : "安装 CODEX HOOK") {
+            Button {
                 model.installHooks()
+            } label: {
+                Text(model.hookInstalled ? "修复 CODEX HOOK" : "安装 CODEX HOOK")
+                    .contentTransition(.interpolate)
             }
             .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+            .animation(statusAnimation, value: model.hookInstalled)
+            .popoverOptionEntrance(
+                isPresented: menuAppeared,
+                reduceMotion: reduceMotion,
+                order: 0
+            )
 
-            SettingsLink {
+            Button {
+                openSettings()
+                NSApplication.shared.activate()
+            } label: {
                 Text("打开 AGENTGRID 设置")
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+            .popoverOptionEntrance(
+                isPresented: menuAppeared,
+                reduceMotion: reduceMotion,
+                order: 1
+            )
 
             PixelDivider()
 
@@ -70,34 +97,69 @@ struct BridgeMenuView: View {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(PixelButtonStyle(accent: PixelTheme.muted))
+            .popoverOptionEntrance(
+                isPresented: menuAppeared,
+                reduceMotion: reduceMotion,
+                order: 2
+            )
         }
         .padding(17)
         .frame(width: 330)
         .background(PixelTheme.background)
+        .popoverEntrance(
+            isPresented: menuAppeared,
+            reduceMotion: reduceMotion
+        )
         .preferredColorScheme(.dark)
         .font(.pixel(12))
+        .onAppear {
+            resetMenuEntrance()
+            DispatchQueue.main.async {
+                menuAppeared = true
+            }
+        }
+        .onDisappear {
+            resetMenuEntrance()
+        }
+        .onChange(of: serviceLifecycle) {
+            coreChangedAt = .now
+        }
     }
 
-    private var statusText: String {
-        guard let task = focusedTask else { return model.serviceStatus }
-        let activity = task.activity.map(activityText) ?? "等待"
-        return "\(lifecycleText(task.lifecycle)) · \(activity)"
+    private var serviceLifecycle: AgentLifecycle {
+        switch model.serviceStatus {
+        case "局域网服务运行中": .idle
+        case "服务启动失败": .offline
+        default: .starting
+        }
     }
 
     private var statusColor: Color {
-        guard let task = focusedTask else { return PixelTheme.cyan }
-        return Color(pixelHex: PixelPalette.hex(
-            lifecycle: task.lifecycle,
-            activity: task.activity
-        ))
+        switch serviceLifecycle {
+        case .idle: PixelTheme.cyan
+        case .offline: PixelTheme.red
+        default: PixelTheme.violet
+        }
     }
 
-    private var connectionSummary: String {
-        let subagentCount = focusedTask?.subagents.count ?? 0
-        guard subagentCount > 0 else {
-            return "\(model.phoneCount) 台手机连接"
+    private var serviceValue: String {
+        switch serviceLifecycle {
+        case .idle: "LIVE"
+        case .offline: "ERROR"
+        default: "START"
         }
-        return "\(model.phoneCount) 台手机 · \(subagentCount) 个子代理"
+    }
+
+    private var statusAnimation: Animation {
+        .spring(response: 0.3, dampingFraction: 0.82)
+    }
+
+    private func resetMenuEntrance() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            menuAppeared = false
+        }
     }
 }
 
@@ -110,14 +172,16 @@ struct BridgeSettingsView: View {
     }
 
     let model: BridgeModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: Tab = .pairing
+    @Namespace private var tabSelection
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(Tab.allCases, id: \.self) { tab in
                     Button {
-                        withAnimation(.easeOut(duration: 0.16)) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
                             selection = tab
                         }
                     } label: {
@@ -127,9 +191,19 @@ struct BridgeSettingsView: View {
                                 .foregroundStyle(
                                     selection == tab ? PixelTheme.text : PixelTheme.muted
                                 )
-                            Rectangle()
-                                .fill(selection == tab ? PixelTheme.cyan : .clear)
-                                .frame(height: 2)
+                            ZStack {
+                                Rectangle()
+                                    .fill(.clear)
+                                if selection == tab {
+                                    Rectangle()
+                                        .fill(PixelTheme.cyan)
+                                        .matchedGeometryEffect(
+                                            id: "TAB_SELECTION",
+                                            in: tabSelection
+                                        )
+                                }
+                            }
+                            .frame(height: 2)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.top, 14)
@@ -142,13 +216,13 @@ struct BridgeSettingsView: View {
             ZStack {
                 switch selection {
                 case .pairing:
-                    pairingView.transition(.opacity)
+                    pairingView.transition(tabContentTransition)
                 case .hook:
-                    hookView.transition(.opacity)
+                    hookView.transition(tabContentTransition)
                 case .simulator:
-                    simulatorView.transition(.opacity)
+                    simulatorView.transition(tabContentTransition)
                 case .diagnostics:
-                    diagnosticsView.transition(.opacity)
+                    diagnosticsView.transition(tabContentTransition)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -158,6 +232,22 @@ struct BridgeSettingsView: View {
         .foregroundStyle(PixelTheme.text)
         .font(.pixel(12))
         .preferredColorScheme(.dark)
+    }
+
+    private var tabContentTransition: AnyTransition {
+        .scale(scale: 0.985).combined(with: .opacity)
+    }
+
+    private var hookStatusTransition: AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .scale(scale: 0.985).combined(with: .opacity)
+    }
+
+    private var hookStatusAnimation: Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.18)
+            : .spring(response: 0.3, dampingFraction: 0.82)
     }
 
     private var pairingView: some View {
@@ -191,11 +281,16 @@ struct BridgeSettingsView: View {
             SettingsTitle("Codex 生命周期 Hook")
             PixelPanel {
                 VStack(alignment: .leading, spacing: 13) {
-                    InfoRow(
-                        label: "STATUS",
-                        value: model.hookInstalled ? "已安装" : "未安装",
-                        accent: model.hookInstalled ? PixelTheme.green : PixelTheme.amber
-                    )
+                    ZStack(alignment: .leading) {
+                        InfoRow(
+                            label: "STATUS",
+                            value: model.hookInstalled ? "已安装" : "未安装",
+                            accent: model.hookInstalled ? PixelTheme.green : PixelTheme.amber
+                        )
+                        .id(model.hookInstalled)
+                        .transition(hookStatusTransition)
+                    }
+                    .animation(hookStatusAnimation, value: model.hookInstalled)
                     Text("实时采集开始、工具、批准、完成和 Token；安装会保留现有 Hook，并在改写前备份。")
                         .foregroundStyle(PixelTheme.muted)
                         .lineSpacing(4)
@@ -221,15 +316,16 @@ struct BridgeSettingsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
                     SettingsTitle("状态模拟器")
-                    Text("检查手机任务行、逐像素 Bloom、声音与优先级")
+                    Text("点击状态后通过真实同步链路更新手机；带声音标记的状态会触发手机提示音")
                         .foregroundStyle(PixelTheme.muted)
                 }
                 Spacer()
-                if let focused = model.tasks.first(where: { $0.id == model.focusedTaskID }) {
+                if let previewTask = simulatorPreviewTask {
                     PixelCoreView(
-                        lifecycle: focused.lifecycle,
-                        activity: focused.activity,
-                        changedAt: focused.updatedAt
+                        lifecycle: previewTask.lifecycle,
+                        activity: previewTask.activity,
+                        changedAt: previewTask.updatedAt,
+                        compact: false
                     )
                     .frame(width: 72, height: 72)
                 }
@@ -240,20 +336,38 @@ struct BridgeSettingsView: View {
                 spacing: 10
             ) {
                 ForEach(AgentLifecycle.allCases, id: \.self) { lifecycle in
-                    Button(lifecycleText(lifecycle)) {
+                    Button(simulatorLifecycleText(lifecycle)) {
                         model.simulate(lifecycle)
                     }
                     .buttonStyle(PixelButtonStyle(
                         accent: Color(pixelHex: PixelPalette.hex(
                             lifecycle: lifecycle,
                             activity: lifecycle == .running ? .editing : nil
-                        ))
+                        )),
+                        selected: simulatorPreviewTask?.lifecycle == lifecycle
                     ))
                 }
+            }
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(model.phoneCount > 0 ? PixelTheme.green : PixelTheme.muted)
+                    .frame(width: 7, height: 7)
+                Text(
+                    model.phoneCount > 0
+                        ? "手机已连接，状态改变会立即同步"
+                        : "等待手机连接；未连接时只更新模拟状态"
+                )
+                .font(.pixel(10))
+                .foregroundStyle(PixelTheme.muted)
             }
             Spacer()
         }
         .padding(28)
+    }
+
+    private var simulatorPreviewTask: TaskSnapshot? {
+        model.tasks.first(where: { $0.id == "agentgrid-simulator" })
+            ?? model.tasks.first(where: { $0.id == model.focusedTaskID })
     }
 
     private var diagnosticsView: some View {
@@ -305,6 +419,7 @@ private struct StatusCell: View {
                 .foregroundStyle(active ? PixelTheme.cyan : PixelTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
+                .contentTransition(.interpolate)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(9)
@@ -314,6 +429,9 @@ private struct StatusCell: View {
                 .fill(active ? PixelTheme.cyan : PixelTheme.divider)
                 .frame(height: 2)
         }
+        .scaleEffect(active ? 1 : 0.985)
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: active)
+        .animation(.easeInOut(duration: 0.18), value: value)
     }
 }
 
@@ -376,8 +494,77 @@ private struct PixelDivider: View {
     }
 }
 
+private struct PopoverEntranceModifier: ViewModifier {
+    let isPresented: Bool
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isPresented ? 1 : 0)
+            .scaleEffect(
+                isPresented || reduceMotion ? 1 : 0.975,
+                anchor: .topTrailing
+            )
+            .offset(y: isPresented || reduceMotion ? 0 : -7)
+            .animation(appearanceAnimation, value: isPresented)
+    }
+
+    private var appearanceAnimation: Animation {
+        if reduceMotion {
+            return .easeOut(duration: 0.12)
+        }
+        return .timingCurve(0.16, 1, 0.3, 1, duration: 0.22)
+    }
+}
+
+private struct PopoverOptionEntranceModifier: ViewModifier {
+    let isPresented: Bool
+    let reduceMotion: Bool
+    let order: Int
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isPresented ? 1 : 0)
+            .offset(y: isPresented || reduceMotion ? 0 : -4)
+            .animation(appearanceAnimation, value: isPresented)
+    }
+
+    private var appearanceAnimation: Animation {
+        if reduceMotion {
+            return .easeOut(duration: 0.12)
+        }
+        return .timingCurve(0.16, 1, 0.3, 1, duration: 0.2)
+            .delay(Double(order) * 0.03)
+    }
+}
+
+private extension View {
+    func popoverEntrance(
+        isPresented: Bool,
+        reduceMotion: Bool
+    ) -> some View {
+        modifier(PopoverEntranceModifier(
+            isPresented: isPresented,
+            reduceMotion: reduceMotion
+        ))
+    }
+
+    func popoverOptionEntrance(
+        isPresented: Bool,
+        reduceMotion: Bool,
+        order: Int
+    ) -> some View {
+        modifier(PopoverOptionEntranceModifier(
+            isPresented: isPresented,
+            reduceMotion: reduceMotion,
+            order: order
+        ))
+    }
+}
+
 private struct PixelButtonStyle: ButtonStyle {
     let accent: Color
+    var selected = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -386,11 +573,28 @@ private struct PixelButtonStyle: ButtonStyle {
             .padding(.horizontal, 11)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .center)
-            .background(configuration.isPressed ? accent : PixelTheme.surface)
+            .background {
+                if configuration.isPressed {
+                    accent
+                } else if selected {
+                    accent.opacity(0.16)
+                } else {
+                    PixelTheme.surface
+                }
+            }
             .overlay {
-                Rectangle().stroke(accent.opacity(0.72), lineWidth: 1)
+                Rectangle().stroke(
+                    accent.opacity(selected ? 1 : 0.72),
+                    lineWidth: selected ? 2 : 1
+                )
             }
             .opacity(configuration.isPressed ? 0.92 : 1)
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .animation(
+                .spring(response: 0.2, dampingFraction: 0.78),
+                value: configuration.isPressed
+            )
+            .animation(.easeInOut(duration: 0.16), value: selected)
     }
 }
 
@@ -403,20 +607,20 @@ private func lifecycleText(_ lifecycle: AgentLifecycle) -> String {
     case .waitingApproval: "等待批准"
     case .waitingAnswer: "等待回答"
     case .succeeded: "任务完成"
-    case .failed: "任务失败"
     case .interrupted: "已中断"
     }
 }
 
-private func activityText(_ activity: AgentActivity) -> String {
-    switch activity {
-    case .thinking: "思考"
-    case .reading: "读取"
-    case .searching: "搜索"
-    case .editing: "编辑"
-    case .executing: "执行"
-    case .testing: "测试"
-    case .browsing: "浏览"
-    case .delegating: "委派"
+private func simulatorLifecycleText(_ lifecycle: AgentLifecycle) -> String {
+    let sound: String? = switch lifecycle {
+    case .running: "接收音"
+    case .waitingApproval, .waitingAnswer: "提醒音"
+    case .succeeded: "完成音"
+    case .interrupted: "中断音"
+    case .offline, .idle, .starting: nil
     }
+    guard let sound else {
+        return lifecycleText(lifecycle)
+    }
+    return "\(lifecycleText(lifecycle)) · \(sound)"
 }

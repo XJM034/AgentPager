@@ -35,9 +35,6 @@ enum class AgentLifecycle {
     @SerialName("succeeded")
     SUCCEEDED,
 
-    @SerialName("failed")
-    FAILED,
-
     @SerialName("interrupted")
     INTERRUPTED,
 }
@@ -111,7 +108,6 @@ data class SubagentSnapshot(
     val isTerminal: Boolean
         get() = lifecycle in setOf(
             AgentLifecycle.SUCCEEDED,
-            AgentLifecycle.FAILED,
             AgentLifecycle.INTERRUPTED,
         )
 
@@ -139,12 +135,26 @@ data class TaskSnapshot(
     val isMuted: Boolean = false,
     val capabilities: Set<TaskCapability> = emptySet(),
 ) {
+    val isTerminal: Boolean
+        get() = lifecycle in setOf(
+            AgentLifecycle.SUCCEEDED,
+            AgentLifecycle.INTERRUPTED,
+        )
+
+    fun elapsedAt(now: Long): Long {
+        val endAt = if (isTerminal) {
+            requireNotNull(completedAt) { "终态任务必须包含完成时间" }
+        } else {
+            now
+        }
+        return (endAt - startedAt).coerceAtLeast(0)
+    }
+
     val attentionPriority: Int
         get() {
             val lifecycleValue = when (lifecycle) {
                 AgentLifecycle.WAITING_APPROVAL -> 600
                 AgentLifecycle.WAITING_ANSWER -> 500
-                AgentLifecycle.FAILED -> 400
                 AgentLifecycle.SUCCEEDED -> 300
                 AgentLifecycle.STARTING, AgentLifecycle.RUNNING -> 200
                 else -> 100

@@ -1,14 +1,22 @@
 package com.agentgrid.mobile.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,10 +29,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -32,8 +44,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -45,7 +60,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -53,8 +70,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import com.agentgrid.mobile.AgentGridUiState
+import com.agentgrid.mobile.ScreenBrightnessPolicy
 import com.agentgrid.mobile.SoundEngine
+import com.agentgrid.mobile.TaskSoundTracker
 import com.agentgrid.mobile.domain.AgentActivity
 import com.agentgrid.mobile.domain.AgentLifecycle
 import com.agentgrid.mobile.domain.ControlAction
@@ -69,6 +89,40 @@ import com.agentgrid.mobile.network.LinkState
 import com.agentgrid.mobile.render.PixelCoreSurfaceView
 import com.agentgrid.mobile.render.PixelRenderState
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
+
+private val EaseOutQuart = CubicBezierEasing(0.25f, 1f, 0.5f, 1f)
+private val TaskListAnchorHeight = 1.dp
+private const val TaskListAnchorKey = "agentgrid-task-list-anchor"
+
+internal fun taskListAnchorScrollOffsetPx(anchorHeightPx: Int): Int {
+    require(anchorHeightPx > 0) { "任务列表锚点高度必须大于零" }
+    return anchorHeightPx - 1
+}
+
+@Composable
+private fun Modifier.newVisibleTaskEntrance(enabled: Boolean): Modifier {
+    var settled by remember(enabled) { mutableStateOf(!enabled) }
+    val offsetY by animateDpAsState(
+        targetValue = if (settled) 0.dp else (-8).dp,
+        animationSpec = tween(
+            durationMillis = 180,
+            easing = EaseOutQuart,
+        ),
+        label = "新可见任务顶部落位",
+    )
+
+    LaunchedEffect(enabled) {
+        if (enabled) {
+            settled = true
+        }
+    }
+
+    // 只改变绘制层位置，不参与列表测量，避免和 animateItem 的换位动画互相干扰。
+    return graphicsLayer {
+        translationY = offsetY.toPx()
+    }
+}
 
 @Composable
 fun AgentGridScreen(
@@ -77,19 +131,43 @@ fun AgentGridScreen(
     onUnpair: () -> Unit,
     onControl: (String, ControlAction, String?) -> Unit,
     onFocus: (String) -> Unit,
+    onActiveTaskBrightnessChange: (Float) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
     AgentGridTheme {
-        if (state.pairing == null) {
-            PairingScreen(state, onPair)
-        } else {
-            TaskTerminal(
-                state = state,
-                onUnpair = onUnpair,
-                onControl = onControl,
-                onFocus = onFocus,
-                onExitTerminal = onExitTerminal,
-            )
+        AnimatedContent(
+            targetState = state.pairing == null,
+            transitionSpec = {
+                (
+                    (
+                        fadeIn(tween(180)) +
+                            scaleIn(
+                                initialScale = 0.985f,
+                                animationSpec = tween(210),
+                            )
+                    ) togetherWith (
+                        fadeOut(tween(120)) +
+                            scaleOut(
+                                targetScale = 0.985f,
+                                animationSpec = tween(170),
+                            )
+                    )
+                ).using(SizeTransform(clip = false))
+            },
+            label = "配对与终端切换",
+        ) { isPairing ->
+            if (isPairing) {
+                PairingScreen(state, onPair)
+            } else {
+                TaskTerminal(
+                    state = state,
+                    onUnpair = onUnpair,
+                    onControl = onControl,
+                    onFocus = onFocus,
+                    onActiveTaskBrightnessChange = onActiveTaskBrightnessChange,
+                    onExitTerminal = onExitTerminal,
+                )
+            }
         }
     }
 }
@@ -146,9 +224,27 @@ private fun PairingScreen(
             ) {
                 Text("连接 Bridge")
             }
-            state.pairingError?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(it, color = AgentGridColors.Red, fontSize = 12.sp)
+            AnimatedVisibility(
+                visible = state.pairingError != null,
+                enter = fadeIn(tween(180)) +
+                    scaleIn(
+                        initialScale = 0.985f,
+                        animationSpec = tween(210),
+                    ),
+                exit = fadeOut(tween(120)) +
+                    scaleOut(
+                        targetScale = 0.985f,
+                        animationSpec = tween(170),
+                    ),
+            ) {
+                Column {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        state.pairingError.orEmpty(),
+                        color = AgentGridColors.Red,
+                        fontSize = 12.sp,
+                    )
+                }
             }
         }
     }
@@ -160,13 +256,13 @@ private fun TaskTerminal(
     onUnpair: () -> Unit,
     onControl: (String, ControlAction, String?) -> Unit,
     onFocus: (String) -> Unit,
+    onActiveTaskBrightnessChange: (Float) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
     val tasks = remember(state.tasks) { TaskOrdering.sorted(state.tasks) }
     val urgentTask = tasks.firstOrNull {
         it.lifecycle == AgentLifecycle.WAITING_APPROVAL ||
-            it.lifecycle == AgentLifecycle.WAITING_ANSWER ||
-            it.lifecycle == AgentLifecycle.FAILED
+            it.lifecycle == AgentLifecycle.WAITING_ANSWER
     }
     val delegatedTask = tasks.firstOrNull { task ->
         task.subagents.any { !it.isTerminal }
@@ -174,9 +270,34 @@ private fun TaskTerminal(
     val automaticallyExpandedTask = urgentTask ?: delegatedTask
     var expandedTaskID by remember { mutableStateOf<String?>(null) }
     var settingsVisible by remember { mutableStateOf(false) }
+    val visibleTasks = tasks.take(5)
+    val visibleTaskIDs = visibleTasks.map { it.id }
+    var previousVisibleTaskIDs by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val enteringVisibleTaskIDs = TaskOrdering.enteringVisibleTaskIDs(
+        previousVisibleTaskIDs = previousVisibleTaskIDs,
+        orderedTasks = tasks,
+    )
+    val taskListAnchorHeightPx = with(LocalDensity.current) {
+        TaskListAnchorHeight.roundToPx()
+    }
+    val taskListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = 0,
+        initialFirstVisibleItemScrollOffset = taskListAnchorScrollOffsetPx(
+            taskListAnchorHeightPx,
+        ),
+    )
     val context = LocalContext.current
-    val sound = remember(context) { SoundEngine(context) }
+    val sound = remember(context) { SoundEngine(context.applicationContext) }
+    val soundTracker = remember { TaskSoundTracker() }
+    var soundEnabled by remember(sound) { mutableStateOf(sound.isEnabled) }
 
+    DisposableEffect(sound) {
+        onDispose(sound::close)
+    }
+
+    LaunchedEffect(visibleTaskIDs) {
+        previousVisibleTaskIDs = visibleTaskIDs.toSet()
+    }
     LaunchedEffect(
         automaticallyExpandedTask?.id,
         automaticallyExpandedTask?.lifecycle,
@@ -186,10 +307,8 @@ private fun TaskTerminal(
             expandedTaskID = automaticallyExpandedTask.id
         }
     }
-    LaunchedEffect(tasks.map { it.id to it.lifecycle }) {
-        tasks.maxByOrNull { it.attentionPriority }?.let {
-            if (!it.isMuted) sound.play(it.lifecycle)
-        }
+    LaunchedEffect(tasks.map { Triple(it.id, it.lifecycle, it.isMuted) }) {
+        soundTracker.nextCue(tasks, soundEnabled)?.let(sound::play)
     }
 
     Box(
@@ -201,38 +320,97 @@ private fun TaskTerminal(
             windows = state.usage?.windows.orEmpty(),
             settingsVisible = settingsVisible,
             onToggleSettings = { settingsVisible = !settingsVisible },
-            modifier = Modifier.align(Alignment.TopEnd),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .zIndex(2f),
         )
 
-        if (tasks.isEmpty()) {
-            EmptyState(
-                connected = state.linkState == LinkState.CONNECTED,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        } else {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .heightIn(max = 306.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-            ) {
-                tasks.take(5).forEach { task ->
-                    val pending = state.pendingRequests.firstOrNull { it.taskID == task.id }
-                    TaskRow(
-                        task = task,
-                        pending = pending,
-                        expanded = expandedTaskID == task.id,
-                        dimmed = urgentTask != null && urgentTask.id != task.id,
-                        onClick = {
-                            val willExpand = expandedTaskID != task.id
-                            expandedTaskID = if (willExpand) task.id else null
-                            onFocus(task.id)
-                        },
-                        onControl = onControl,
+        AnimatedContent(
+            targetState = tasks.isEmpty(),
+            transitionSpec = {
+                (
+                    (
+                        fadeIn(tween(180)) +
+                            scaleIn(
+                                initialScale = 0.985f,
+                                animationSpec = tween(210),
+                            )
+                    ) togetherWith (
+                        fadeOut(tween(120)) +
+                            scaleOut(
+                                targetScale = 0.985f,
+                                animationSpec = tween(170),
+                            )
                     )
+                ).using(SizeTransform(clip = false))
+            },
+            modifier = Modifier.align(Alignment.Center),
+            label = "任务空态切换",
+        ) { isEmpty ->
+            if (isEmpty) {
+                EmptyState(connected = state.linkState == LinkState.CONNECTED)
+            } else {
+                LazyColumn(
+                    state = taskListState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .heightIn(max = 306.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    item(key = TaskListAnchorKey) {
+                        // 保留一个物理像素在视口内，让这个固定项承担 LazyColumn 的滚动锚点。
+                        Spacer(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(TaskListAnchorHeight),
+                        )
+                    }
+                    itemsIndexed(
+                        items = visibleTasks,
+                        key = { _, task -> task.id },
+                    ) { index, task ->
+                        val entersFromTop = remember(task.id) {
+                            task.id in enteringVisibleTaskIDs
+                        }
+                        val pending = state.pendingRequests.firstOrNull {
+                            it.taskID == task.id
+                        }
+                        TaskRow(
+                            modifier = Modifier
+                                // 自动置顶的任务在换位期间保持前景层，避免从原首行下方穿过。
+                                .zIndex(
+                                    if (task.id == automaticallyExpandedTask?.id) 1f else 0f,
+                                )
+                                .animateItem(
+                                    fadeInSpec = tween(
+                                        durationMillis = 180,
+                                        easing = EaseOutQuart,
+                                    ),
+                                    placementSpec = spring(
+                                        // 临界阻尼让远距离换位自然多用一点时间，同时避免回弹。
+                                        dampingRatio = 1f,
+                                        stiffness = 520f,
+                                    ),
+                                    fadeOutSpec = tween(120),
+                                )
+                                .newVisibleTaskEntrance(entersFromTop),
+                            task = task,
+                            pending = pending,
+                            expanded = expandedTaskID == task.id,
+                            dimmed = urgentTask != null && urgentTask.id != task.id,
+                            showDivider = index < visibleTasks.lastIndex,
+                            onClick = {
+                                val willExpand = expandedTaskID != task.id
+                                expandedTaskID = if (willExpand) task.id else null
+                                if (task.isUnread) {
+                                    onControl(task.id, ControlAction.MARK_READ, null)
+                                }
+                                onFocus(task.id)
+                            },
+                            onControl = onControl,
+                        )
+                    }
                 }
             }
         }
@@ -243,24 +421,37 @@ private fun TaskTerminal(
             exit = fadeOut(tween(110)),
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 54.dp, end = 18.dp),
+                .zIndex(1f)
+                .padding(top = 42.dp, end = 18.dp),
         ) {
             SettingsPanel(
                 state = state,
+                soundEnabled = soundEnabled,
+                onActiveTaskBrightnessChange = onActiveTaskBrightnessChange,
+                onSoundEnabledChange = { enabled ->
+                    sound.setEnabled(enabled)
+                    soundEnabled = enabled
+                },
                 onUnpair = onUnpair,
                 onExitTerminal = onExitTerminal,
             )
         }
 
-        if (state.linkState != LinkState.CONNECTED) {
+        AnimatedVisibility(
+            visible = state.linkState != LinkState.CONNECTED,
+            enter = fadeIn(tween(140)) +
+                slideInVertically(tween(140)) { fullHeight -> fullHeight / 2 },
+            exit = fadeOut(tween(110)) +
+                slideOutVertically(tween(110)) { fullHeight -> fullHeight / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 10.dp),
+        ) {
             Text(
                 "BRIDGE OFFLINE · 正在重连",
                 color = AgentGridColors.Dimmed,
                 fontSize = 10.sp,
                 letterSpacing = 1.sp,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp),
             )
         }
     }
@@ -274,9 +465,9 @@ private fun TopControls(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.padding(top = 14.dp, end = 18.dp),
+        modifier = modifier.padding(top = 10.dp, end = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         windows.take(2).forEach { window ->
             UsagePill(window)
@@ -289,7 +480,7 @@ private fun TopControls(
             modifier = Modifier
                 .background(AgentGridColors.Surface)
                 .clickable(onClick = onToggleSettings)
-                .padding(horizontal = 10.dp, vertical = 7.dp)
+                .padding(horizontal = 10.dp, vertical = 4.dp)
                 .semantics { contentDescription = "打开设置" },
         )
     }
@@ -302,7 +493,10 @@ private fun UsagePill(window: UsageWindow) {
         window.remainingPercentage < 20 -> AgentGridColors.Orange
         else -> AgentGridColors.Cyan
     }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
         Text(
             "${window.label} ${window.remainingPercentage.toInt()}%",
             color = AgentGridColors.Muted,
@@ -311,7 +505,7 @@ private fun UsagePill(window: UsageWindow) {
         LinearProgressIndicator(
             progress = { (window.remainingPercentage / 100).toFloat() },
             modifier = Modifier
-                .width(74.dp)
+                .width(56.dp)
                 .height(3.dp),
             color = color,
             trackColor = AgentGridColors.Divider,
@@ -323,10 +517,12 @@ private fun UsagePill(window: UsageWindow) {
 
 @Composable
 private fun TaskRow(
+    modifier: Modifier = Modifier,
     task: TaskSnapshot,
     pending: PendingRequest?,
     expanded: Boolean,
     dimmed: Boolean,
+    showDivider: Boolean,
     onClick: () -> Unit,
     onControl: (String, ControlAction, String?) -> Unit,
 ) {
@@ -336,13 +532,10 @@ private fun TaskRow(
         label = "任务行注意力",
     )
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(if (expanded) AgentGridColors.Surface else Color.Transparent)
             .clickable(onClick = onClick)
-            .animateContentSize(
-                animationSpec = spring(dampingRatio = 0.86f, stiffness = 420f),
-            )
             .padding(horizontal = 4.dp),
     ) {
         Row(
@@ -358,6 +551,8 @@ private fun TaskRow(
                         PixelRenderState(
                             lifecycle = task.lifecycle,
                             activity = task.activity,
+                            // 模拟器重复点击同一状态时也应从头播放；真实任务不随普通内容更新重置。
+                            revision = if (task.id == "agentgrid-simulator") task.updatedAt else 0,
                         ),
                     )
                     it.alpha = rowAlpha
@@ -371,7 +566,7 @@ private fun TaskRow(
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 8.dp, end = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     task.title,
@@ -381,20 +576,33 @@ private fun TaskRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    task.userPrompt?.let { "你：$it" } ?: "你：—",
-                    color = AgentGridColors.Muted.copy(alpha = rowAlpha),
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    task.latestStep ?: statusText(task.lifecycle),
-                    color = statusColor(task).copy(alpha = rowAlpha),
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (shouldShowTokenSummary(task)) {
+                    Text(
+                        "TOKEN  ${tokenDetailsText(task)}",
+                        color = AgentGridColors.Cyan.copy(alpha = rowAlpha),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.offset(y = (-1).dp),
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier.offset(y = (-2).dp),
+                        verticalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        Text(
+                            task.userPrompt?.let { "你：$it" } ?: "你：—",
+                            color = AgentGridColors.Muted.copy(alpha = rowAlpha),
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        CommandTicker(
+                            text = task.latestStep ?: statusText(task.lifecycle),
+                            color = statusColor(task).copy(alpha = rowAlpha),
+                        )
+                    }
+                }
             }
 
             TaskMeta(task = task, alpha = rowAlpha)
@@ -402,8 +610,26 @@ private fun TaskRow(
 
         AnimatedVisibility(
             visible = expanded,
-            enter = expandVertically(tween(210)) + fadeIn(tween(180)),
-            exit = shrinkVertically(tween(170)) + fadeOut(tween(120)),
+            enter = expandVertically(
+                animationSpec = tween(
+                    durationMillis = 280,
+                    easing = EaseOutQuart,
+                ),
+                expandFrom = Alignment.Top,
+            ) + fadeIn(
+                animationSpec = tween(
+                    durationMillis = 180,
+                    delayMillis = 35,
+                    easing = EaseOutQuart,
+                ),
+            ),
+            exit = shrinkVertically(
+                animationSpec = tween(
+                    durationMillis = 190,
+                    easing = EaseOutQuart,
+                ),
+                shrinkTowards = Alignment.Top,
+            ) + fadeOut(tween(120)),
         ) {
             TaskDetails(
                 task = task,
@@ -412,21 +638,84 @@ private fun TaskRow(
             )
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(AgentGridColors.Divider.copy(alpha = if (expanded) 0f else 0.7f)),
+        if (showDivider) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 78.dp, end = 4.dp)
+                    .height(1.dp)
+                    .background(AgentGridColors.Divider.copy(alpha = 0.85f)),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CommandTicker(
+    text: String,
+    color: Color,
+) {
+    AnimatedContent(
+        targetState = text,
+        transitionSpec = {
+            (
+                (
+                    slideInVertically(
+                        animationSpec = tween(
+                            durationMillis = 220,
+                            easing = EaseOutQuart,
+                        ),
+                    ) { fullHeight -> fullHeight } +
+                        fadeIn(
+                            animationSpec = tween(
+                                durationMillis = 160,
+                                easing = EaseOutQuart,
+                            ),
+                        )
+                ) togetherWith (
+                    slideOutVertically(
+                        animationSpec = tween(
+                            durationMillis = 160,
+                            easing = EaseOutQuart,
+                        ),
+                    ) { fullHeight -> -fullHeight } +
+                        fadeOut(tween(110))
+                )
+            ).using(SizeTransform(clip = true))
+        },
+        contentAlignment = Alignment.CenterStart,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 19.dp)
+            .offset(y = (-3).dp),
+        label = "AI 命令更新",
+    ) { currentText ->
+        Text(
+            currentText,
+            color = color,
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
 @Composable
 private fun TaskMeta(task: TaskSnapshot, alpha: Float) {
-    val elapsed by produceState(0L, task.id, task.lifecycle) {
-        while (true) {
-            value = (System.currentTimeMillis() - task.startedAt).coerceAtLeast(0)
-            delay(1_000)
+    val elapsed by produceState(
+        initialValue = task.elapsedAt(System.currentTimeMillis()),
+        task.id,
+        task.lifecycle,
+        task.startedAt,
+        task.updatedAt,
+        task.completedAt,
+    ) {
+        if (!task.isTerminal) {
+            while (true) {
+                value = task.elapsedAt(System.currentTimeMillis())
+                delay(1_000)
+            }
         }
     }
     Column(
@@ -489,72 +778,85 @@ private fun TaskDetails(
             .fillMaxWidth()
             .heightIn(max = 250.dp)
             .verticalScroll(rememberScrollState())
-            .padding(start = 82.dp, end = 18.dp, bottom = 14.dp),
+            .padding(start = 82.dp, end = 18.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (task.subagents.isNotEmpty()) {
             SubagentPanel(task.subagents)
         }
-        task.userPrompt?.let {
-            DetailLine("INPUT", it, AgentGridColors.Text)
-        }
-        task.latestStep?.let {
-            DetailLine("STEP", it, statusColor(task))
-        }
         task.tokenUsage?.let {
             DetailLine(
                 "TOKEN",
-                "IN ${formatTokens(it.input)} · CACHE ${formatTokens(it.cachedInput)} · OUT ${formatTokens(it.output)} · TOTAL ${formatTokens(it.total)}",
+                tokenDetailsText(task),
                 AgentGridColors.Cyan,
             )
         }
-        pending?.summary?.let {
-            DetailLine(
-                if (pending.kind == PendingRequestKind.APPROVAL) "APPROVAL" else "QUESTION",
-                it,
-                if (pending.kind == PendingRequestKind.APPROVAL) AgentGridColors.Amber else AgentGridColors.Yellow,
-            )
-        }
+        AnimatedContent(
+            targetState = pending,
+            contentKey = { it?.kind },
+            transitionSpec = {
+                (
+                    (
+                        fadeIn(tween(180)) +
+                            scaleIn(
+                                initialScale = 0.985f,
+                                animationSpec = tween(210),
+                            )
+                    ) togetherWith (
+                        fadeOut(tween(120)) +
+                            scaleOut(
+                                targetScale = 0.985f,
+                                animationSpec = tween(170),
+                            )
+                    )
+                ).using(SizeTransform(clip = false))
+            },
+            label = "待处理请求切换",
+        ) { targetPending ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                targetPending?.summary?.let { summary ->
+                    DetailLine(
+                        if (targetPending.kind == PendingRequestKind.APPROVAL) {
+                            "APPROVAL"
+                        } else {
+                            "QUESTION"
+                        },
+                        summary,
+                        if (targetPending.kind == PendingRequestKind.APPROVAL) {
+                            AgentGridColors.Amber
+                        } else {
+                            AgentGridColors.Yellow
+                        },
+                    )
+                }
 
-        if (
-            pending?.kind == PendingRequestKind.APPROVAL &&
-            TaskCapability.APPROVE in task.capabilities
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PixelButton("允许", AgentGridColors.Green) {
-                    onControl(task.id, ControlAction.APPROVE, null)
-                }
-                PixelButton("拒绝", AgentGridColors.Red) {
-                    onControl(task.id, ControlAction.DENY, null)
-                }
-            }
-        } else if (
-            pending?.kind == PendingRequestKind.QUESTION &&
-            TaskCapability.ANSWER in task.capabilities
-        ) {
-            OutlinedTextField(
-                value = answer,
-                onValueChange = { answer = it },
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 3,
-            )
-            PixelButton("发送回答", AgentGridColors.Yellow) {
-                if (answer.isNotBlank()) {
-                    onControl(task.id, ControlAction.ANSWER, answer)
-                }
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PixelButton(if (task.isPinned) "取消固定" else "固定", AgentGridColors.Violet) {
-                onControl(task.id, ControlAction.PIN, null)
-            }
-            PixelButton(if (task.isMuted) "恢复声音" else "静音", AgentGridColors.Muted) {
-                onControl(task.id, ControlAction.MUTE, null)
-            }
-            if (task.isUnread) {
-                PixelButton("标为已读", AgentGridColors.Cyan) {
-                    onControl(task.id, ControlAction.MARK_READ, null)
+                if (
+                    targetPending?.kind == PendingRequestKind.APPROVAL &&
+                    TaskCapability.APPROVE in task.capabilities
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PixelButton("允许", AgentGridColors.Green) {
+                            onControl(task.id, ControlAction.APPROVE, null)
+                        }
+                        PixelButton("拒绝", AgentGridColors.Red) {
+                            onControl(task.id, ControlAction.DENY, null)
+                        }
+                    }
+                } else if (
+                    targetPending?.kind == PendingRequestKind.QUESTION &&
+                    TaskCapability.ANSWER in task.capabilities
+                ) {
+                    OutlinedTextField(
+                        value = answer,
+                        onValueChange = { answer = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3,
+                    )
+                    PixelButton("发送回答", AgentGridColors.Yellow) {
+                        if (answer.isNotBlank()) {
+                            onControl(task.id, ControlAction.ANSWER, answer)
+                        }
+                    }
                 }
             }
         }
@@ -670,6 +972,9 @@ private fun PixelButton(
 @Composable
 private fun SettingsPanel(
     state: AgentGridUiState,
+    soundEnabled: Boolean,
+    onActiveTaskBrightnessChange: (Float) -> Unit,
+    onSoundEnabledChange: (Boolean) -> Unit,
     onUnpair: () -> Unit,
     onExitTerminal: () -> Unit,
 ) {
@@ -687,6 +992,43 @@ private fun SettingsPanel(
             if (state.linkState == LinkState.CONNECTED) AgentGridColors.Green else AgentGridColors.Red,
         )
         DetailLine("TASK", "${state.tasks.size}", AgentGridColors.Cyan)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("任务亮度", color = AgentGridColors.Text, fontSize = 10.sp)
+                Text(
+                    "${(state.activeTaskBrightness * 100).roundToInt()}%",
+                    color = AgentGridColors.Cyan,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Slider(
+                value = state.activeTaskBrightness,
+                onValueChange = onActiveTaskBrightnessChange,
+                valueRange = ScreenBrightnessPolicy.MIN_ACTIVE_BRIGHTNESS..
+                    ScreenBrightnessPolicy.MAX_ACTIVE_BRIGHTNESS,
+                colors = SliderDefaults.colors(
+                    thumbColor = AgentGridColors.Cyan,
+                    activeTrackColor = AgentGridColors.Cyan,
+                    inactiveTrackColor = AgentGridColors.Dimmed,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics {
+                        contentDescription = "有任务时的屏幕亮度"
+                    },
+            )
+        }
+        PixelButton(
+            if (soundEnabled) "提示音：开" else "提示音：关",
+            if (soundEnabled) AgentGridColors.Green else AgentGridColors.Muted,
+        ) {
+            onSoundEnabledChange(!soundEnabled)
+        }
         PixelButton("解除配对", AgentGridColors.Red, onUnpair)
         PixelButton("退出专用模式", AgentGridColors.Muted, onExitTerminal)
     }
@@ -729,7 +1071,6 @@ private fun statusText(lifecycle: AgentLifecycle): String = when (lifecycle) {
     AgentLifecycle.WAITING_APPROVAL -> "等待批准"
     AgentLifecycle.WAITING_ANSWER -> "等待回答"
     AgentLifecycle.SUCCEEDED -> "任务完成"
-    AgentLifecycle.FAILED -> "任务失败"
     AgentLifecycle.INTERRUPTED -> "已中断"
 }
 
@@ -743,7 +1084,6 @@ private fun lifecycleColor(
     AgentLifecycle.WAITING_APPROVAL -> AgentGridColors.Amber
     AgentLifecycle.WAITING_ANSWER -> AgentGridColors.Yellow
     AgentLifecycle.SUCCEEDED -> AgentGridColors.Green
-    AgentLifecycle.FAILED -> AgentGridColors.Red
     AgentLifecycle.INTERRUPTED, AgentLifecycle.OFFLINE -> AgentGridColors.Muted
     AgentLifecycle.IDLE -> AgentGridColors.Cyan
     AgentLifecycle.STARTING -> AgentGridColors.Violet
@@ -788,4 +1128,10 @@ private fun formatTokens(value: Int?): String {
         tokens >= 1_000 -> "%.1fk tok".format(tokens / 1_000.0)
         else -> "$tokens tok"
     }
+}
+
+private fun tokenDetailsText(task: TaskSnapshot): String {
+    val usage = task.tokenUsage ?: return "—"
+    return "IN ${formatTokens(usage.input)} · CACHE ${formatTokens(usage.cachedInput)} · " +
+        "OUT ${formatTokens(usage.output)} · TOTAL ${formatTokens(usage.total)}"
 }

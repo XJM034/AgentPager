@@ -1,11 +1,29 @@
 import AgentGridCore
 import SwiftUI
 
+private struct PixelRenderKey: Equatable {
+    let lifecycle: AgentLifecycle
+    let activity: AgentActivity?
+    let changedAt: Date
+}
+
+private struct PixelRenderedFrame {
+    let samples: [PixelSample]
+    let colorHex: UInt32
+}
+
+private struct PixelFrameTransition {
+    let source: PixelRenderedFrame
+    let startedAt: Date
+}
+
 struct PixelCoreView: View {
     let lifecycle: AgentLifecycle
     let activity: AgentActivity?
     let changedAt: Date
     let compact: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var transition: PixelFrameTransition?
 
     init(
         lifecycle: AgentLifecycle,
@@ -20,46 +38,122 @@ struct PixelCoreView: View {
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: frameInterval, paused: false)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(changedAt))
+        TimelineView(.animation(minimumInterval: frameInterval, paused: reduceMotion)) { context in
+            let frame = renderedFrame(
+                for: renderKey,
+                at: context.date,
+                transition: transition
+            )
             Canvas(rendersAsynchronously: false) { graphics, size in
                 draw(
                     in: &graphics,
                     size: size,
-                    elapsed: elapsed
+                    frame: frame,
+                    elapsed: elapsed(at: context.date, for: lifecycle)
                 )
             }
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("任务状态 \(lifecycle.rawValue)")
+        .onChange(of: renderKey) { oldKey, _ in
+            guard !reduceMotion else {
+                transition = nil
+                return
+            }
+            let now = Date.now
+            let source = renderedFrame(
+                for: oldKey,
+                at: now,
+                transition: transition
+            )
+            transition = PixelFrameTransition(source: source, startedAt: now)
+        }
+        .onChange(of: reduceMotion) {
+            if reduceMotion {
+                transition = nil
+            }
+        }
+    }
+
+    private var renderKey: PixelRenderKey {
+        PixelRenderKey(
+            lifecycle: lifecycle,
+            activity: activity,
+            changedAt: changedAt
+        )
     }
 
     private var frameInterval: TimeInterval {
         switch lifecycle {
         case .idle, .offline:
             1 / 30
-        case .succeeded, .failed, .interrupted:
+        case .succeeded, .interrupted:
             1 / 30
         default:
             1 / 60
         }
     }
 
+    private func elapsed(
+        at date: Date,
+        for lifecycle: AgentLifecycle
+    ) -> TimeInterval {
+        reduceMotion
+            ? PixelMotion.reducedMotionElapsed(lifecycle: lifecycle)
+            : max(0, date.timeIntervalSince(changedAt))
+    }
+
+    private func renderedFrame(
+        for key: PixelRenderKey,
+        at date: Date,
+        transition: PixelFrameTransition?
+    ) -> PixelRenderedFrame {
+        let targetElapsed = reduceMotion
+            ? PixelMotion.reducedMotionElapsed(lifecycle: key.lifecycle)
+            : max(0, date.timeIntervalSince(key.changedAt))
+        let target = PixelRenderedFrame(
+            samples: PixelMotion.sample(
+                lifecycle: key.lifecycle,
+                activity: key.activity,
+                elapsed: targetElapsed
+            ),
+            colorHex: PixelPalette.hex(
+                lifecycle: key.lifecycle,
+                activity: key.activity
+            )
+        )
+        guard !reduceMotion, let transition else {
+            return target
+        }
+
+        let progress = PixelMotion.transitionProgress(
+            elapsed: max(0, date.timeIntervalSince(transition.startedAt))
+        )
+        guard progress < 1 else {
+            return target
+        }
+        return PixelRenderedFrame(
+            samples: PixelMotion.blendSamples(
+                from: transition.source.samples,
+                to: target.samples,
+                progress: progress
+            ),
+            colorHex: PixelPalette.blend(
+                from: transition.source.colorHex,
+                to: target.colorHex,
+                progress: progress
+            )
+        )
+    }
+
     private func draw(
         in graphics: inout GraphicsContext,
         size: CGSize,
+        frame: PixelRenderedFrame,
         elapsed: TimeInterval
     ) {
-        let samples = PixelMotion.sample(
-            lifecycle: lifecycle,
-            activity: activity,
-            elapsed: elapsed
-        )
-        let color = Color(pixelHex: PixelPalette.hex(
-            lifecycle: lifecycle,
-            activity: activity
-        ))
+        let color = Color(pixelHex: frame.colorHex)
         let burst = PixelMotion.burst(
             lifecycle: lifecycle,
             elapsed: elapsed
@@ -69,7 +163,7 @@ struct PixelCoreView: View {
         let cell = step * 0.58
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
 
-        for sample in samples {
+        for sample in frame.samples {
             let row = Double(sample.index / 3 - 1)
             let column = Double(sample.index % 3 - 1)
             let point = CGPoint(
@@ -90,7 +184,6 @@ struct PixelCoreView: View {
                 burst: burst
             ).reversed() where glow.opacity > 0 {
                 graphics.drawLayer { layer in
-                    layer.blendMode = .screen
                     layer.addFilter(.blur(radius: glow.blurRadius))
                     layer.fill(
                         Path(rect),
@@ -101,11 +194,11 @@ struct PixelCoreView: View {
 
             graphics.fill(
                 Path(rect),
-                with: .color(color.opacity(0.10))
+                with: .color(color.opacity(0.04))
             )
             graphics.fill(
                 Path(rect),
-                with: .color(color.opacity(0.22 + sample.intensity * 0.78))
+                with: .color(color.opacity(0.03 + sample.intensity * 0.97))
             )
         }
     }

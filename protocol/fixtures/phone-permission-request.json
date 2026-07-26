@@ -1,0 +1,12 @@
+{
+  "cwd": "/Users/ranxiu/Desktop/AgentGrid",
+  "hook_event_name": "PermissionRequest",
+  "model": "e2e",
+  "session_id": "agentgrid-phone-approval-e2e",
+  "source": "cli",
+  "tool_input": {
+    "description": "验证手机端真实批准链路"
+  },
+  "tool_name": "exec_command",
+  "tool_use_id": "phone-approval-e2e"
+}

@@ -1,0 +1,182 @@
+import Foundation
+
+public enum AgentSource: String, Codable, Sendable {
+    case codexDesktop
+    case codexCLI
+}
+
+public enum AgentLifecycle: String, Codable, CaseIterable, Sendable {
+    case offline
+    case idle
+    case starting
+    case running
+    case waitingApproval
+    case waitingAnswer
+    case succeeded
+    case failed
+    case interrupted
+
+    public var attentionPriority: Int {
+        switch self {
+        case .waitingApproval: 600
+        case .waitingAnswer: 500
+        case .failed: 400
+        case .succeeded: 300
+        case .starting, .running: 200
+        case .offline, .idle, .interrupted: 100
+        }
+    }
+}
+
+public enum AgentActivity: String, Codable, CaseIterable, Sendable {
+    case thinking
+    case reading
+    case searching
+    case editing
+    case executing
+    case testing
+    case browsing
+    case delegating
+}
+
+public enum TaskCapability: String, Codable, CaseIterable, Sendable {
+    case approve
+    case deny
+    case answer
+    case interrupt
+    case retry
+}
+
+public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
+    public var id: String
+    public var source: AgentSource
+    public var projectName: String
+    public var lifecycle: AgentLifecycle
+    public var activity: AgentActivity?
+    public var startedAt: Date
+    public var updatedAt: Date
+    public var completedAt: Date?
+    public var isUnread: Bool
+    public var isPinned: Bool
+    public var isMuted: Bool
+    public var capabilities: Set<TaskCapability>
+
+    public init(
+        id: String,
+        source: AgentSource,
+        projectName: String,
+        lifecycle: AgentLifecycle,
+        activity: AgentActivity? = nil,
+        startedAt: Date = .now,
+        updatedAt: Date = .now,
+        completedAt: Date? = nil,
+        isUnread: Bool = false,
+        isPinned: Bool = false,
+        isMuted: Bool = false,
+        capabilities: Set<TaskCapability> = []
+    ) {
+        self.id = id
+        self.source = source
+        self.projectName = projectName
+        self.lifecycle = lifecycle
+        self.activity = activity
+        self.startedAt = startedAt
+        self.updatedAt = updatedAt
+        self.completedAt = completedAt
+        self.isUnread = isUnread
+        self.isPinned = isPinned
+        self.isMuted = isMuted
+        self.capabilities = capabilities
+    }
+
+    public var isTerminal: Bool {
+        [.succeeded, .failed, .interrupted].contains(lifecycle)
+    }
+
+    public var effectivePriority: Int {
+        var value = lifecycle.attentionPriority
+        if isUnread && lifecycle == .succeeded {
+            value += 50
+        }
+        if isPinned {
+            value += 25
+        }
+        return value
+    }
+}
+
+public struct UsageWindow: Identifiable, Codable, Equatable, Sendable {
+    public var id: String { key }
+    public var key: String
+    public var label: String
+    public var usedPercentage: Double
+    public var remainingPercentage: Double
+    public var windowMinutes: Int
+    public var resetsAt: Date?
+
+    public init(
+        key: String,
+        label: String,
+        usedPercentage: Double,
+        remainingPercentage: Double,
+        windowMinutes: Int,
+        resetsAt: Date?
+    ) {
+        self.key = key
+        self.label = label
+        self.usedPercentage = usedPercentage
+        self.remainingPercentage = remainingPercentage
+        self.windowMinutes = windowMinutes
+        self.resetsAt = resetsAt
+    }
+}
+
+public struct UsageSnapshot: Codable, Equatable, Sendable {
+    public var capturedAt: Date?
+    public var planType: String?
+    public var limitID: String?
+    public var windows: [UsageWindow]
+
+    public init(
+        capturedAt: Date?,
+        planType: String?,
+        limitID: String?,
+        windows: [UsageWindow]
+    ) {
+        self.capturedAt = capturedAt
+        self.planType = planType
+        self.limitID = limitID
+        self.windows = windows
+    }
+}
+
+public enum ControlAction: String, Codable, Sendable {
+    case approve
+    case deny
+    case answer
+    case interrupt
+    case retry
+    case mute
+    case markRead
+    case pin
+}
+
+public struct ControlPayload: Codable, Equatable, Sendable {
+    public var taskID: String
+    public var action: ControlAction
+    public var value: String?
+
+    public init(taskID: String, action: ControlAction, value: String? = nil) {
+        self.taskID = taskID
+        self.action = action
+        self.value = value
+    }
+}
+
+public enum ControlResult: String, Codable, Sendable {
+    case accepted
+    case rejected
+    case stale
+    case unsupported
+}
+

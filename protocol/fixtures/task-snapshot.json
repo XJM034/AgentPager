@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "messageId": "5de0ee90-56c1-4383-81a6-ef0f741932a0",
+  "type": "state.snapshot",
+  "sentAt": 1785067200000,
+  "payload": {
+    "tasks": [
+      {
+        "id": "task-fixture",
+        "source": "codexCLI",
+        "projectName": "AgentGrid",
+        "lifecycle": "running",
+        "activity": "editing",
+        "startedAt": 1785067140000,
+        "updatedAt": 1785067200000,
+        "isUnread": false,
+        "isPinned": false,
+        "isMuted": false,
+        "capabilities": ["interrupt"]
+      }
+    ]
+  }
+}
+

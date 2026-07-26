@@ -1,0 +1,7 @@
+{
+  "cwd": "/Users/ranxiu/Desktop/AgentGrid",
+  "hook_event_name": "SessionStart",
+  "model": "e2e",
+  "session_id": "agentgrid-phone-approval-e2e",
+  "source": "cli"
+}

@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+DerivedData/
+macos/.swiftpm/
+android/.gradle/
+android/local.properties
+android/**/build/
+*.apk
+*.aab
+*.jks
+*.keystore
+dist/

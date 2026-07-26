@@ -5,6 +5,26 @@ set -euo pipefail
 应用目录="$项目根目录/dist/AgentGrid Bridge.app"
 内容目录="$应用目录/Contents"
 可执行目录="$内容目录/MacOS"
+应用可执行文件="$可执行目录/AgentGridBridge"
+需要恢复运行=0
+
+# 覆盖正在执行的签名代码会被 macOS 判定为签名失效，先正常结束同一路径实例。
+for 进程号 in ${(f)"$(pgrep -x AgentGridBridge 2>/dev/null || true)"}; do
+    [[ -n "$进程号" ]] || continue
+    进程命令="$(ps -p "$进程号" -o command= 2>/dev/null || true)"
+    if [[ "$进程命令" == "$应用可执行文件" ]]; then
+        需要恢复运行=1
+        kill "$进程号"
+        for _ in {1..50}; do
+            kill -0 "$进程号" 2>/dev/null || break
+            sleep 0.1
+        done
+        if kill -0 "$进程号" 2>/dev/null; then
+            echo "AgentGrid Bridge 未能在 5 秒内退出，已停止打包以保护运行中的应用" >&2
+            exit 1
+        fi
+    fi
+done
 
 cd "$项目根目录/macos"
 swift build -c release
@@ -30,5 +50,10 @@ else
     # 没有开发者证书的机器仍可本地构建，但首次启动可能需要确认钥匙串访问。
     codesign --force --deep --sign - "$应用目录"
     echo "未找到 Apple Development 证书，已使用临时签名"
+fi
+
+if (( 需要恢复运行 )); then
+    open -n "$应用目录"
+    echo "已恢复运行 AgentGrid Bridge"
 fi
 echo "$应用目录"

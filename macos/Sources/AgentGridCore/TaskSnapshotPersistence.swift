@@ -1,6 +1,61 @@
 import Foundation
 
 public struct TaskSnapshotPersistence: Sendable {
+    private struct StoredTask: Codable {
+        var id: String
+        var source: AgentSource
+        var projectName: String
+        var title: String
+        var tokenUsage: TokenUsage?
+        var lifecycle: AgentLifecycle
+        var activity: AgentActivity?
+        var startedAt: Date
+        var updatedAt: Date
+        var completedAt: Date?
+        var isUnread: Bool
+        var isPinned: Bool
+        var isMuted: Bool
+        var capabilities: Set<TaskCapability>
+
+        init(_ task: TaskSnapshot) {
+            id = task.id
+            source = task.source
+            projectName = task.projectName
+            title = task.title
+            tokenUsage = task.tokenUsage
+            lifecycle = task.lifecycle
+            activity = task.activity
+            startedAt = task.startedAt
+            updatedAt = task.updatedAt
+            completedAt = task.completedAt
+            isUnread = task.isUnread
+            isPinned = task.isPinned
+            isMuted = task.isMuted
+            capabilities = task.capabilities
+        }
+
+        var task: TaskSnapshot {
+            TaskSnapshot(
+                id: id,
+                source: source,
+                projectName: projectName,
+                title: title,
+                userPrompt: nil,
+                latestStep: nil,
+                tokenUsage: tokenUsage,
+                lifecycle: lifecycle,
+                activity: activity,
+                startedAt: startedAt,
+                updatedAt: updatedAt,
+                completedAt: completedAt,
+                isUnread: isUnread,
+                isPinned: isPinned,
+                isMuted: isMuted,
+                capabilities: capabilities
+            )
+        }
+    }
+
     public let fileURL: URL
 
     public init(fileURL: URL = Self.defaultFileURL) {
@@ -14,7 +69,7 @@ public struct TaskSnapshotPersistence: Sendable {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
-        return (try? decoder.decode([TaskSnapshot].self, from: data)) ?? []
+        return (try? decoder.decode([StoredTask].self, from: data).map(\.task)) ?? []
     }
 
     public func save(_ tasks: [TaskSnapshot]) throws {
@@ -27,7 +82,7 @@ public struct TaskSnapshotPersistence: Sendable {
             at: directory,
             withIntermediateDirectories: true
         )
-        try encoder.encode(tasks).write(to: fileURL, options: .atomic)
+        try encoder.encode(tasks.map(StoredTask.init)).write(to: fileURL, options: .atomic)
     }
 
     public static var defaultFileURL: URL {

@@ -1,9 +1,16 @@
 package com.agentgrid.mobile.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,11 +20,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -27,17 +36,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -50,6 +56,8 @@ import com.agentgrid.mobile.AgentGridUiState
 import com.agentgrid.mobile.SoundEngine
 import com.agentgrid.mobile.domain.AgentLifecycle
 import com.agentgrid.mobile.domain.ControlAction
+import com.agentgrid.mobile.domain.PendingRequest
+import com.agentgrid.mobile.domain.PendingRequestKind
 import com.agentgrid.mobile.domain.TaskCapability
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
@@ -71,7 +79,7 @@ fun AgentGridScreen(
         if (state.pairing == null) {
             PairingScreen(state, onPair)
         } else {
-            TerminalScreen(
+            TaskTerminal(
                 state = state,
                 onUnpair = onUnpair,
                 onControl = onControl,
@@ -88,485 +96,542 @@ private fun PairingScreen(
     onPair: (String) -> Unit,
 ) {
     var manualText by remember { mutableStateOf("") }
-
     Row(
         modifier = Modifier
             .fillMaxSize()
             .background(AgentGridColors.Background)
-            .padding(32.dp),
-        horizontalArrangement = Arrangement.spacedBy(32.dp),
+            .padding(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         Box(
-            Modifier
+            modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
                 .background(AgentGridColors.Surface),
         ) {
-            QRCodeScanner(
-                onResult = onPair,
-                modifier = Modifier.fillMaxSize(),
-            )
-            PixelCorners(Modifier.fillMaxSize())
+            QRCodeScanner(onResult = onPair, modifier = Modifier.fillMaxSize())
         }
-
         Column(
             modifier = Modifier
-                .weight(0.86f)
+                .weight(0.92f)
                 .fillMaxHeight(),
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
                 "AGENTGRID",
                 color = AgentGridColors.Text,
-                fontWeight = FontWeight.Black,
-                fontSize = 34.sp,
-                letterSpacing = 3.sp,
-                fontFamily = PixelFontFamily,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
             )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "扫描 Mac 上 AgentGrid Bridge 的二维码。",
-                color = AgentGridColors.Muted,
-                fontSize = 17.sp,
-            )
-            Spacer(Modifier.height(30.dp))
+            Spacer(Modifier.height(10.dp))
+            Text("扫描 Mac 端配对码", color = AgentGridColors.Cyan, fontSize = 16.sp)
+            Spacer(Modifier.height(22.dp))
             OutlinedTextField(
                 value = manualText,
                 onValueChange = { manualText = it },
                 label = { Text("或粘贴配对文本") },
-                minLines = 4,
+                minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             Button(
                 onClick = { onPair(manualText) },
                 enabled = manualText.isNotBlank(),
+                shape = RectangleShape,
             ) {
                 Text("连接 Bridge")
             }
             state.pairingError?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, color = AgentGridColors.Red)
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = AgentGridColors.Red, fontSize = 12.sp)
             }
         }
     }
 }
 
 @Composable
-private fun TerminalScreen(
+private fun TaskTerminal(
     state: AgentGridUiState,
     onUnpair: () -> Unit,
     onControl: (String, ControlAction, String?) -> Unit,
     onFocus: (String) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
-    val focused = state.focusedTask
-    val pendingRequest = state.pendingRequests.firstOrNull { it.taskID == focused?.id }
+    val tasks = remember(state.tasks) {
+        state.tasks.sortedWith(
+            compareByDescending<TaskSnapshot> { it.attentionPriority }
+                .thenByDescending { it.updatedAt },
+        )
+    }
+    val urgentTask = tasks.firstOrNull {
+        it.lifecycle == AgentLifecycle.WAITING_APPROVAL ||
+            it.lifecycle == AgentLifecycle.WAITING_ANSWER ||
+            it.lifecycle == AgentLifecycle.FAILED
+    }
+    var expandedTaskID by remember { mutableStateOf<String?>(null) }
+    var settingsVisible by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val sound = remember(context) { SoundEngine(context) }
-    var detailsVisible by remember { mutableStateOf(false) }
-    var cornerTaps by remember { mutableIntStateOf(0) }
-    var horizontalDrag by remember { mutableStateOf(0f) }
 
-    LaunchedEffect(focused?.id, focused?.lifecycle) {
-        focused?.lifecycle?.let(sound::play)
+    LaunchedEffect(urgentTask?.id, urgentTask?.lifecycle) {
+        if (urgentTask != null) {
+            expandedTaskID = urgentTask.id
+        }
+    }
+    LaunchedEffect(tasks.map { it.id to it.lifecycle }) {
+        tasks.maxByOrNull { it.attentionPriority }?.let {
+            if (!it.isMuted) sound.play(it.lifecycle)
+        }
     }
 
     Box(
-        Modifier
+        modifier = Modifier
             .fillMaxSize()
-            .background(AgentGridColors.Background)
-            .pointerInput(state.tasks, focused?.id) {
-                detectHorizontalDragGestures(
-                    onHorizontalDrag = { _, amount -> horizontalDrag += amount },
-                    onDragEnd = {
-                        val currentIndex = state.tasks.indexOfFirst { it.id == focused?.id }
-                        val target = when {
-                            horizontalDrag < -80 && currentIndex < state.tasks.lastIndex -> currentIndex + 1
-                            horizontalDrag > 80 && currentIndex > 0 -> currentIndex - 1
-                            else -> currentIndex
-                        }
-                        state.tasks.getOrNull(target)?.let { onFocus(it.id) }
-                        horizontalDrag = 0f
-                    },
-                )
-            },
+            .background(AgentGridColors.Background),
     ) {
-        AndroidView(
-            factory = { context -> PixelCoreSurfaceView(context) },
-            update = { view ->
-                view.updateState(
-                    PixelRenderState(
-                        lifecycle = focused?.lifecycle
-                            ?: if (state.linkState == LinkState.CONNECTED) AgentLifecycle.IDLE else AgentLifecycle.OFFLINE,
-                        activity = focused?.activity,
-                    ),
-                )
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .combinedClickable(
-                    onClick = { detailsVisible = !detailsVisible },
-                    onDoubleClick = {
-                        focused?.let { onControl(it.id, ControlAction.MUTE, null) }
-                    },
-                    onLongClick = {
-                        focused?.let { onControl(it.id, ControlAction.PIN, null) }
-                    },
-                )
-                .semantics {
-                    contentDescription = "当前任务像素状态核心"
-                },
-        )
-
-        Header(
-            linkState = state.linkState,
-            onCornerTap = {
-                cornerTaps += 1
-                if (cornerTaps >= 5) {
-                    cornerTaps = 0
-                    onExitTerminal()
-                }
-            },
-            modifier = Modifier.align(Alignment.TopStart),
-        )
-
-        UsageBars(
+        TopControls(
             windows = state.usage?.windows.orEmpty(),
+            settingsVisible = settingsVisible,
+            onToggleSettings = { settingsVisible = !settingsVisible },
             modifier = Modifier.align(Alignment.TopEnd),
         )
 
-        TaskLabel(
-            task = focused,
-            detailsVisible = detailsVisible,
-            modifier = Modifier.align(Alignment.CenterStart),
-        )
-
-        TaskStrip(
-            tasks = state.tasks,
-            focusedID = focused?.id,
-            onFocus = onFocus,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 18.dp),
-        )
-
-        if (focused?.lifecycle == AgentLifecycle.WAITING_APPROVAL) {
-            ApprovalPanel(
-                task = focused,
-                summary = pendingRequest?.summary,
-                onControl = onControl,
-                modifier = Modifier.align(Alignment.BottomEnd),
+        if (tasks.isEmpty()) {
+            EmptyState(
+                connected = state.linkState == LinkState.CONNECTED,
+                modifier = Modifier.align(Alignment.Center),
             )
-        }
-
-        if (focused?.lifecycle == AgentLifecycle.WAITING_ANSWER) {
-            AnswerPanel(
-                task = focused,
-                prompt = pendingRequest?.summary,
-                onControl = onControl,
-                modifier = Modifier.align(Alignment.BottomEnd),
-            )
-        }
-
-        if (detailsVisible) {
-            OutlinedButton(
-                onClick = onUnpair,
+        } else {
+            Column(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 18.dp),
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .heightIn(max = 306.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
-                Text("解除配对")
-            }
-        }
-    }
-}
-
-@Composable
-private fun Header(
-    linkState: LinkState,
-    onCornerTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier
-            .combinedClickable(onClick = onCornerTap)
-            .padding(24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Box(
-            Modifier
-                .size(9.dp)
-                .background(
-                    if (linkState == LinkState.CONNECTED) AgentGridColors.Green else AgentGridColors.Orange,
-                ),
-        )
-        Column {
-            Text(
-                "AGENTGRID",
-                color = AgentGridColors.Text,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp,
-                fontFamily = PixelFontFamily,
-            )
-            Text(
-                when (linkState) {
-                    LinkState.CONNECTED -> "BRIDGE ONLINE"
-                    LinkState.CONNECTING -> "CONNECTING"
-                    LinkState.DISCONNECTED -> "BRIDGE OFFLINE"
-                },
-                color = AgentGridColors.Muted,
-                fontSize = 10.sp,
-                letterSpacing = 1.sp,
-                fontFamily = PixelFontFamily,
-            )
-        }
-    }
-}
-
-@Composable
-private fun UsageBars(
-    windows: List<UsageWindow>,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier.padding(24.dp),
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(9.dp),
-    ) {
-        windows.take(2).forEach { window ->
-            val color = when {
-                window.remainingPercentage < 10 -> AgentGridColors.Red
-                window.remainingPercentage < 20 -> AgentGridColors.Orange
-                else -> AgentGridColors.Cyan
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                Text(
-                    "${window.label} ${window.remainingPercentage.toInt()}%",
-                    color = AgentGridColors.Muted,
-                    fontSize = 11.sp,
-                )
-                LinearProgressIndicator(
-                    progress = { (window.remainingPercentage / 100.0).toFloat() },
-                    modifier = Modifier
-                        .width(104.dp)
-                        .height(6.dp),
-                    color = color,
-                    trackColor = AgentGridColors.SurfaceRaised,
-                    gapSize = 0.dp,
-                    drawStopIndicator = {},
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TaskLabel(
-    task: TaskSnapshot?,
-    detailsVisible: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val elapsed by produceState(initialValue = 0L, task?.id) {
-        while (true) {
-            value = task?.let { (System.currentTimeMillis() - it.startedAt).coerceAtLeast(0) } ?: 0
-            delay(1_000)
-        }
-    }
-
-    Column(
-        modifier.padding(start = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        Text(
-            task?.projectName ?: "等待任务",
-            color = AgentGridColors.Text,
-            fontWeight = FontWeight.Bold,
-            fontSize = 22.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            statusText(task?.lifecycle),
-            color = statusColor(task?.lifecycle),
-            fontSize = 13.sp,
-            letterSpacing = 1.sp,
-        )
-        if (task != null) {
-            Text(
-                formatElapsed(elapsed),
-                color = AgentGridColors.Muted,
-                fontSize = 12.sp,
-            )
-        }
-        if (detailsVisible && task?.activity != null) {
-            Text(
-                "当前活动：${task.activity.name.lowercase()}",
-                color = AgentGridColors.Muted,
-                fontSize = 12.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TaskStrip(
-    tasks: List<TaskSnapshot>,
-    focusedID: String?,
-    onFocus: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    LazyRow(
-        modifier = modifier.fillMaxWidth(0.58f),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(tasks, key = { it.id }) { task ->
-            Button(
-                onClick = { onFocus(task.id) },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (task.id == focusedID) {
-                        AgentGridColors.SurfaceRaised
-                    } else {
-                        Color.Transparent
-                    },
-                ),
-                contentPadding = ButtonDefaults.TextButtonContentPadding,
-            ) {
-                MiniPixelCore(task.lifecycle)
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    task.projectName,
-                    color = if (task.id == focusedID) AgentGridColors.Text else AgentGridColors.Muted,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MiniPixelCore(lifecycle: AgentLifecycle) {
-    val color = statusColor(lifecycle)
-    Canvas(Modifier.size(18.dp)) {
-        val cell = size.width / 3f
-        repeat(3) { row ->
-            repeat(3) { column ->
-                if ((row + column) % 2 == 0 || row == 1) {
-                    drawRect(
-                        color = color,
-                        topLeft = Offset(column * cell + 1, row * cell + 1),
-                        size = androidx.compose.ui.geometry.Size(cell - 2, cell - 2),
+                tasks.take(5).forEach { task ->
+                    val pending = state.pendingRequests.firstOrNull { it.taskID == task.id }
+                    TaskRow(
+                        task = task,
+                        pending = pending,
+                        expanded = expandedTaskID == task.id,
+                        dimmed = urgentTask != null && urgentTask.id != task.id,
+                        onClick = {
+                            val willExpand = expandedTaskID != task.id
+                            expandedTaskID = if (willExpand) task.id else null
+                            onFocus(task.id)
+                        },
+                        onControl = onControl,
                     )
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun ApprovalPanel(
-    task: TaskSnapshot,
-    summary: String?,
-    onControl: (String, ControlAction, String?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .padding(end = 28.dp, bottom = 88.dp)
-            .width(280.dp)
-            .background(AgentGridColors.Surface)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("需要你的批准", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        Text(
-            summary ?: "原始操作只在请求有效期间显示，不会保存。",
-            color = AgentGridColors.Muted,
-            fontSize = 12.sp,
-        )
-        if (
-            TaskCapability.APPROVE in task.capabilities &&
-            TaskCapability.DENY in task.capabilities
+        AnimatedVisibility(
+            visible = settingsVisible,
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(110)),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 54.dp, end = 18.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { onControl(task.id, ControlAction.APPROVE, null) },
-                    colors = ButtonDefaults.buttonColors(containerColor = AgentGridColors.Green),
-                ) { Text("允许", color = AgentGridColors.Background) }
-                OutlinedButton(
-                    onClick = { onControl(task.id, ControlAction.DENY, null) },
-                ) { Text("拒绝", color = AgentGridColors.Red) }
-            }
-        } else {
-            Text("请回到 Mac 处理这次批准", color = AgentGridColors.Amber)
+            SettingsPanel(
+                state = state,
+                onUnpair = onUnpair,
+                onExitTerminal = onExitTerminal,
+            )
+        }
+
+        if (state.linkState != LinkState.CONNECTED) {
+            Text(
+                "BRIDGE OFFLINE · 正在重连",
+                color = AgentGridColors.Dimmed,
+                fontSize = 10.sp,
+                letterSpacing = 1.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 10.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun AnswerPanel(
-    task: TaskSnapshot,
-    prompt: String?,
-    onControl: (String, ControlAction, String?) -> Unit,
+private fun TopControls(
+    windows: List<UsageWindow>,
+    settingsVisible: Boolean,
+    onToggleSettings: () -> Unit,
     modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.padding(top = 14.dp, end = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        windows.take(2).forEach { window ->
+            UsagePill(window)
+        }
+        Text(
+            if (settingsVisible) "×" else "SET",
+            color = if (settingsVisible) AgentGridColors.Amber else AgentGridColors.Muted,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .background(AgentGridColors.Surface)
+                .clickable(onClick = onToggleSettings)
+                .padding(horizontal = 10.dp, vertical = 7.dp)
+                .semantics { contentDescription = "打开设置" },
+        )
+    }
+}
+
+@Composable
+private fun UsagePill(window: UsageWindow) {
+    val color = when {
+        window.remainingPercentage < 10 -> AgentGridColors.Red
+        window.remainingPercentage < 20 -> AgentGridColors.Orange
+        else -> AgentGridColors.Cyan
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "${window.label} ${window.remainingPercentage.toInt()}%",
+            color = AgentGridColors.Muted,
+            fontSize = 9.sp,
+        )
+        LinearProgressIndicator(
+            progress = { (window.remainingPercentage / 100).toFloat() },
+            modifier = Modifier
+                .width(74.dp)
+                .height(3.dp),
+            color = color,
+            trackColor = AgentGridColors.Divider,
+            gapSize = 0.dp,
+            drawStopIndicator = {},
+        )
+    }
+}
+
+@Composable
+private fun TaskRow(
+    task: TaskSnapshot,
+    pending: PendingRequest?,
+    expanded: Boolean,
+    dimmed: Boolean,
+    onClick: () -> Unit,
+    onControl: (String, ControlAction, String?) -> Unit,
+) {
+    val rowAlpha by animateFloatAsState(
+        targetValue = if (dimmed) 0.34f else 1f,
+        animationSpec = tween(180),
+        label = "任务行注意力",
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (expanded) AgentGridColors.Surface else Color.Transparent)
+            .clickable(onClick = onClick)
+            .animateContentSize(
+                animationSpec = spring(dampingRatio = 0.86f, stiffness = 420f),
+            )
+            .padding(horizontal = 4.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(78.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AndroidView(
+                factory = { PixelCoreSurfaceView(it) },
+                update = {
+                    it.updateState(
+                        PixelRenderState(
+                            lifecycle = task.lifecycle,
+                            activity = task.activity,
+                        ),
+                    )
+                    it.alpha = rowAlpha
+                },
+                modifier = Modifier
+                    .size(70.dp)
+                    .semantics { contentDescription = "任务状态 ${statusText(task.lifecycle)}" },
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 8.dp, end = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    task.title,
+                    color = AgentGridColors.Text.copy(alpha = rowAlpha),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    task.userPrompt?.let { "你：$it" } ?: "你：—",
+                    color = AgentGridColors.Muted.copy(alpha = rowAlpha),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    task.latestStep ?: statusText(task.lifecycle),
+                    color = statusColor(task).copy(alpha = rowAlpha),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            TaskMeta(task = task, alpha = rowAlpha)
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(210)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(170)) + fadeOut(tween(120)),
+        ) {
+            TaskDetails(
+                task = task,
+                pending = pending,
+                onControl = onControl,
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(AgentGridColors.Divider.copy(alpha = if (expanded) 0f else 0.7f)),
+        )
+    }
+}
+
+@Composable
+private fun TaskMeta(task: TaskSnapshot, alpha: Float) {
+    val elapsed by produceState(0L, task.id, task.lifecycle) {
+        while (true) {
+            value = (System.currentTimeMillis() - task.startedAt).coerceAtLeast(0)
+            delay(1_000)
+        }
+    }
+    Column(
+        modifier = Modifier.widthIn(min = 166.dp, max = 210.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            MetaTag("Codex", AgentGridColors.Blue, alpha)
+            MetaTag(
+                if (task.source.name == "CODEX_DESKTOP") "ChatGPT.app" else "Terminal",
+                AgentGridColors.Muted,
+                alpha,
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                formatTokens(task.tokenUsage?.total),
+                color = AgentGridColors.Muted.copy(alpha = alpha),
+                fontSize = 9.sp,
+            )
+            Text(
+                formatElapsed(elapsed),
+                color = AgentGridColors.Muted.copy(alpha = alpha),
+                fontSize = 9.sp,
+            )
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(statusColor(task).copy(alpha = alpha)),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetaTag(text: String, color: Color, alpha: Float) {
+    Text(
+        text,
+        color = color.copy(alpha = alpha),
+        fontSize = 9.sp,
+        modifier = Modifier
+            .background(AgentGridColors.SurfaceRaised.copy(alpha = alpha))
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun TaskDetails(
+    task: TaskSnapshot,
+    pending: PendingRequest?,
+    onControl: (String, ControlAction, String?) -> Unit,
 ) {
     var answer by remember(task.id) { mutableStateOf("") }
     Column(
-        modifier = modifier
-            .padding(end = 28.dp, bottom = 88.dp)
-            .width(320.dp)
-            .background(AgentGridColors.Surface)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 150.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(start = 82.dp, end = 18.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Codex 正在等待回答", fontWeight = FontWeight.Bold)
-        prompt?.let {
-            Text(it, color = AgentGridColors.Muted, fontSize = 12.sp)
+        task.userPrompt?.let {
+            DetailLine("INPUT", it, AgentGridColors.Text)
         }
-        if (TaskCapability.ANSWER in task.capabilities) {
+        task.latestStep?.let {
+            DetailLine("STEP", it, statusColor(task))
+        }
+        task.tokenUsage?.let {
+            DetailLine(
+                "TOKEN",
+                "IN ${formatTokens(it.input)} · CACHE ${formatTokens(it.cachedInput)} · OUT ${formatTokens(it.output)} · TOTAL ${formatTokens(it.total)}",
+                AgentGridColors.Cyan,
+            )
+        }
+        pending?.summary?.let {
+            DetailLine(
+                if (pending.kind == PendingRequestKind.APPROVAL) "APPROVAL" else "QUESTION",
+                it,
+                if (pending.kind == PendingRequestKind.APPROVAL) AgentGridColors.Amber else AgentGridColors.Yellow,
+            )
+        }
+
+        if (
+            pending?.kind == PendingRequestKind.APPROVAL &&
+            TaskCapability.APPROVE in task.capabilities
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PixelButton("允许", AgentGridColors.Green) {
+                    onControl(task.id, ControlAction.APPROVE, null)
+                }
+                PixelButton("拒绝", AgentGridColors.Red) {
+                    onControl(task.id, ControlAction.DENY, null)
+                }
+            }
+        } else if (
+            pending?.kind == PendingRequestKind.QUESTION &&
+            TaskCapability.ANSWER in task.capabilities
+        ) {
             OutlinedTextField(
                 value = answer,
                 onValueChange = { answer = it },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 3,
             )
-            Button(
-                onClick = { onControl(task.id, ControlAction.ANSWER, answer) },
-                enabled = answer.isNotBlank(),
-            ) { Text("发送回答") }
-        } else {
-            Text(
-                "当前 Codex 通道只提供等待提示，请回到 Mac 回答。",
-                color = AgentGridColors.Amber,
-                fontSize = 12.sp,
-            )
+            PixelButton("发送回答", AgentGridColors.Yellow) {
+                if (answer.isNotBlank()) {
+                    onControl(task.id, ControlAction.ANSWER, answer)
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PixelButton(if (task.isPinned) "取消固定" else "固定", AgentGridColors.Violet) {
+                onControl(task.id, ControlAction.PIN, null)
+            }
+            PixelButton(if (task.isMuted) "恢复声音" else "静音", AgentGridColors.Muted) {
+                onControl(task.id, ControlAction.MUTE, null)
+            }
+            if (task.isUnread) {
+                PixelButton("标为已读", AgentGridColors.Cyan) {
+                    onControl(task.id, ControlAction.MARK_READ, null)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun PixelCorners(modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val color = AgentGridColors.Amber
-        val length = 26.dp.toPx()
-        val inset = 12.dp.toPx()
-        val thickness = 3.dp.toPx()
-        drawRect(color, Offset(inset, inset), androidx.compose.ui.geometry.Size(length, thickness))
-        drawRect(color, Offset(inset, inset), androidx.compose.ui.geometry.Size(thickness, length))
-        drawRect(color, Offset(size.width - inset - length, size.height - inset - thickness), androidx.compose.ui.geometry.Size(length, thickness))
-        drawRect(color, Offset(size.width - inset - thickness, size.height - inset - length), androidx.compose.ui.geometry.Size(thickness, length))
+private fun DetailLine(label: String, value: String, color: Color) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(label, color = color, fontSize = 9.sp, modifier = Modifier.width(58.dp))
+        Text(value, color = AgentGridColors.Muted, fontSize = 10.sp)
     }
 }
 
-private fun statusText(lifecycle: AgentLifecycle?): String = when (lifecycle) {
+@Composable
+private fun PixelButton(
+    label: String,
+    color: Color,
+    action: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = action,
+        shape = RectangleShape,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
+        contentPadding = ButtonDefaults.TextButtonContentPadding,
+    ) {
+        Text(label, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun SettingsPanel(
+    state: AgentGridUiState,
+    onUnpair: () -> Unit,
+    onExitTerminal: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(206.dp)
+            .background(AgentGridColors.Surface)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("设置", color = AgentGridColors.Text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        DetailLine(
+            "LINK",
+            if (state.linkState == LinkState.CONNECTED) "已连接" else "正在重连",
+            if (state.linkState == LinkState.CONNECTED) AgentGridColors.Green else AgentGridColors.Red,
+        )
+        DetailLine("TASK", "${state.tasks.size}", AgentGridColors.Cyan)
+        PixelButton("解除配对", AgentGridColors.Red, onUnpair)
+        PixelButton("退出专用模式", AgentGridColors.Muted, onExitTerminal)
+    }
+}
+
+@Composable
+private fun EmptyState(
+    connected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        AndroidView(
+            factory = { PixelCoreSurfaceView(it) },
+            update = {
+                it.updateState(
+                    PixelRenderState(
+                        lifecycle = if (connected) AgentLifecycle.IDLE else AgentLifecycle.OFFLINE,
+                    ),
+                )
+            },
+            modifier = Modifier.size(76.dp),
+        )
+        Text(
+            if (connected) "等待 Codex 任务" else "等待 Bridge",
+            color = AgentGridColors.Muted,
+            fontSize = 11.sp,
+        )
+    }
+}
+
+private fun statusText(lifecycle: AgentLifecycle): String = when (lifecycle) {
+    AgentLifecycle.OFFLINE -> "离线"
+    AgentLifecycle.IDLE -> "空闲"
     AgentLifecycle.STARTING -> "正在启动"
     AgentLifecycle.RUNNING -> "正在运行"
     AgentLifecycle.WAITING_APPROVAL -> "等待批准"
@@ -574,22 +639,42 @@ private fun statusText(lifecycle: AgentLifecycle?): String = when (lifecycle) {
     AgentLifecycle.SUCCEEDED -> "任务完成"
     AgentLifecycle.FAILED -> "任务失败"
     AgentLifecycle.INTERRUPTED -> "已中断"
-    AgentLifecycle.OFFLINE -> "离线"
-    AgentLifecycle.IDLE, null -> "空闲"
 }
 
-private fun statusColor(lifecycle: AgentLifecycle?): Color = when (lifecycle) {
-    AgentLifecycle.WAITING_APPROVAL -> AgentGridColors.Orange
-    AgentLifecycle.WAITING_ANSWER -> AgentGridColors.Amber
+private fun statusColor(task: TaskSnapshot): Color = when (task.lifecycle) {
+    AgentLifecycle.WAITING_APPROVAL -> AgentGridColors.Amber
+    AgentLifecycle.WAITING_ANSWER -> AgentGridColors.Yellow
     AgentLifecycle.SUCCEEDED -> AgentGridColors.Green
     AgentLifecycle.FAILED -> AgentGridColors.Red
     AgentLifecycle.INTERRUPTED, AgentLifecycle.OFFLINE -> AgentGridColors.Muted
-    else -> AgentGridColors.Blue
+    AgentLifecycle.IDLE -> AgentGridColors.Cyan
+    AgentLifecycle.STARTING -> AgentGridColors.Violet
+    AgentLifecycle.RUNNING -> when (task.activity?.name) {
+        "READING", "SEARCHING", "BROWSING" -> AgentGridColors.Cyan
+        "EDITING" -> AgentGridColors.Indigo
+        "EXECUTING" -> AgentGridColors.Orange
+        "TESTING" -> AgentGridColors.Blue
+        else -> AgentGridColors.Violet
+    }
 }
 
 private fun formatElapsed(milliseconds: Long): String {
-    val total = milliseconds / 1_000
-    val minutes = total / 60
-    val seconds = total % 60
-    return "%02d:%02d".format(minutes, seconds)
+    val totalSeconds = milliseconds / 1_000
+    val hours = totalSeconds / 3_600
+    val minutes = totalSeconds % 3_600 / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
+    }
+}
+
+private fun formatTokens(value: Int?): String {
+    val tokens = value ?: return "— tok"
+    return when {
+        tokens >= 1_000_000 -> "%.1fm tok".format(tokens / 1_000_000.0)
+        tokens >= 1_000 -> "%.1fk tok".format(tokens / 1_000.0)
+        else -> "$tokens tok"
+    }
 }

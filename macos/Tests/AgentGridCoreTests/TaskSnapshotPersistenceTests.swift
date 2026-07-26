@@ -16,6 +16,10 @@ struct TaskSnapshotPersistenceTests {
             id: "task-1",
             source: .codexCLI,
             projectName: "AgentGrid",
+            title: "AgentGrid · 优化像素动画",
+            userPrompt: "这段用户原话不能写入磁盘",
+            latestStep: "rm -rf 这段命令也不能写入磁盘",
+            tokenUsage: TokenUsage(input: 100, output: 20, total: 120),
             lifecycle: .running,
             activity: .editing,
             startedAt: Date(timeIntervalSince1970: 100),
@@ -25,7 +29,15 @@ struct TaskSnapshotPersistenceTests {
 
         try persistence.save([task])
 
-        #expect(persistence.load() == [task])
+        let loaded = try #require(persistence.load().first)
+        #expect(loaded.title == task.title)
+        #expect(loaded.tokenUsage == task.tokenUsage)
+        #expect(loaded.userPrompt == nil)
+        #expect(loaded.latestStep == nil)
+
+        let storedText = try String(contentsOf: persistence.fileURL, encoding: .utf8)
+        #expect(!storedText.contains("用户原话"))
+        #expect(!storedText.contains("rm -rf"))
     }
 
     @Test

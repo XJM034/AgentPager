@@ -88,10 +88,23 @@ enum class TaskCapability {
 }
 
 @Serializable
+data class TokenUsage(
+    val input: Int = 0,
+    val cachedInput: Int = 0,
+    val output: Int = 0,
+    val reasoningOutput: Int = 0,
+    val total: Int = 0,
+)
+
+@Serializable
 data class TaskSnapshot(
     val id: String,
     val source: AgentSource,
     val projectName: String,
+    val title: String = projectName,
+    val userPrompt: String? = null,
+    val latestStep: String? = null,
+    val tokenUsage: TokenUsage? = null,
     val lifecycle: AgentLifecycle,
     val activity: AgentActivity? = null,
     val startedAt: Long,

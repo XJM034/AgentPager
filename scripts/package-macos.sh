@@ -5,6 +5,7 @@ set -euo pipefail
 应用目录="$项目根目录/dist/AgentGrid Bridge.app"
 内容目录="$应用目录/Contents"
 可执行目录="$内容目录/MacOS"
+资源目录="$内容目录/Resources"
 应用可执行文件="$可执行目录/AgentGridBridge"
 需要恢复运行=0
 
@@ -29,10 +30,13 @@ done
 cd "$项目根目录/macos"
 swift build -c release
 
-mkdir -p "$可执行目录"
+mkdir -p "$可执行目录" "$资源目录"
 cp "$项目根目录/macos/.build/release/AgentGridBridge" "$可执行目录/AgentGridBridge"
 cp "$项目根目录/macos/.build/release/AgentGridHooks" "$可执行目录/AgentGridHooks"
 cp "$项目根目录/macos/AppInfo.plist" "$内容目录/Info.plist"
+cp "$项目根目录/assets/fonts/fusion_pixel_12px_zh_hans.ttf" \
+    "$资源目录/fusion_pixel_12px_zh_hans.ttf"
+cp "$项目根目录/docs/FUSION-PIXEL-OFL.txt" "$资源目录/FUSION-PIXEL-OFL.txt"
 chmod +x "$可执行目录/AgentGridBridge" "$可执行目录/AgentGridHooks"
 
 签名身份="${AGENTGRID_CODESIGN_IDENTITY:-}"

@@ -159,6 +159,10 @@ final class BridgeModel {
             id: "agentgrid-simulator",
             source: .codexDesktop,
             projectName: "AgentGrid 模拟器",
+            title: "AgentGrid · 像素任务列表联调",
+            userPrompt: "检查任务行、逐像素 Bloom 和状态动效",
+            latestStep: lifecycle == .running ? "apply_patch android/AgentGridScreen.kt" : nil,
+            tokenUsage: TokenUsage(input: 12_480, cachedInput: 9_200, output: 2_180, total: 14_660),
             lifecycle: lifecycle,
             activity: lifecycle == .running ? .editing : nil,
             startedAt: now.addingTimeInterval(-42),
@@ -210,12 +214,31 @@ final class BridgeModel {
                     id: signal.sessionID,
                     source: .codexCLI,
                     projectName: URL(fileURLWithPath: signal.cwd).lastPathComponent,
-                    lifecycle: signal.lifecycle,
+                    lifecycle: signal.lifecycle ?? .running,
                     startedAt: signal.timestamp,
                     updatedAt: signal.timestamp
                 )
-            task.lifecycle = signal.lifecycle
-            task.activity = signal.activity
+            if let lifecycle = signal.lifecycle {
+                task.lifecycle = lifecycle
+            }
+            if let activity = signal.activity {
+                task.activity = activity
+            }
+            if let prompt = signal.userPrompt {
+                task.userPrompt = prompt
+                if task.title == task.projectName {
+                    task.title = CodexEventReducer.title(
+                        projectName: task.projectName,
+                        prompt: prompt
+                    )
+                }
+            }
+            if let latestStep = signal.latestStep {
+                task.latestStep = latestStep
+            }
+            if let tokenUsage = signal.tokenUsage {
+                task.tokenUsage = tokenUsage
+            }
             task.updatedAt = signal.timestamp
             task.completedAt = task.isTerminal ? signal.timestamp : nil
             task.isUnread = task.isTerminal
@@ -237,8 +260,10 @@ final class BridgeModel {
                 )
                 task.capabilities = []
             case nil:
-                pendingRequests.removeValue(forKey: task.id)
-                task.capabilities = []
+                if signal.lifecycle == .running {
+                    pendingRequests.removeValue(forKey: task.id)
+                    task.capabilities = []
+                }
             }
             store.upsert(task)
         }

@@ -27,10 +27,20 @@ public enum CodexEventReducer {
         case .userPromptSubmit:
             task.lifecycle = .running
             task.activity = .thinking
+            if let prompt = normalized(hook.prompt) {
+                task.userPrompt = prompt
+                if existing == nil || task.title == task.projectName {
+                    task.title = title(projectName: task.projectName, prompt: prompt)
+                }
+            }
             task.capabilities = []
         case .preToolUse:
             task.lifecycle = .running
             task.activity = activity(for: hook.toolName)
+            task.latestStep = latestStep(
+                toolName: hook.toolName,
+                summary: hook.toolInput?.summary
+            )
             task.capabilities = []
         case .postToolUse:
             task.lifecycle = .running
@@ -50,6 +60,27 @@ public enum CodexEventReducer {
             task.capabilities = []
         }
         return task
+    }
+
+    public static func title(projectName: String, prompt: String?) -> String {
+        guard let prompt = normalized(prompt) else { return projectName }
+        let shortPrompt = String(prompt.prefix(34))
+        return "\(projectName) · \(shortPrompt)"
+    }
+
+    public static func latestStep(toolName: String?, summary: String?) -> String? {
+        let tool = normalized(toolName)
+        let detail = normalized(summary)
+        switch (tool, detail) {
+        case let (tool?, detail?):
+            return String("\(tool) \(detail)".prefix(220))
+        case let (tool?, nil):
+            return String(tool.prefix(220))
+        case let (nil, detail?):
+            return String(detail.prefix(220))
+        case (nil, nil):
+            return nil
+        }
     }
 
     public static func activity(for toolName: String?) -> AgentActivity {
@@ -73,5 +104,14 @@ public enum CodexEventReducer {
             return .delegating
         }
         return .executing
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        return normalized.isEmpty ? nil : normalized
     }
 }

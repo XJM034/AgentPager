@@ -59,4 +59,43 @@ struct CodexRolloutReaderTests {
             ) == nil
         )
     }
+
+    @Test
+    func parsesUserPromptCommandAndTokenUsage() throws {
+        let promptLine = """
+        {"type":"event_msg","payload":{"type":"user_message","message":"优化像素动画"}}
+        """
+        let commandLine = """
+        {"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\\"cmd\\":\\"swift test\\"}"}}
+        """
+        let tokenLine = """
+        {"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1200,"cached_input_tokens":800,"output_tokens":240,"reasoning_output_tokens":60,"total_tokens":1440}}}}
+        """
+
+        let prompt = CodexRolloutReader.signal(
+            from: Data(promptLine.utf8),
+            sessionID: "session-1",
+            cwd: "/tmp/AgentGrid"
+        )
+        let command = CodexRolloutReader.signal(
+            from: Data(commandLine.utf8),
+            sessionID: "session-1",
+            cwd: "/tmp/AgentGrid"
+        )
+        let tokens = CodexRolloutReader.signal(
+            from: Data(tokenLine.utf8),
+            sessionID: "session-1",
+            cwd: "/tmp/AgentGrid"
+        )
+
+        #expect(prompt?.userPrompt == "优化像素动画")
+        #expect(command?.latestStep == "exec_command swift test")
+        #expect(tokens?.tokenUsage == TokenUsage(
+            input: 1200,
+            cachedInput: 800,
+            output: 240,
+            reasoningOutput: 60,
+            total: 1440
+        ))
+    }
 }

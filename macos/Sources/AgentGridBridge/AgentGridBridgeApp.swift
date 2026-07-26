@@ -5,6 +5,7 @@ struct AgentGridBridgeApp: App {
     @State private var model: BridgeModel
 
     init() {
+        PixelFontRegistry.register()
         let model = BridgeModel()
         _model = State(initialValue: model)
         model.start()
@@ -21,6 +22,7 @@ struct AgentGridBridgeApp: App {
         Settings {
             BridgeSettingsView(model: model)
         }
+        .defaultSize(width: 680, height: 520)
+        .windowResizability(.contentMinSize)
     }
 }
-

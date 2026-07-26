@@ -47,10 +47,38 @@ public enum TaskCapability: String, Codable, CaseIterable, Sendable {
     case retry
 }
 
+public struct TokenUsage: Codable, Equatable, Sendable {
+    public var input: Int
+    public var cachedInput: Int
+    public var output: Int
+    public var reasoningOutput: Int
+    public var total: Int
+
+    public init(
+        input: Int = 0,
+        cachedInput: Int = 0,
+        output: Int = 0,
+        reasoningOutput: Int = 0,
+        total: Int = 0
+    ) {
+        self.input = input
+        self.cachedInput = cachedInput
+        self.output = output
+        self.reasoningOutput = reasoningOutput
+        self.total = total
+    }
+}
+
 public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var source: AgentSource
     public var projectName: String
+    public var title: String
+    /// 只存在内存和实时协议中，绝不写入任务快照文件。
+    public var userPrompt: String?
+    /// 只存在内存和实时协议中，绝不写入任务快照文件。
+    public var latestStep: String?
+    public var tokenUsage: TokenUsage?
     public var lifecycle: AgentLifecycle
     public var activity: AgentActivity?
     public var startedAt: Date
@@ -65,6 +93,10 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         id: String,
         source: AgentSource,
         projectName: String,
+        title: String? = nil,
+        userPrompt: String? = nil,
+        latestStep: String? = nil,
+        tokenUsage: TokenUsage? = nil,
         lifecycle: AgentLifecycle,
         activity: AgentActivity? = nil,
         startedAt: Date = .now,
@@ -78,6 +110,10 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         self.id = id
         self.source = source
         self.projectName = projectName
+        self.title = title ?? projectName
+        self.userPrompt = userPrompt
+        self.latestStep = latestStep
+        self.tokenUsage = tokenUsage
         self.lifecycle = lifecycle
         self.activity = activity
         self.startedAt = startedAt
@@ -179,4 +215,3 @@ public enum ControlResult: String, Codable, Sendable {
     case stale
     case unsupported
 }
-

@@ -87,6 +87,7 @@ public struct CodexHookPayload: Codable, Equatable, Sendable {
     public var toolName: String?
     public var toolUseID: String?
     public var toolInput: HookToolInput?
+    public var prompt: String?
     public var model: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -99,6 +100,7 @@ public struct CodexHookPayload: Codable, Equatable, Sendable {
         case toolName = "tool_name"
         case toolUseID = "tool_use_id"
         case toolInput = "tool_input"
+        case prompt
         case model
     }
 
@@ -112,6 +114,7 @@ public struct CodexHookPayload: Codable, Equatable, Sendable {
         toolName: String? = nil,
         toolUseID: String? = nil,
         toolInput: HookToolInput? = nil,
+        prompt: String? = nil,
         model: String? = nil
     ) {
         self.cwd = cwd
@@ -123,6 +126,7 @@ public struct CodexHookPayload: Codable, Equatable, Sendable {
         self.toolName = toolName
         self.toolUseID = toolUseID
         self.toolInput = toolInput
+        self.prompt = prompt
         self.model = model
     }
 
@@ -172,6 +176,8 @@ public enum CodexHookInstaller {
     public static let hookEvents: [(name: String, matcher: String?, timeout: Int)] = [
         ("SessionStart", "startup|resume", 45),
         ("UserPromptSubmit", nil, 45),
+        ("PreToolUse", nil, 45),
+        ("PostToolUse", nil, 45),
         ("PermissionRequest", nil, 3_600),
         ("Stop", nil, 45),
     ]

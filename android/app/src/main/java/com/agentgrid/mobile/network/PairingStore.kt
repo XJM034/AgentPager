@@ -9,49 +9,61 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
-class PairingStore(context: Context) {
+internal class PairingStore(context: Context) : PhoneCredentialStore {
     private val preferences =
         context.getSharedPreferences("agentgrid-pairing", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun save(pairing: PairingPayload) {
+    override suspend fun save(pairing: PairingPayload) = withContext(Dispatchers.IO) {
         val plaintext = json.encodeToString(PairingPayload.serializer(), pairing).encodeToByteArray()
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val encrypted = cipher.doFinal(plaintext)
-        preferences.edit()
+        check(preferences.edit()
             .putString("iv", android.util.Base64.encodeToString(cipher.iv, android.util.Base64.NO_WRAP))
             .putString("payload", android.util.Base64.encodeToString(encrypted, android.util.Base64.NO_WRAP))
-            .apply()
+            .commit()) { "无法保存配对凭据" }
     }
 
-    fun load(): PairingPayload? {
-        val iv = preferences.getString("iv", null) ?: return null
-        val payload = preferences.getString("payload", null) ?: return null
-        return runCatching {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                secretKey(),
-                GCMParameterSpec(128, android.util.Base64.decode(iv, android.util.Base64.NO_WRAP)),
-            )
-            val decrypted = cipher.doFinal(
-                android.util.Base64.decode(payload, android.util.Base64.NO_WRAP),
-            )
-            json.decodeFromString(PairingPayload.serializer(), decrypted.decodeToString())
-        }.getOrNull()
+    override suspend fun load(): PairingPayload? = withContext(Dispatchers.IO) {
+        val iv = preferences.getString("iv", null) ?: return@withContext null
+        val payload = preferences.getString("payload", null) ?: return@withContext null
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            secretKey(),
+            GCMParameterSpec(128, android.util.Base64.decode(iv, android.util.Base64.NO_WRAP)),
+        )
+        val decrypted = cipher.doFinal(
+            android.util.Base64.decode(payload, android.util.Base64.NO_WRAP),
+        )
+        json.decodeFromString(PairingPayload.serializer(), decrypted.decodeToString())
     }
 
-    fun clear() {
-        preferences.edit().clear().apply()
+    override suspend fun clear() = withContext(Dispatchers.IO) {
+        // 控制序号绑定设备身份，解除配对后仍需保持单调，避免被 Mac 判为重放。
+        check(
+            preferences.edit()
+                .remove("iv")
+                .remove("payload")
+                .commit(),
+        ) { "无法清除配对凭据" }
     }
 
-    fun nextSequence(): ULong {
-        val value = preferences.getLong("sequence", 0L) + 1L
-        preferences.edit().putLong("sequence", value).apply()
-        return value.toULong()
+    override suspend fun reserveNextSequence(): ULong = withContext(Dispatchers.IO) {
+        synchronized(preferences) {
+            val previous = preferences.getLong("sequence", 0L)
+            check(previous < Long.MAX_VALUE) { "控制序号已耗尽" }
+            val value = previous + 1L
+            check(preferences.edit().putLong("sequence", value).commit()) {
+                "无法保存控制序号"
+            }
+            value.toULong()
+        }
     }
 
     private fun secretKey(): SecretKey {
@@ -79,4 +91,3 @@ class PairingStore(context: Context) {
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }
-

@@ -278,7 +278,7 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-public enum ControlAction: String, Codable, Sendable {
+public enum ControlAction: String, Codable, Equatable, Sendable {
     case approve
     case deny
     case answer
@@ -301,7 +301,7 @@ public struct ControlPayload: Codable, Equatable, Sendable {
     }
 }
 
-public enum ControlResult: String, Codable, Sendable {
+public enum ControlResult: String, Codable, Equatable, Sendable {
     case accepted
     case rejected
     case stale

@@ -142,7 +142,7 @@ public struct CodexHookPayload: Codable, Equatable, Sendable {
     }
 }
 
-public enum CodexPermissionDecision: String, Codable, Sendable {
+public enum CodexPermissionDecision: String, Codable, Equatable, Sendable {
     case allow
     case deny
 }

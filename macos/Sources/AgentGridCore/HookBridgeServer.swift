@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-public final class HookBridgeServer: @unchecked Sendable {
+public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendable {
     public typealias EventHandler = @Sendable (CodexHookPayload) -> Void
 
     private let queue = DispatchQueue(label: "com.agentgrid.hook-server")
@@ -103,4 +103,3 @@ private extension NSLock {
         return try body()
     }
 }
-

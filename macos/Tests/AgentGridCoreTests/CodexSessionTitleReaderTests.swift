@@ -40,18 +40,18 @@ func synchronizedTitleStopsRefreshingUntilNewTaskAppears() {
         title: "AgentGrid · 修改标题",
         lifecycle: .running
     )
-    var store = TaskStore(tasks: [firstTask])
+    var catalog = TaskCatalog(restoring: [firstTask])
     var synchronizer = CodexSessionTitleSynchronizer()
 
-    #expect(synchronizer.needsRefresh(for: store.tasks))
+    #expect(synchronizer.needsRefresh(for: catalog.projection().tasks))
 
     let changed = synchronizer.applyAvailableTitles(
         ["session-1": "同步后的总结标题"],
-        to: &store
+        to: &catalog
     )
 
     #expect(changed)
-    #expect(!synchronizer.needsRefresh(for: store.tasks))
+    #expect(!synchronizer.needsRefresh(for: catalog.projection().tasks))
 
     let secondTask = TaskSnapshot(
         id: "session-2",
@@ -59,7 +59,7 @@ func synchronizedTitleStopsRefreshingUntilNewTaskAppears() {
         projectName: "新任务",
         lifecycle: .running
     )
-    store.upsert(secondTask)
+    catalog.accept(.synthetic(secondTask))
 
-    #expect(synchronizer.needsRefresh(for: store.tasks))
+    #expect(synchronizer.needsRefresh(for: catalog.projection().tasks))
 }

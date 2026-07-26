@@ -230,6 +230,28 @@ data class StateEnvelope(
 )
 
 @Serializable
+enum class ControlResult {
+    @SerialName("accepted")
+    ACCEPTED,
+
+    @SerialName("rejected")
+    REJECTED,
+
+    @SerialName("stale")
+    STALE,
+
+    @SerialName("unsupported")
+    UNSUPPORTED,
+}
+
+@Serializable
+data class ControlAckPayload(
+    val requestID: String,
+    val result: ControlResult,
+    val reason: String? = null,
+)
+
+@Serializable
 enum class ControlAction {
     @SerialName("approve")
     APPROVE,

@@ -9,7 +9,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.serialization.json.Json
 
-object ControlSigner {
+internal object ControlSigner {
     private val json = Json {
         encodeDefaults = false
         explicitNulls = false

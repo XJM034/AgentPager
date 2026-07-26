@@ -85,8 +85,6 @@ import com.agentgrid.mobile.domain.PendingRequest
 import com.agentgrid.mobile.domain.PendingRequestKind
 import com.agentgrid.mobile.domain.SubagentSnapshot
 import com.agentgrid.mobile.domain.TaskCapability
-import com.agentgrid.mobile.domain.TaskDashboardPolicy
-import com.agentgrid.mobile.domain.TaskOrdering
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
 import com.agentgrid.mobile.network.LinkState
@@ -135,6 +133,7 @@ fun AgentGridScreen(
     onUnpair: () -> Unit,
     onControl: (String, ControlAction, String?) -> Unit,
     onFocus: (String) -> Unit,
+    onToggleDashboard: () -> Unit,
     onActiveTaskBrightnessChange: (Float) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
@@ -168,6 +167,7 @@ fun AgentGridScreen(
                     onUnpair = onUnpair,
                     onControl = onControl,
                     onFocus = onFocus,
+                    onToggleDashboard = onToggleDashboard,
                     onActiveTaskBrightnessChange = onActiveTaskBrightnessChange,
                     onExitTerminal = onExitTerminal,
                 )
@@ -260,52 +260,20 @@ private fun TaskTerminal(
     onUnpair: () -> Unit,
     onControl: (String, ControlAction, String?) -> Unit,
     onFocus: (String) -> Unit,
+    onToggleDashboard: () -> Unit,
     onActiveTaskBrightnessChange: (Float) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
-    val tasks = remember(state.tasks) { TaskOrdering.sorted(state.tasks) }
-    val automaticDashboardVisible by produceState(
-        initialValue = TaskDashboardPolicy.shouldShowDashboard(
-            tasks = tasks,
-            now = System.currentTimeMillis(),
-        ),
-        tasks,
-    ) {
-        val waitMillis = TaskDashboardPolicy.timeUntilDashboard(
-            tasks = tasks,
-            now = System.currentTimeMillis(),
-        )
-        value = waitMillis == 0L
-        if (waitMillis in 1L until Long.MAX_VALUE) {
-            delay(waitMillis)
-            value = true
-        }
+    val projection = state.taskProjection
+    val tasks = projection.orderedTasks
+    val showDashboard = projection.dashboardVisible
+    val automaticallyExpandedTask = tasks.firstOrNull {
+        it.id == projection.automaticallyExpandedTaskID
     }
-    var manualDashboardVisible by remember { mutableStateOf<Boolean?>(null) }
-    val showDashboard = manualDashboardVisible ?: automaticDashboardVisible
-    val urgentTask = tasks.firstOrNull {
-        it.lifecycle == AgentLifecycle.WAITING_APPROVAL ||
-            it.lifecycle == AgentLifecycle.WAITING_ANSWER
-    }
-    val delegatedTask = tasks.firstOrNull { task ->
-        task.subagents.any { !it.isTerminal }
-    }
-    val automaticallyExpandedTask = urgentTask ?: delegatedTask
     var expandedTaskID by remember { mutableStateOf<String?>(null) }
     var settingsVisible by remember { mutableStateOf(false) }
-    val visibleTasks = tasks.take(5)
-    val visibleTaskIDs = visibleTasks.map { it.id }
-    var previousVisibleTaskIDs by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var previousTaskTerminalStates by remember {
-        mutableStateOf<Map<String, Boolean>?>(null)
-    }
-    val taskTerminalStates = remember(tasks) {
-        tasks.associate { it.id to it.isTerminal }
-    }
-    val enteringVisibleTaskIDs = TaskOrdering.enteringVisibleTaskIDs(
-        previousVisibleTaskIDs = previousVisibleTaskIDs,
-        orderedTasks = tasks,
-    )
+    val visibleTasks = projection.visibleTasks
+    val enteringVisibleTaskIDs = projection.enteringVisibleTaskIDs
     val taskListAnchorHeightPx = with(LocalDensity.current) {
         TaskListAnchorHeight.roundToPx()
     }
@@ -324,18 +292,6 @@ private fun TaskTerminal(
         onDispose(sound::close)
     }
 
-    LaunchedEffect(visibleTaskIDs) {
-        previousVisibleTaskIDs = visibleTaskIDs.toSet()
-    }
-    LaunchedEffect(taskTerminalStates) {
-        // 新任务会清除手动选择，优先展示任务态，并恢复后续的自动切换策略。
-        manualDashboardVisible = TaskDashboardPolicy.manualDashboardOverrideAfterTaskUpdate(
-            previousTerminalStates = previousTaskTerminalStates,
-            currentTasks = tasks,
-            currentOverride = manualDashboardVisible,
-        )
-        previousTaskTerminalStates = taskTerminalStates
-    }
     LaunchedEffect(
         automaticallyExpandedTask?.id,
         automaticallyExpandedTask?.lifecycle,
@@ -363,7 +319,7 @@ private fun TaskTerminal(
             settingsVisible = settingsVisible,
             dashboardVisible = showDashboard,
             onToggleDashboard = {
-                manualDashboardVisible = !showDashboard
+                onToggleDashboard()
                 settingsVisible = false
             },
             onToggleSettings = { settingsVisible = !settingsVisible },
@@ -448,7 +404,8 @@ private fun TaskTerminal(
                             task = task,
                             pending = pending,
                             expanded = expandedTaskID == task.id,
-                            dimmed = urgentTask != null && urgentTask.id != task.id,
+                            dimmed = projection.urgentTaskID != null &&
+                                projection.urgentTaskID != task.id,
                             showDivider = index < visibleTasks.lastIndex,
                             onClick = {
                                 val willExpand = expandedTaskID != task.id
@@ -1091,7 +1048,7 @@ private fun SettingsPanel(
             if (state.linkState == LinkState.CONNECTED) "已连接" else "正在重连",
             if (state.linkState == LinkState.CONNECTED) AgentGridColors.Green else AgentGridColors.Red,
         )
-        DetailLine("TASK", "${state.tasks.size}", AgentGridColors.Cyan)
+        DetailLine("TASK", "${state.taskProjection.orderedTasks.size}", AgentGridColors.Cyan)
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

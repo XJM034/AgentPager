@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
                 onUnpair = viewModel::unpair,
                 onControl = viewModel::control,
                 onFocus = viewModel::focus,
+                onToggleDashboard = viewModel::toggleDashboard,
                 onActiveTaskBrightnessChange = viewModel::setActiveTaskBrightness,
                 onExitTerminal = {
                     viewModel.setTerminalMode(false)

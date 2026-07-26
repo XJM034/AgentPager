@@ -82,9 +82,9 @@ public struct CodexSessionTitleSynchronizer: Sendable {
     @discardableResult
     public mutating func applyAvailableTitles(
         _ availableTitles: [String: String],
-        to store: inout TaskStore
+        to catalog: inout TaskCatalog
     ) -> Bool {
-        let taskIDs = Set(store.tasks.map(\.id))
+        let taskIDs = Set(catalog.projection().tasks.map(\.id))
         let unresolvedTaskIDs = taskIDs.subtracting(synchronizedTitles.keys)
         for taskID in unresolvedTaskIDs {
             guard let title = availableTitles[taskID] else {
@@ -92,6 +92,6 @@ public struct CodexSessionTitleSynchronizer: Sendable {
             }
             synchronizedTitles[taskID] = title
         }
-        return store.applyTitles(synchronizedTitles)
+        return catalog.applyAvailableTitles(synchronizedTitles)
     }
 }

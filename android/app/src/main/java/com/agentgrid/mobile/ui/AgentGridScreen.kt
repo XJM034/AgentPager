@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -54,11 +55,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.agentgrid.mobile.AgentGridUiState
 import com.agentgrid.mobile.SoundEngine
+import com.agentgrid.mobile.domain.AgentActivity
 import com.agentgrid.mobile.domain.AgentLifecycle
 import com.agentgrid.mobile.domain.ControlAction
 import com.agentgrid.mobile.domain.PendingRequest
 import com.agentgrid.mobile.domain.PendingRequestKind
+import com.agentgrid.mobile.domain.SubagentSnapshot
 import com.agentgrid.mobile.domain.TaskCapability
+import com.agentgrid.mobile.domain.TaskOrdering
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
 import com.agentgrid.mobile.network.LinkState
@@ -158,25 +162,28 @@ private fun TaskTerminal(
     onFocus: (String) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
-    val tasks = remember(state.tasks) {
-        state.tasks.sortedWith(
-            compareByDescending<TaskSnapshot> { it.attentionPriority }
-                .thenByDescending { it.updatedAt },
-        )
-    }
+    val tasks = remember(state.tasks) { TaskOrdering.sorted(state.tasks) }
     val urgentTask = tasks.firstOrNull {
         it.lifecycle == AgentLifecycle.WAITING_APPROVAL ||
             it.lifecycle == AgentLifecycle.WAITING_ANSWER ||
             it.lifecycle == AgentLifecycle.FAILED
     }
+    val delegatedTask = tasks.firstOrNull { task ->
+        task.subagents.any { !it.isTerminal }
+    }
+    val automaticallyExpandedTask = urgentTask ?: delegatedTask
     var expandedTaskID by remember { mutableStateOf<String?>(null) }
     var settingsVisible by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val sound = remember(context) { SoundEngine(context) }
 
-    LaunchedEffect(urgentTask?.id, urgentTask?.lifecycle) {
-        if (urgentTask != null) {
-            expandedTaskID = urgentTask.id
+    LaunchedEffect(
+        automaticallyExpandedTask?.id,
+        automaticallyExpandedTask?.lifecycle,
+        automaticallyExpandedTask?.subagents?.map { it.id to it.lifecycle },
+    ) {
+        if (automaticallyExpandedTask != null) {
+            expandedTaskID = automaticallyExpandedTask.id
         }
     }
     LaunchedEffect(tasks.map { it.id to it.lifecycle }) {
@@ -480,11 +487,14 @@ private fun TaskDetails(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 150.dp)
+            .heightIn(max = 250.dp)
             .verticalScroll(rememberScrollState())
             .padding(start = 82.dp, end = 18.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (task.subagents.isNotEmpty()) {
+            SubagentPanel(task.subagents)
+        }
         task.userPrompt?.let {
             DetailLine("INPUT", it, AgentGridColors.Text)
         }
@@ -548,6 +558,88 @@ private fun TaskDetails(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SubagentPanel(subagents: List<SubagentSnapshot>) {
+    val now by produceState(
+        initialValue = System.currentTimeMillis(),
+        key1 = subagents.map { it.id to it.lifecycle },
+    ) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AgentGridColors.SurfaceRaised)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Text(
+            "CODEX (${subagents.size})",
+            color = AgentGridColors.Muted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        subagents.forEach { subagent ->
+            key(subagent.id) {
+                SubagentRow(subagent, now)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubagentRow(
+    subagent: SubagentSnapshot,
+    now: Long,
+) {
+    val color = lifecycleColor(subagent.lifecycle, subagent.activity)
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(color),
+            )
+            Text(
+                subagent.displayName,
+                color = AgentGridColors.Text,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            subagent.tokenUsage?.takeIf { it.total > 0 }?.let {
+                Text(
+                    formatTokens(it.total),
+                    color = AgentGridColors.Muted,
+                    fontSize = 8.sp,
+                )
+            }
+            Text(
+                "${statusText(subagent.lifecycle)} · ${formatElapsed(subagent.elapsedAt(now))}",
+                color = color,
+                fontSize = 9.sp,
+            )
+        }
+        Text(
+            "└ ${subagent.latestStep ?: activityText(subagent.activity)}",
+            color = AgentGridColors.Muted,
+            fontSize = 9.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 14.dp),
+        )
     }
 }
 
@@ -641,7 +733,13 @@ private fun statusText(lifecycle: AgentLifecycle): String = when (lifecycle) {
     AgentLifecycle.INTERRUPTED -> "已中断"
 }
 
-private fun statusColor(task: TaskSnapshot): Color = when (task.lifecycle) {
+private fun statusColor(task: TaskSnapshot): Color =
+    lifecycleColor(task.lifecycle, task.activity)
+
+private fun lifecycleColor(
+    lifecycle: AgentLifecycle,
+    activity: AgentActivity?,
+): Color = when (lifecycle) {
     AgentLifecycle.WAITING_APPROVAL -> AgentGridColors.Amber
     AgentLifecycle.WAITING_ANSWER -> AgentGridColors.Yellow
     AgentLifecycle.SUCCEEDED -> AgentGridColors.Green
@@ -649,13 +747,26 @@ private fun statusColor(task: TaskSnapshot): Color = when (task.lifecycle) {
     AgentLifecycle.INTERRUPTED, AgentLifecycle.OFFLINE -> AgentGridColors.Muted
     AgentLifecycle.IDLE -> AgentGridColors.Cyan
     AgentLifecycle.STARTING -> AgentGridColors.Violet
-    AgentLifecycle.RUNNING -> when (task.activity?.name) {
-        "READING", "SEARCHING", "BROWSING" -> AgentGridColors.Cyan
-        "EDITING" -> AgentGridColors.Indigo
-        "EXECUTING" -> AgentGridColors.Orange
-        "TESTING" -> AgentGridColors.Blue
+    AgentLifecycle.RUNNING -> when (activity) {
+        AgentActivity.READING, AgentActivity.SEARCHING, AgentActivity.BROWSING ->
+            AgentGridColors.Cyan
+        AgentActivity.EDITING -> AgentGridColors.Indigo
+        AgentActivity.EXECUTING -> AgentGridColors.Orange
+        AgentActivity.TESTING -> AgentGridColors.Blue
         else -> AgentGridColors.Violet
     }
+}
+
+private fun activityText(activity: AgentActivity?): String = when (activity) {
+    AgentActivity.THINKING -> "正在思考"
+    AgentActivity.READING -> "正在读取"
+    AgentActivity.SEARCHING -> "正在搜索"
+    AgentActivity.EDITING -> "正在编辑"
+    AgentActivity.EXECUTING -> "正在执行"
+    AgentActivity.TESTING -> "正在测试"
+    AgentActivity.BROWSING -> "正在浏览"
+    AgentActivity.DELEGATING -> "正在协作"
+    null -> "等待新步骤"
 }
 
 private fun formatElapsed(milliseconds: Long): String {

@@ -97,6 +97,29 @@ data class TokenUsage(
 )
 
 @Serializable
+data class SubagentSnapshot(
+    val id: String,
+    val path: String,
+    val displayName: String,
+    val lifecycle: AgentLifecycle = AgentLifecycle.RUNNING,
+    val activity: AgentActivity? = AgentActivity.THINKING,
+    val latestStep: String? = null,
+    val tokenUsage: TokenUsage? = null,
+    val startedAt: Long,
+    val updatedAt: Long,
+) {
+    val isTerminal: Boolean
+        get() = lifecycle in setOf(
+            AgentLifecycle.SUCCEEDED,
+            AgentLifecycle.FAILED,
+            AgentLifecycle.INTERRUPTED,
+        )
+
+    fun elapsedAt(now: Long): Long =
+        ((if (isTerminal) updatedAt else now) - startedAt).coerceAtLeast(0)
+}
+
+@Serializable
 data class TaskSnapshot(
     val id: String,
     val source: AgentSource,
@@ -105,6 +128,7 @@ data class TaskSnapshot(
     val userPrompt: String? = null,
     val latestStep: String? = null,
     val tokenUsage: TokenUsage? = null,
+    val subagents: List<SubagentSnapshot> = emptyList(),
     val lifecycle: AgentLifecycle,
     val activity: AgentActivity? = null,
     val startedAt: Long,

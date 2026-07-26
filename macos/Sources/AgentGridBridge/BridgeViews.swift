@@ -26,7 +26,7 @@ struct BridgeMenuView: View {
                     Text(statusText)
                         .font(.pixel(11))
                         .foregroundStyle(statusColor)
-                    Text("\(model.phoneCount) 台手机连接")
+                    Text(connectionSummary)
                         .font(.pixel(10))
                         .foregroundStyle(PixelTheme.muted)
                 }
@@ -90,6 +90,14 @@ struct BridgeMenuView: View {
             lifecycle: task.lifecycle,
             activity: task.activity
         ))
+    }
+
+    private var connectionSummary: String {
+        let subagentCount = focusedTask?.subagents.count ?? 0
+        guard subagentCount > 0 else {
+            return "\(model.phoneCount) 台手机连接"
+        }
+        return "\(model.phoneCount) 台手机 · \(subagentCount) 个子代理"
     }
 }
 

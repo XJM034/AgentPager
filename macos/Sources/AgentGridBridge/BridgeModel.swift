@@ -82,6 +82,8 @@ final class BridgeModel {
 
         refreshHookStatus()
         refreshUsage()
+        discoverRolloutSessions()
+        handleRolloutSignals()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
@@ -92,12 +94,17 @@ final class BridgeModel {
             }
         }
         rolloutTask = Task { [weak self] in
+            var nextDiscovery = Date.distantPast
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(750))
-                guard let self, self.rolloutReader.hasTrackedFiles else {
-                    continue
+                guard let self else { return }
+                if Date.now >= nextDiscovery {
+                    self.discoverRolloutSessions()
+                    nextDiscovery = Date.now.addingTimeInterval(3)
                 }
-                self.handleRolloutSignals()
+                if self.rolloutReader.hasTrackedFiles {
+                    self.handleRolloutSignals()
+                }
             }
         }
     }
@@ -163,6 +170,28 @@ final class BridgeModel {
             userPrompt: "检查任务行、逐像素 Bloom 和状态动效",
             latestStep: lifecycle == .running ? "apply_patch android/AgentGridScreen.kt" : nil,
             tokenUsage: TokenUsage(input: 12_480, cachedInput: 9_200, output: 2_180, total: 14_660),
+            subagents: [
+                SubagentSnapshot(
+                    id: "simulator-protocol",
+                    path: "/root/protocol_v2",
+                    lifecycle: lifecycle == .failed ? .failed : .running,
+                    activity: .editing,
+                    latestStep: "apply_patch protocol/README.md",
+                    tokenUsage: TokenUsage(input: 3_200, output: 680, total: 3_880),
+                    startedAt: now.addingTimeInterval(-31),
+                    updatedAt: now
+                ),
+                SubagentSnapshot(
+                    id: "simulator-animation",
+                    path: "/root/pixel_motion",
+                    lifecycle: .succeeded,
+                    activity: nil,
+                    latestStep: "swift test PixelMotionTests",
+                    tokenUsage: TokenUsage(input: 2_440, output: 390, total: 2_830),
+                    startedAt: now.addingTimeInterval(-27),
+                    updatedAt: now.addingTimeInterval(-4)
+                ),
+            ],
             lifecycle: lifecycle,
             activity: lifecycle == .running ? .editing : nil,
             startedAt: now.addingTimeInterval(-42),
@@ -202,6 +231,15 @@ final class BridgeModel {
         publishStore()
     }
 
+    private func discoverRolloutSessions(now: Date = .now) {
+        let sessionsRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/sessions", isDirectory: true)
+        rolloutReader.discoverSessions(
+            in: sessionsRoot,
+            modifiedAfter: now.addingTimeInterval(-10 * 60)
+        )
+    }
+
     private func handleRolloutSignals() {
         let signals = rolloutReader.poll()
         guard !signals.isEmpty else {
@@ -218,6 +256,15 @@ final class BridgeModel {
                     startedAt: signal.timestamp,
                     updatedAt: signal.timestamp
                 )
+            if let subagentID = signal.subagentID {
+                applySubagentSignal(
+                    signal,
+                    subagentID: subagentID,
+                    to: &task
+                )
+                store.upsert(task)
+                continue
+            }
             if let lifecycle = signal.lifecycle {
                 task.lifecycle = lifecycle
             }
@@ -268,6 +315,57 @@ final class BridgeModel {
             store.upsert(task)
         }
         publishStore()
+    }
+
+    private func applySubagentSignal(
+        _ signal: CodexRolloutSignal,
+        subagentID: String,
+        to task: inout TaskSnapshot
+    ) {
+        let path = signal.subagentPath ?? task.subagents
+            .first(where: { $0.id == subagentID })?
+            .path
+            ?? "/root/subagent"
+        var subagent = task.subagents.first { $0.id == subagentID }
+            ?? SubagentSnapshot(
+                id: subagentID,
+                path: path,
+                lifecycle: signal.lifecycle ?? .running,
+                activity: signal.activity ?? .thinking,
+                startedAt: signal.timestamp,
+                updatedAt: signal.timestamp
+            )
+
+        if subagent.path != path {
+            subagent.path = path
+            subagent.displayName = SubagentSnapshot.name(from: path)
+        }
+        if let lifecycle = signal.lifecycle {
+            subagent.lifecycle = lifecycle
+        }
+        if let activity = signal.activity {
+            subagent.activity = activity
+        }
+        if let latestStep = signal.latestStep {
+            subagent.latestStep = latestStep
+        }
+        if let tokenUsage = signal.tokenUsage {
+            subagent.tokenUsage = tokenUsage
+        }
+        subagent.updatedAt = signal.timestamp
+
+        task.subagents.removeAll { $0.id == subagentID }
+        task.subagents.append(subagent)
+        task.subagents.sort {
+            if $0.isTerminal != $1.isTerminal {
+                return !$0.isTerminal
+            }
+            return $0.startedAt < $1.startedAt
+        }
+        task.updatedAt = max(task.updatedAt, signal.timestamp)
+        if task.lifecycle == .running {
+            task.activity = .delegating
+        }
     }
 
     private func handleControl(_ text: String) {

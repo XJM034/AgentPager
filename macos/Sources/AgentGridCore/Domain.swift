@@ -69,6 +69,64 @@ public struct TokenUsage: Codable, Equatable, Sendable {
     }
 }
 
+public struct SubagentSnapshot: Identifiable, Codable, Equatable, Sendable {
+    public var id: String
+    public var path: String
+    public var displayName: String
+    public var lifecycle: AgentLifecycle
+    public var activity: AgentActivity?
+    /// 只存在内存和实时协议中，绝不写入任务快照文件。
+    public var latestStep: String?
+    public var tokenUsage: TokenUsage?
+    public var startedAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        path: String,
+        displayName: String? = nil,
+        lifecycle: AgentLifecycle = .running,
+        activity: AgentActivity? = .thinking,
+        latestStep: String? = nil,
+        tokenUsage: TokenUsage? = nil,
+        startedAt: Date = .now,
+        updatedAt: Date = .now
+    ) {
+        self.id = id
+        self.path = path
+        self.displayName = displayName ?? Self.name(from: path)
+        self.lifecycle = lifecycle
+        self.activity = activity
+        self.latestStep = latestStep
+        self.tokenUsage = tokenUsage
+        self.startedAt = startedAt
+        self.updatedAt = updatedAt
+    }
+
+    public var isTerminal: Bool {
+        [.succeeded, .failed, .interrupted].contains(lifecycle)
+    }
+
+    public func elapsed(at now: Date = .now) -> TimeInterval {
+        max(0, (isTerminal ? updatedAt : now).timeIntervalSince(startedAt))
+    }
+
+    public static func name(from path: String) -> String {
+        let raw = path
+            .split(separator: "/")
+            .last
+            .map(String.init)?
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+        guard let first = raw.first else {
+            return "Codex 子代理"
+        }
+        return String(first).uppercased() + raw.dropFirst()
+    }
+}
+
 public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var source: AgentSource
@@ -79,6 +137,8 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
     /// 只存在内存和实时协议中，绝不写入任务快照文件。
     public var latestStep: String?
     public var tokenUsage: TokenUsage?
+    /// 子代理的名称、步骤和用量只存在内存和实时协议中。
+    public var subagents: [SubagentSnapshot]
     public var lifecycle: AgentLifecycle
     public var activity: AgentActivity?
     public var startedAt: Date
@@ -97,6 +157,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         userPrompt: String? = nil,
         latestStep: String? = nil,
         tokenUsage: TokenUsage? = nil,
+        subagents: [SubagentSnapshot] = [],
         lifecycle: AgentLifecycle,
         activity: AgentActivity? = nil,
         startedAt: Date = .now,
@@ -114,6 +175,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         self.userPrompt = userPrompt
         self.latestStep = latestStep
         self.tokenUsage = tokenUsage
+        self.subagents = subagents
         self.lifecycle = lifecycle
         self.activity = activity
         self.startedAt = startedAt

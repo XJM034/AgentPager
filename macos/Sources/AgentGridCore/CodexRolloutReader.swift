@@ -10,6 +10,8 @@ public struct CodexRolloutSignal: Equatable, Sendable {
     public var userPrompt: String?
     public var latestStep: String?
     public var tokenUsage: TokenUsage?
+    public var subagentID: String?
+    public var subagentPath: String?
     public var timestamp: Date
 
     public init(
@@ -22,6 +24,8 @@ public struct CodexRolloutSignal: Equatable, Sendable {
         userPrompt: String? = nil,
         latestStep: String? = nil,
         tokenUsage: TokenUsage? = nil,
+        subagentID: String? = nil,
+        subagentPath: String? = nil,
         timestamp: Date = .now
     ) {
         self.sessionID = sessionID
@@ -33,20 +37,33 @@ public struct CodexRolloutSignal: Equatable, Sendable {
         self.userPrompt = userPrompt
         self.latestStep = latestStep
         self.tokenUsage = tokenUsage
+        self.subagentID = subagentID
+        self.subagentPath = subagentPath
         self.timestamp = timestamp
     }
 }
 
 public struct CodexRolloutReader: Sendable {
+    private struct PendingSubagent: Sendable {
+        var id: String
+        var path: String
+        var parentSessionID: String
+        var parentCWD: String
+        var nearbyDirectory: URL
+    }
+
     private struct TrackedFile: Sendable {
         var url: URL
         var sessionID: String
         var cwd: String
+        var subagentID: String?
+        var subagentPath: String?
         var offset: UInt64
         var partialLine = Data()
     }
 
     private var trackedFiles: [String: TrackedFile] = [:]
+    private var pendingSubagents: [String: PendingSubagent] = [:]
 
     public init() {}
 
@@ -57,7 +74,11 @@ public struct CodexRolloutReader: Sendable {
     public mutating func track(
         filePath: String?,
         sessionID: String,
-        cwd: String
+        cwd: String,
+        subagentID: String? = nil,
+        subagentPath: String? = nil,
+        readExisting: Bool = false,
+        maximumReplayBytes: UInt64? = nil
     ) {
         guard let filePath, !filePath.isEmpty else {
             return
@@ -69,19 +90,72 @@ public struct CodexRolloutReader: Sendable {
         if var existing = trackedFiles[key] {
             existing.sessionID = sessionID
             existing.cwd = cwd
+            existing.subagentID = subagentID
+            existing.subagentPath = subagentPath
             trackedFiles[key] = existing
         } else {
-            // 从当前文件尾部开始，只处理注册后的增量事件。
+            let replayOffset: UInt64
+            if readExisting, let maximumReplayBytes {
+                replayOffset = size > maximumReplayBytes ? size - maximumReplayBytes : 0
+            } else {
+                replayOffset = readExisting ? 0 : size
+            }
             trackedFiles[key] = TrackedFile(
                 url: url,
                 sessionID: sessionID,
                 cwd: cwd,
-                offset: size
+                subagentID: subagentID,
+                subagentPath: subagentPath,
+                offset: replayOffset
             )
         }
     }
 
+    @discardableResult
+    public mutating func discoverSessions(
+        in sessionsRoot: URL,
+        modifiedAfter: Date,
+        maximumReplayBytes: UInt64 = 2 * 1_024 * 1_024
+    ) -> Int {
+        let fileManager = FileManager.default
+        let resourceKeys: [URLResourceKey] = [
+            .contentModificationDateKey,
+            .isRegularFileKey,
+        ]
+        guard let enumerator = fileManager.enumerator(
+            at: sessionsRoot,
+            includingPropertiesForKeys: resourceKeys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return 0
+        }
+
+        var discovered = 0
+        for case let fileURL as URL in enumerator
+        where fileURL.pathExtension == "jsonl" {
+            let key = fileURL.standardizedFileURL.path
+            guard trackedFiles[key] == nil,
+                  let values = try? fileURL.resourceValues(forKeys: Set(resourceKeys)),
+                  values.isRegularFile == true,
+                  let modifiedAt = values.contentModificationDate,
+                  modifiedAt >= modifiedAfter,
+                  let metadata = Self.sessionMetadata(at: fileURL) else {
+                continue
+            }
+            track(
+                filePath: fileURL.path,
+                sessionID: metadata.sessionID,
+                cwd: metadata.cwd,
+                readExisting: true,
+                maximumReplayBytes: maximumReplayBytes
+            )
+            discovered += 1
+        }
+        return discovered
+    }
+
     public mutating func poll() -> [CodexRolloutSignal] {
+        resolvePendingSubagents()
         var signals: [CodexRolloutSignal] = []
 
         for key in Array(trackedFiles.keys) {
@@ -115,9 +189,20 @@ public struct CodexRolloutReader: Sendable {
                     if let signal = Self.signal(
                         from: Data(line),
                         sessionID: tracked.sessionID,
-                        cwd: tracked.cwd
+                        cwd: tracked.cwd,
+                        trackedSubagentID: tracked.subagentID,
+                        trackedSubagentPath: tracked.subagentPath
                     ) {
                         signals.append(signal)
+                        if tracked.subagentID == nil,
+                           let subagentID = signal.subagentID,
+                           let subagentPath = signal.subagentPath {
+                            trackSubagent(
+                                id: subagentID,
+                                path: subagentPath,
+                                parent: tracked
+                            )
+                        }
                     }
                 }
             } catch {
@@ -130,10 +215,66 @@ public struct CodexRolloutReader: Sendable {
         return signals
     }
 
+    private mutating func trackSubagent(
+        id: String,
+        path: String,
+        parent: TrackedFile
+    ) {
+        guard !trackedFiles.values.contains(where: { $0.subagentID == id }) else {
+            pendingSubagents.removeValue(forKey: id)
+            return
+        }
+        guard let fileURL = Self.findRolloutFile(
+                sessionID: id,
+                near: parent.url.deletingLastPathComponent()
+              ) else {
+            pendingSubagents[id] = PendingSubagent(
+                id: id,
+                path: path,
+                parentSessionID: parent.sessionID,
+                parentCWD: parent.cwd,
+                nearbyDirectory: parent.url.deletingLastPathComponent()
+            )
+            return
+        }
+        track(
+            filePath: fileURL.path,
+            sessionID: parent.sessionID,
+            cwd: parent.cwd,
+            subagentID: id,
+            subagentPath: path,
+            readExisting: true
+        )
+        pendingSubagents.removeValue(forKey: id)
+    }
+
+    private mutating func resolvePendingSubagents() {
+        for pending in Array(pendingSubagents.values) {
+            guard !trackedFiles.values.contains(where: { $0.subagentID == pending.id }),
+                  let fileURL = Self.findRolloutFile(
+                    sessionID: pending.id,
+                    near: pending.nearbyDirectory
+                  ) else {
+                continue
+            }
+            track(
+                filePath: fileURL.path,
+                sessionID: pending.parentSessionID,
+                cwd: pending.parentCWD,
+                subagentID: pending.id,
+                subagentPath: pending.path,
+                readExisting: true
+            )
+            pendingSubagents.removeValue(forKey: pending.id)
+        }
+    }
+
     public static func signal(
         from line: Data,
         sessionID: String,
         cwd: String,
+        trackedSubagentID: String? = nil,
+        trackedSubagentPath: String? = nil,
         now: Date = .now
     ) -> CodexRolloutSignal? {
         guard let root = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
@@ -151,6 +292,8 @@ public struct CodexRolloutReader: Sendable {
                 payload: payload,
                 sessionID: sessionID,
                 cwd: cwd,
+                subagentID: trackedSubagentID,
+                subagentPath: trackedSubagentPath,
                 timestamp: timestamp
             )
         }
@@ -179,6 +322,21 @@ public struct CodexRolloutReader: Sendable {
         case "token_count":
             guard let usage = tokenUsage(from: payload) else { return nil }
             return signal(nil, nil, tokenUsage: usage, timestamp: timestamp)
+        case "sub_agent_activity":
+            guard trackedSubagentID == nil,
+                  let childID = payload["agent_thread_id"] as? String,
+                  let childPath = payload["agent_path"] as? String else {
+                return nil
+            }
+            return CodexRolloutSignal(
+                sessionID: sessionID,
+                cwd: cwd,
+                lifecycle: .running,
+                activity: .thinking,
+                subagentID: childID,
+                subagentPath: childPath,
+                timestamp: Self.millisecondDate(payload["occurred_at_ms"]) ?? timestamp
+            )
         case "exec_command_begin", "terminal_interaction":
             return signal(
                 .running,
@@ -253,6 +411,8 @@ public struct CodexRolloutReader: Sendable {
                 userPrompt: userPrompt,
                 latestStep: latestStep,
                 tokenUsage: tokenUsage,
+                subagentID: trackedSubagentID,
+                subagentPath: trackedSubagentPath,
                 timestamp: timestamp
             )
         }
@@ -263,6 +423,8 @@ public struct CodexRolloutReader: Sendable {
         payload: [String: Any],
         sessionID: String,
         cwd: String,
+        subagentID: String?,
+        subagentPath: String?,
         timestamp: Date
     ) -> CodexRolloutSignal? {
         guard ["function_call", "custom_tool_call", "tool_search_call"].contains(type) else {
@@ -281,6 +443,8 @@ public struct CodexRolloutReader: Sendable {
             lifecycle: .running,
             activity: activity,
             latestStep: step,
+            subagentID: subagentID,
+            subagentPath: subagentPath,
             timestamp: timestamp
         )
     }
@@ -370,6 +534,71 @@ public struct CodexRolloutReader: Sendable {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func millisecondDate(_ value: Any?) -> Date? {
+        guard let milliseconds = value as? NSNumber else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: milliseconds.doubleValue / 1_000)
+    }
+
+    private static func sessionMetadata(
+        at fileURL: URL
+    ) -> (sessionID: String, cwd: String)? {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        guard let prefix = try? handle.read(upToCount: 1_024 * 1_024),
+              let newline = prefix.firstIndex(of: UInt8(ascii: "\n")),
+              let root = try? JSONSerialization.jsonObject(
+                  with: Data(prefix[..<newline])
+              ) as? [String: Any],
+              root["type"] as? String == "session_meta",
+              let payload = root["payload"] as? [String: Any],
+              (payload["source"] as? [String: Any])?["subagent"] == nil,
+              let sessionID = payload["id"] as? String
+                  ?? payload["session_id"] as? String,
+              !sessionID.isEmpty,
+              let cwd = payload["cwd"] as? String,
+              !cwd.isEmpty else {
+            return nil
+        }
+        return (sessionID, cwd)
+    }
+
+    private static func findRolloutFile(
+        sessionID: String,
+        near directory: URL
+    ) -> URL? {
+        let fileManager = FileManager.default
+        if let files = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ), let match = files.first(where: {
+            $0.lastPathComponent.contains(sessionID) && $0.pathExtension == "jsonl"
+        }) {
+            return match
+        }
+
+        let root = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/sessions", isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        for case let fileURL as URL in enumerator
+        where fileURL.lastPathComponent.contains(sessionID)
+            && fileURL.pathExtension == "jsonl" {
+            return fileURL
+        }
+        return nil
     }
 
     private static func fileSize(at url: URL) -> UInt64 {

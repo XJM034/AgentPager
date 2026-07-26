@@ -20,6 +20,13 @@ struct TaskSnapshotPersistenceTests {
             userPrompt: "这段用户原话不能写入磁盘",
             latestStep: "rm -rf 这段命令也不能写入磁盘",
             tokenUsage: TokenUsage(input: 100, output: 20, total: 120),
+            subagents: [
+                SubagentSnapshot(
+                    id: "child-1",
+                    path: "/root/private_worker",
+                    latestStep: "子代理命令不能写入磁盘"
+                ),
+            ],
             lifecycle: .running,
             activity: .editing,
             startedAt: Date(timeIntervalSince1970: 100),
@@ -34,10 +41,13 @@ struct TaskSnapshotPersistenceTests {
         #expect(loaded.tokenUsage == task.tokenUsage)
         #expect(loaded.userPrompt == nil)
         #expect(loaded.latestStep == nil)
+        #expect(loaded.subagents.isEmpty)
 
         let storedText = try String(contentsOf: persistence.fileURL, encoding: .utf8)
         #expect(!storedText.contains("用户原话"))
         #expect(!storedText.contains("rm -rf"))
+        #expect(!storedText.contains("private_worker"))
+        #expect(!storedText.contains("子代理命令"))
     }
 
     @Test

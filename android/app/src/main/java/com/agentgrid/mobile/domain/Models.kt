@@ -176,11 +176,23 @@ data class UsageWindow(
 )
 
 @Serializable
+data class DailyUsagePoint(
+    val date: String,
+    val inputTokens: Long = 0,
+    val cachedInputTokens: Long = 0,
+    val outputTokens: Long = 0,
+    val reasoningOutputTokens: Long = 0,
+    val totalTokens: Long = 0,
+    val estimatedCostUSD: Double? = null,
+)
+
+@Serializable
 data class UsageSnapshot(
     val capturedAt: Long? = null,
     val planType: String? = null,
     val limitID: String? = null,
     val windows: List<UsageWindow> = emptyList(),
+    val dailyUsage: List<DailyUsagePoint> = emptyList(),
 )
 
 @Serializable

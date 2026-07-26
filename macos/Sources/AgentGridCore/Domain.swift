@@ -230,19 +230,21 @@ public struct UsageWindow: Identifiable, Codable, Equatable, Sendable {
 public struct DailyUsagePoint: Identifiable, Codable, Equatable, Sendable {
     public var id: String { date }
     public var date: String
-    public var inputTokens: Int
-    public var cachedInputTokens: Int
-    public var outputTokens: Int
-    public var reasoningOutputTokens: Int
-    public var totalTokens: Int
+    public var inputTokens: Int64
+    public var cachedInputTokens: Int64
+    public var outputTokens: Int64
+    public var reasoningOutputTokens: Int64
+    public var totalTokens: Int64
+    public var estimatedCostUSD: Double?
 
     public init(
         date: String,
-        inputTokens: Int = 0,
-        cachedInputTokens: Int = 0,
-        outputTokens: Int = 0,
-        reasoningOutputTokens: Int = 0,
-        totalTokens: Int = 0
+        inputTokens: Int64 = 0,
+        cachedInputTokens: Int64 = 0,
+        outputTokens: Int64 = 0,
+        reasoningOutputTokens: Int64 = 0,
+        totalTokens: Int64 = 0,
+        estimatedCostUSD: Double? = nil
     ) {
         self.date = date
         self.inputTokens = inputTokens
@@ -250,6 +252,7 @@ public struct DailyUsagePoint: Identifiable, Codable, Equatable, Sendable {
         self.outputTokens = outputTokens
         self.reasoningOutputTokens = reasoningOutputTokens
         self.totalTokens = totalTokens
+        self.estimatedCostUSD = estimatedCostUSD
     }
 }
 

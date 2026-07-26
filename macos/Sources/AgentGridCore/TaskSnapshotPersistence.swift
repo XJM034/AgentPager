@@ -6,6 +6,7 @@ public struct TaskSnapshotPersistence: Sendable {
         var source: AgentSource
         var projectName: String
         var title: String
+        var userPrompt: String?
         var tokenUsage: TokenUsage?
         var lifecycle: AgentLifecycle
         var activity: AgentActivity?
@@ -22,6 +23,7 @@ public struct TaskSnapshotPersistence: Sendable {
             source = task.source
             projectName = task.projectName
             title = task.title
+            userPrompt = task.userPrompt
             tokenUsage = task.tokenUsage
             lifecycle = task.lifecycle
             activity = task.activity
@@ -40,7 +42,7 @@ public struct TaskSnapshotPersistence: Sendable {
                 source: source,
                 projectName: projectName,
                 title: title,
-                userPrompt: nil,
+                userPrompt: userPrompt,
                 latestStep: nil,
                 tokenUsage: tokenUsage,
                 lifecycle: lifecycle,

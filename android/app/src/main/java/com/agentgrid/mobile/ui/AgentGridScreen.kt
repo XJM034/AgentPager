@@ -17,6 +17,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +59,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -82,6 +85,7 @@ import com.agentgrid.mobile.domain.PendingRequest
 import com.agentgrid.mobile.domain.PendingRequestKind
 import com.agentgrid.mobile.domain.SubagentSnapshot
 import com.agentgrid.mobile.domain.TaskCapability
+import com.agentgrid.mobile.domain.TaskDashboardPolicy
 import com.agentgrid.mobile.domain.TaskOrdering
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
@@ -260,6 +264,25 @@ private fun TaskTerminal(
     onExitTerminal: () -> Unit,
 ) {
     val tasks = remember(state.tasks) { TaskOrdering.sorted(state.tasks) }
+    val automaticDashboardVisible by produceState(
+        initialValue = TaskDashboardPolicy.shouldShowDashboard(
+            tasks = tasks,
+            now = System.currentTimeMillis(),
+        ),
+        tasks,
+    ) {
+        val waitMillis = TaskDashboardPolicy.timeUntilDashboard(
+            tasks = tasks,
+            now = System.currentTimeMillis(),
+        )
+        value = waitMillis == 0L
+        if (waitMillis in 1L until Long.MAX_VALUE) {
+            delay(waitMillis)
+            value = true
+        }
+    }
+    var manualDashboardVisible by remember { mutableStateOf<Boolean?>(null) }
+    val showDashboard = manualDashboardVisible ?: automaticDashboardVisible
     val urgentTask = tasks.firstOrNull {
         it.lifecycle == AgentLifecycle.WAITING_APPROVAL ||
             it.lifecycle == AgentLifecycle.WAITING_ANSWER
@@ -273,6 +296,12 @@ private fun TaskTerminal(
     val visibleTasks = tasks.take(5)
     val visibleTaskIDs = visibleTasks.map { it.id }
     var previousVisibleTaskIDs by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var previousTaskTerminalStates by remember {
+        mutableStateOf<Map<String, Boolean>?>(null)
+    }
+    val taskTerminalStates = remember(tasks) {
+        tasks.associate { it.id to it.isTerminal }
+    }
     val enteringVisibleTaskIDs = TaskOrdering.enteringVisibleTaskIDs(
         previousVisibleTaskIDs = previousVisibleTaskIDs,
         orderedTasks = tasks,
@@ -298,6 +327,15 @@ private fun TaskTerminal(
     LaunchedEffect(visibleTaskIDs) {
         previousVisibleTaskIDs = visibleTaskIDs.toSet()
     }
+    LaunchedEffect(taskTerminalStates) {
+        // 新任务会清除手动选择，优先展示任务态，并恢复后续的自动切换策略。
+        manualDashboardVisible = TaskDashboardPolicy.manualDashboardOverrideAfterTaskUpdate(
+            previousTerminalStates = previousTaskTerminalStates,
+            currentTasks = tasks,
+            currentOverride = manualDashboardVisible,
+        )
+        previousTaskTerminalStates = taskTerminalStates
+    }
     LaunchedEffect(
         automaticallyExpandedTask?.id,
         automaticallyExpandedTask?.lifecycle,
@@ -317,8 +355,17 @@ private fun TaskTerminal(
             .background(AgentGridColors.Background),
     ) {
         TopControls(
-            windows = state.usage?.windows.orEmpty(),
+            windows = if (showDashboard) {
+                emptyList()
+            } else {
+                state.usage?.windows.orEmpty()
+            },
             settingsVisible = settingsVisible,
+            dashboardVisible = showDashboard,
+            onToggleDashboard = {
+                manualDashboardVisible = !showDashboard
+                settingsVisible = false
+            },
             onToggleSettings = { settingsVisible = !settingsVisible },
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -326,7 +373,7 @@ private fun TaskTerminal(
         )
 
         AnimatedContent(
-            targetState = tasks.isEmpty(),
+            targetState = showDashboard,
             transitionSpec = {
                 (
                     (
@@ -345,10 +392,13 @@ private fun TaskTerminal(
                 ).using(SizeTransform(clip = false))
             },
             modifier = Modifier.align(Alignment.Center),
-            label = "任务空态切换",
-        ) { isEmpty ->
-            if (isEmpty) {
-                EmptyState(connected = state.linkState == LinkState.CONNECTED)
+            label = "任务态与状态态切换",
+        ) { isDashboardVisible ->
+            if (isDashboardVisible) {
+                UsageDashboard(
+                    usage = state.usage,
+                    connected = state.linkState == LinkState.CONNECTED,
+                )
             } else {
                 LazyColumn(
                     state = taskListState,
@@ -461,6 +511,8 @@ private fun TaskTerminal(
 private fun TopControls(
     windows: List<UsageWindow>,
     settingsVisible: Boolean,
+    dashboardVisible: Boolean,
+    onToggleDashboard: () -> Unit,
     onToggleSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -472,17 +524,65 @@ private fun TopControls(
         windows.take(2).forEach { window ->
             UsagePill(window)
         }
-        Text(
-            if (settingsVisible) "×" else "SET",
-            color = if (settingsVisible) AgentGridColors.Amber else AgentGridColors.Muted,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
+        Box(
             modifier = Modifier
-                .background(AgentGridColors.Surface)
+                .size(28.dp)
+                .clickable(onClick = onToggleDashboard)
+                .semantics {
+                    contentDescription = if (dashboardVisible) {
+                        "切换到任务列表"
+                    } else {
+                        "切换到状态显示栏"
+                    }
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            ViewSwitchIcon(showTaskIcon = dashboardVisible)
+        }
+        Box(
+            modifier = Modifier
+                .size(28.dp)
                 .clickable(onClick = onToggleSettings)
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-                .semantics { contentDescription = "打开设置" },
-        )
+                .semantics {
+                    contentDescription = if (settingsVisible) "关闭设置" else "打开设置"
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (settingsVisible) "×" else "⚙",
+                color = if (settingsVisible) AgentGridColors.Amber else AgentGridColors.Muted,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViewSwitchIcon(showTaskIcon: Boolean) {
+    Canvas(modifier = Modifier.size(12.dp)) {
+        val unit = size.minDimension / 16f
+
+        fun pixelRect(x: Float, y: Float, width: Float, height: Float) {
+            drawRect(
+                color = AgentGridColors.Muted,
+                topLeft = Offset(x * unit, y * unit),
+                size = Size(width * unit, height * unit),
+            )
+        }
+
+        if (showTaskIcon) {
+            // 三行任务列表：左侧状态格，右侧信息条。
+            listOf(1f, 7f, 13f).forEach { y ->
+                pixelRect(x = 0f, y = y, width = 3f, height = 3f)
+                pixelRect(x = 5f, y = y, width = 11f, height = 3f)
+            }
+        } else {
+            // 三档状态柱：用硬直角高度差表示状态总览。
+            pixelRect(x = 0f, y = 10f, width = 4f, height = 6f)
+            pixelRect(x = 6f, y = 6f, width = 4f, height = 10f)
+            pixelRect(x = 12f, y = 1f, width = 4f, height = 15f)
+        }
     }
 }
 
@@ -1031,35 +1131,6 @@ private fun SettingsPanel(
         }
         PixelButton("解除配对", AgentGridColors.Red, onUnpair)
         PixelButton("退出专用模式", AgentGridColors.Muted, onExitTerminal)
-    }
-}
-
-@Composable
-private fun EmptyState(
-    connected: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        AndroidView(
-            factory = { PixelCoreSurfaceView(it) },
-            update = {
-                it.updateState(
-                    PixelRenderState(
-                        lifecycle = if (connected) AgentLifecycle.IDLE else AgentLifecycle.OFFLINE,
-                    ),
-                )
-            },
-            modifier = Modifier.size(76.dp),
-        )
-        Text(
-            if (connected) "等待 Codex 任务" else "等待 Bridge",
-            color = AgentGridColors.Muted,
-            fontSize = 11.sp,
-        )
     }
 }
 

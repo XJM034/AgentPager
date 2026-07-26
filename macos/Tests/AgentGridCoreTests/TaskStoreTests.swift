@@ -52,6 +52,30 @@ func purgeOnlyExpiredTerminalTasks() {
     #expect(store.tasks.map(\.id) == ["active"])
 }
 
+@Test("完成任务默认保留一小时")
+func terminalTasksUseOneHourDefaultRetention() {
+    let now = Date(timeIntervalSince1970: 20_000)
+    let recent = TaskSnapshot(
+        id: "recent",
+        source: .codexCLI,
+        projectName: "未过期",
+        lifecycle: .succeeded,
+        completedAt: now.addingTimeInterval(-3_600)
+    )
+    let expired = TaskSnapshot(
+        id: "expired",
+        source: .codexCLI,
+        projectName: "已过期",
+        lifecycle: .interrupted,
+        completedAt: now.addingTimeInterval(-3_601)
+    )
+    var store = TaskStore(tasks: [recent, expired])
+
+    store.purge(now: now)
+
+    #expect(store.tasks.map(\.id) == ["recent"])
+}
+
 @Test("过期的测试与模拟任务会自动清理")
 func staleSyntheticTasksArePurged() {
     let now = Date(timeIntervalSince1970: 20_000)

@@ -1,57 +1,199 @@
 import Foundation
 
-/// 这部分解析逻辑源自作者自己的 Open Vibe Island，并针对 AgentGrid 的领域模型做了收敛。
+/// 读取 Codex 本地日志中的额度窗口与近期 Token 用量。
 public enum CodexUsageLoader {
+    public static let historyDayCount = 90
+    private static let historyTailSize = 256 * 1_024
+    private static let exactHistoryFileSizeLimit = historyTailSize
+
     public static var defaultRootURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/sessions", isDirectory: true)
     }
 
+    public static var defaultRootURLs: [URL] {
+        let codexRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex", isDirectory: true)
+        return [
+            codexRoot.appendingPathComponent("sessions", isDirectory: true),
+            codexRoot.appendingPathComponent("archived_sessions", isDirectory: true),
+        ]
+    }
+
     private struct Candidate {
         var fileURL: URL
         var modifiedAt: Date
+        var fileSize: Int
     }
 
-    public static func load(
-        fromRootURL rootURL: URL = defaultRootURL,
-        fileManager: FileManager = .default
-    ) -> UsageSnapshot? {
-        guard fileManager.fileExists(atPath: rootURL.path),
-              let enumerator = fileManager.enumerator(
-                at: rootURL,
-                includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-              ) else {
-            return nil
+    private struct RawUsage {
+        var input: Int64
+        var cachedInput: Int64
+        var output: Int64
+        var reasoningOutput: Int64
+        var total: Int64
+
+        static let zero = RawUsage(
+            input: 0,
+            cachedInput: 0,
+            output: 0,
+            reasoningOutput: 0,
+            total: 0
+        )
+
+        var isEmpty: Bool {
+            input == 0 &&
+                cachedInput == 0 &&
+                output == 0 &&
+                reasoningOutput == 0 &&
+                total == 0
         }
 
-        var candidates: [Candidate] = []
-        for case let fileURL as URL in enumerator {
-            guard fileURL.lastPathComponent.hasPrefix("rollout-"),
-                  fileURL.pathExtension == "jsonl",
-                  let values = try? fileURL.resourceValues(
-                    forKeys: [.contentModificationDateKey, .isRegularFileKey]
-                  ),
-                  values.isRegularFile == true else {
-                continue
-            }
-            candidates.append(
-                Candidate(
-                    fileURL: fileURL,
-                    modifiedAt: values.contentModificationDate ?? .distantPast
-                )
+        func subtracting(_ previous: RawUsage?) -> RawUsage {
+            RawUsage(
+                input: max(0, input - (previous?.input ?? 0)),
+                cachedInput: max(0, cachedInput - (previous?.cachedInput ?? 0)),
+                output: max(0, output - (previous?.output ?? 0)),
+                reasoningOutput: max(0, reasoningOutput - (previous?.reasoningOutput ?? 0)),
+                total: max(0, total - (previous?.total ?? 0))
             )
         }
 
-        for candidate in candidates.sorted(by: { $0.modifiedAt > $1.modifiedAt }) {
-            if let snapshot = latestSnapshot(
-                from: candidate.fileURL,
-                modifiedAt: candidate.modifiedAt
-            ) {
-                return snapshot
+        static func + (lhs: RawUsage, rhs: RawUsage) -> RawUsage {
+            RawUsage(
+                input: lhs.input + rhs.input,
+                cachedInput: lhs.cachedInput + rhs.cachedInput,
+                output: lhs.output + rhs.output,
+                reasoningOutput: lhs.reasoningOutput + rhs.reasoningOutput,
+                total: lhs.total + rhs.total
+            )
+        }
+    }
+
+    public static func load(
+        fileManager: FileManager = .default,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> UsageSnapshot? {
+        let nativeSnapshot = load(
+            fromRootURLs: defaultRootURLs,
+            fileManager: fileManager,
+            now: now,
+            calendar: calendar
+        )
+        guard let codexBarUsage = CodexBarCostLoader.load(
+            historyDays: historyDayCount,
+            fileManager: fileManager
+        ) else {
+            return nativeSnapshot
+        }
+        return mergedSnapshot(
+            nativeSnapshot,
+            codexBarUsage: codexBarUsage,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    public static func load(
+        fromRootURL rootURL: URL,
+        fileManager: FileManager = .default,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> UsageSnapshot? {
+        load(
+            fromRootURLs: [rootURL],
+            fileManager: fileManager,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    private static func load(
+        fromRootURLs rootURLs: [URL],
+        fileManager: FileManager,
+        now: Date,
+        calendar: Calendar
+    ) -> UsageSnapshot? {
+        let candidates = candidates(
+            fromRootURLs: rootURLs,
+            fileManager: fileManager
+        )
+        guard !candidates.isEmpty else {
+            return nil
+        }
+
+        let quotaSnapshot = candidates
+            .sorted { $0.modifiedAt > $1.modifiedAt }
+            .lazy
+            .compactMap {
+                latestSnapshot(from: $0.fileURL, modifiedAt: $0.modifiedAt)
+            }
+            .first
+        let dailyUsage = dailyUsage(
+            from: candidates,
+            now: now,
+            calendar: calendar
+        )
+        guard quotaSnapshot != nil || !dailyUsage.isEmpty else {
+            return nil
+        }
+
+        return UsageSnapshot(
+            capturedAt: quotaSnapshot?.capturedAt ??
+                candidates.max(by: { $0.modifiedAt < $1.modifiedAt })?.modifiedAt,
+            planType: quotaSnapshot?.planType,
+            limitID: quotaSnapshot?.limitID,
+            windows: quotaSnapshot?.windows ?? [],
+            dailyUsage: dailyUsage
+        )
+    }
+
+    private static func candidates(
+        fromRootURLs rootURLs: [URL],
+        fileManager: FileManager
+    ) -> [Candidate] {
+        var result: [Candidate] = []
+        var visitedPaths = Set<String>()
+
+        for rootURL in rootURLs {
+            guard fileManager.fileExists(atPath: rootURL.path),
+                  let enumerator = fileManager.enumerator(
+                    at: rootURL,
+                    includingPropertiesForKeys: [
+                        .contentModificationDateKey,
+                        .fileSizeKey,
+                        .isRegularFileKey,
+                    ],
+                    options: [.skipsHiddenFiles]
+                  ) else {
+                continue
+            }
+
+            for case let fileURL as URL in enumerator {
+                guard fileURL.lastPathComponent.hasPrefix("rollout-"),
+                      fileURL.pathExtension == "jsonl",
+                      visitedPaths.insert(fileURL.standardizedFileURL.path).inserted,
+                      let values = try? fileURL.resourceValues(
+                        forKeys: [
+                            .contentModificationDateKey,
+                            .fileSizeKey,
+                            .isRegularFileKey,
+                        ]
+                      ),
+                      values.isRegularFile == true else {
+                    continue
+                }
+                result.append(
+                    Candidate(
+                        fileURL: fileURL,
+                        modifiedAt: values.contentModificationDate ?? .distantPast,
+                        fileSize: values.fileSize ?? 0
+                    )
+                )
             }
         }
-        return nil
+        return result
     }
 
     private static func latestSnapshot(from fileURL: URL, modifiedAt: Date) -> UsageSnapshot? {
@@ -127,6 +269,257 @@ public enum CodexUsageLoader {
         )
     }
 
+    private static func dailyUsage(
+        from candidates: [Candidate],
+        now: Date,
+        calendar: Calendar
+    ) -> [DailyUsagePoint] {
+        let startOfToday = calendar.startOfDay(for: now)
+        guard let historyStart = calendar.date(
+            byAdding: .day,
+            value: -(historyDayCount - 1),
+            to: startOfToday
+        ) else {
+            return []
+        }
+
+        var buckets: [String: RawUsage] = [:]
+        let formatter = dayFormatter(calendar: calendar)
+
+        for candidate in candidates where candidate.modifiedAt >= historyStart {
+            if candidate.fileSize <= exactHistoryFileSizeLimit {
+                aggregateDailyUsage(
+                    from: candidate.fileURL,
+                    historyStart: historyStart,
+                    calendar: calendar,
+                    formatter: formatter,
+                    into: &buckets
+                )
+            } else if let latest = latestCumulativeUsage(from: candidate.fileURL),
+                      latest.timestamp >= historyStart,
+                      !latest.usage.isEmpty {
+                // 大型长会话只读取尾部累计值，避免空状态首次出现时串行扫描数 GB 日志。
+                let day = calendar.startOfDay(for: latest.timestamp)
+                let key = formatter.string(from: day)
+                buckets[key] = (buckets[key] ?? .zero) + latest.usage
+            }
+        }
+        guard !buckets.isEmpty else {
+            return []
+        }
+
+        return (0..<historyDayCount).compactMap { offset in
+            guard let day = calendar.date(
+                byAdding: .day,
+                value: offset - (historyDayCount - 1),
+                to: startOfToday
+            ) else {
+                return nil
+            }
+            let key = formatter.string(from: day)
+            let usage = buckets[key] ?? .zero
+            return DailyUsagePoint(
+                date: key,
+                inputTokens: usage.input,
+                cachedInputTokens: usage.cachedInput,
+                outputTokens: usage.output,
+                reasoningOutputTokens: usage.reasoningOutput,
+                totalTokens: usage.total
+            )
+        }
+    }
+
+    private static func mergedSnapshot(
+        _ nativeSnapshot: UsageSnapshot?,
+        codexBarUsage: [DailyUsagePoint],
+        now: Date,
+        calendar: Calendar
+    ) -> UsageSnapshot? {
+        guard nativeSnapshot != nil || !codexBarUsage.isEmpty else {
+            return nil
+        }
+
+        let nativeByDate = Dictionary(
+            uniqueKeysWithValues: nativeSnapshot?.dailyUsage.map { ($0.date, $0) } ?? []
+        )
+        let codexBarByDate = Dictionary(
+            uniqueKeysWithValues: codexBarUsage.map { ($0.date, $0) }
+        )
+        let formatter = dayFormatter(calendar: calendar)
+        let startOfToday = calendar.startOfDay(for: now)
+        let dailyUsage = (0..<historyDayCount).compactMap { offset -> DailyUsagePoint? in
+            guard let day = calendar.date(
+                byAdding: .day,
+                value: offset - (historyDayCount - 1),
+                to: startOfToday
+            ) else {
+                return nil
+            }
+            let key = formatter.string(from: day)
+            if var point = codexBarByDate[key] {
+                point.reasoningOutputTokens = nativeByDate[key]?.reasoningOutputTokens ?? 0
+                return point
+            }
+            return nativeByDate[key] ?? DailyUsagePoint(date: key)
+        }
+
+        return UsageSnapshot(
+            capturedAt: nativeSnapshot?.capturedAt ?? now,
+            planType: nativeSnapshot?.planType,
+            limitID: nativeSnapshot?.limitID,
+            windows: nativeSnapshot?.windows ?? [],
+            dailyUsage: dailyUsage
+        )
+    }
+
+    private static func aggregateDailyUsage(
+        from fileURL: URL,
+        historyStart: Date,
+        calendar: Calendar,
+        formatter: DateFormatter,
+        into buckets: inout [String: RawUsage]
+    ) {
+        var previousTotals: RawUsage?
+        forEachLine(in: fileURL) { line in
+            guard line.contains("\"token_count\""),
+                  let object = object(from: line),
+                  object["type"] as? String == "event_msg",
+                  let timestamp = parseTimestamp(object["timestamp"]),
+                  let payload = object["payload"] as? [String: Any],
+                  payload["type"] as? String == "token_count" else {
+                return
+            }
+
+            let info = payload["info"] as? [String: Any] ?? [:]
+            let totalUsage = rawUsage(
+                info["total_token_usage"] ?? payload["total_token_usage"]
+            )
+            let lastUsage = rawUsage(
+                info["last_token_usage"] ?? payload["last_token_usage"]
+            )
+            let delta = lastUsage ?? totalUsage?.subtracting(previousTotals)
+            if let totalUsage {
+                previousTotals = totalUsage
+            }
+            guard timestamp >= historyStart,
+                  let delta,
+                  !delta.isEmpty else {
+                return
+            }
+
+            let day = calendar.startOfDay(for: timestamp)
+            let key = formatter.string(from: day)
+            buckets[key] = (buckets[key] ?? .zero) + delta
+        }
+    }
+
+    private static func latestCumulativeUsage(
+        from fileURL: URL
+    ) -> (timestamp: Date, usage: RawUsage)? {
+        guard let data = tailData(from: fileURL, maximumSize: historyTailSize) else {
+            return nil
+        }
+
+        var lineEnd = data.endIndex
+        while lineEnd > data.startIndex {
+            let searchEnd = data.index(before: lineEnd)
+            let lineBreak = data[data.startIndex..<searchEnd].lastIndex(of: 0x0A)
+            let lineStart = lineBreak.map { data.index(after: $0) } ?? data.startIndex
+            let lineData = data[lineStart..<lineEnd]
+            lineEnd = lineBreak ?? data.startIndex
+
+            guard let line = String(data: lineData, encoding: .utf8),
+                  line.contains("\"token_count\""),
+                  let object = object(from: line),
+                  object["type"] as? String == "event_msg",
+                  let timestamp = parseTimestamp(object["timestamp"]),
+                  let payload = object["payload"] as? [String: Any],
+                  payload["type"] as? String == "token_count" else {
+                continue
+            }
+            let info = payload["info"] as? [String: Any] ?? [:]
+            if let usage = rawUsage(
+                info["total_token_usage"] ?? payload["total_token_usage"]
+            ) {
+                return (timestamp, usage)
+            }
+        }
+        return nil
+    }
+
+    private static func tailData(from fileURL: URL, maximumSize: Int) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        guard let size = try? handle.seekToEnd() else {
+            return nil
+        }
+        let tailSize = min(size, UInt64(maximumSize))
+        try? handle.seek(toOffset: size - tailSize)
+        return try? handle.readToEnd()
+    }
+
+    private static func forEachLine(in fileURL: URL, body: (String) -> Void) {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
+            return
+        }
+        defer { try? handle.close() }
+
+        var pending = Data()
+        while let chunk = try? handle.read(upToCount: 64 * 1_024),
+              !chunk.isEmpty {
+            pending.append(chunk)
+            var lineStart = pending.startIndex
+            while let lineEnd = pending[lineStart...].firstIndex(of: 0x0A) {
+                if let line = String(
+                    data: pending[lineStart..<lineEnd],
+                    encoding: .utf8
+                ) {
+                    body(line)
+                }
+                lineStart = pending.index(after: lineEnd)
+            }
+            if lineStart > pending.startIndex {
+                pending.removeSubrange(pending.startIndex..<lineStart)
+            }
+        }
+        if !pending.isEmpty,
+           let line = String(data: pending, encoding: .utf8) {
+            body(line)
+        }
+    }
+
+    private static func rawUsage(_ value: Any?) -> RawUsage? {
+        guard let payload = value as? [String: Any] else {
+            return nil
+        }
+        let input = int64(payload["input_tokens"]) ?? 0
+        let output = int64(payload["output_tokens"]) ?? 0
+        let reportedTotal = int64(payload["total_tokens"]) ?? 0
+        let total = reportedTotal > 0 ? reportedTotal : input + output
+        return RawUsage(
+            input: input,
+            cachedInput: min(
+                input,
+                int64(payload["cached_input_tokens"] ?? payload["cache_read_input_tokens"]) ?? 0
+            ),
+            output: output,
+            reasoningOutput: int64(payload["reasoning_output_tokens"]) ?? 0,
+            total: total
+        )
+    }
+
+    private static func dayFormatter(calendar: Calendar) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }
+
     private static func windowLabel(_ minutes: Int) -> String {
         let days = minutes / 1_440
         let hours = (minutes % 1_440) / 60
@@ -165,6 +558,12 @@ public enum CodexUsageLoader {
         return nil
     }
 
+    private static func int64(_ value: Any?) -> Int64? {
+        if let number = value as? NSNumber { return number.int64Value }
+        if let string = value as? String { return Int64(string) }
+        return nil
+    }
+
     private static func epochDate(_ value: Any?) -> Date? {
         guard let seconds = number(value) else { return nil }
         return Date(timeIntervalSince1970: seconds)
@@ -176,4 +575,3 @@ public enum CodexUsageLoader {
         return nil
     }
 }
-

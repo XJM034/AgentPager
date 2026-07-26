@@ -8,7 +8,7 @@ public struct TaskStore: Sendable {
 
     public init(
         tasks: [TaskSnapshot] = [],
-        retention: TimeInterval = 2 * 60 * 60,
+        retention: TimeInterval = 60 * 60,
         syntheticRetention: TimeInterval = 60,
         capacity: Int = 20
     ) {

@@ -25,6 +25,7 @@ final class BridgeModel {
     private var hookServer: HookBridgeServer?
     private var webSocketServer: WebSocketServer?
     private var refreshTask: Task<Void, Never>?
+    private var usageLoadTask: Task<Void, Never>?
     private var rolloutTask: Task<Void, Never>?
     private var hasStarted = false
     private var pendingRequests: [String: PendingRequest] = [:]
@@ -66,8 +67,14 @@ final class BridgeModel {
                 },
                 countHandler: { [weak self] count in
                     Task { @MainActor in
-                        self?.phoneCount = count
-                        self?.broadcastSnapshot()
+                        guard let self else { return }
+                        let phoneConnected = count > self.phoneCount
+                        self.phoneCount = count
+                        if phoneConnected {
+                            self.refreshUsage()
+                        } else {
+                            self.broadcastSnapshot()
+                        }
                     }
                 },
                 localHTTPHandler: { path in
@@ -88,7 +95,7 @@ final class BridgeModel {
         handleRolloutSignals()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(15))
+                try? await Task.sleep(for: .seconds(600))
                 guard let self else { return }
                 self.refreshUsage()
                 self.store.purge()
@@ -451,8 +458,16 @@ final class BridgeModel {
     }
 
     private func refreshUsage() {
-        usage = CodexUsageLoader.load()
-        broadcastSnapshot()
+        guard usageLoadTask == nil else { return }
+        usageLoadTask = Task { [weak self] in
+            let snapshot = await Task.detached(priority: .utility) {
+                CodexUsageLoader.load()
+            }.value
+            guard let self else { return }
+            self.usage = snapshot
+            self.usageLoadTask = nil
+            self.broadcastSnapshot()
+        }
     }
 
     private func refreshHookStatus() {

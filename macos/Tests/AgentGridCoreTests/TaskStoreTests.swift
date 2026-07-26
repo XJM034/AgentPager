@@ -74,3 +74,42 @@ func capacityPurgesOldestTerminalTask() {
     #expect(!store.tasks.contains { $0.id == "done-0" })
 }
 
+@Test("子代理终态保留四秒后自动清除")
+func terminalSubagentsAreRemovedAfterGracePeriod() {
+    let now = Date(timeIntervalSince1970: 30_000)
+    let running = SubagentSnapshot(
+        id: "running-child",
+        path: "/root/running_child",
+        lifecycle: .running,
+        startedAt: now.addingTimeInterval(-20),
+        updatedAt: now
+    )
+    let recent = SubagentSnapshot(
+        id: "recent-child",
+        path: "/root/recent_child",
+        lifecycle: .succeeded,
+        startedAt: now.addingTimeInterval(-10),
+        updatedAt: now.addingTimeInterval(-3.9)
+    )
+    let expired = SubagentSnapshot(
+        id: "expired-child",
+        path: "/root/expired_child",
+        lifecycle: .interrupted,
+        startedAt: now.addingTimeInterval(-10),
+        updatedAt: now.addingTimeInterval(-4)
+    )
+    let task = TaskSnapshot(
+        id: "parent",
+        source: .codexCLI,
+        projectName: "父任务",
+        subagents: [running, recent, expired],
+        lifecycle: .running,
+        updatedAt: now
+    )
+    var store = TaskStore(tasks: [task])
+
+    let changed = store.purgeTerminalSubagents(now: now, retention: 4)
+
+    #expect(changed)
+    #expect(store.tasks[0].subagents.map(\.id) == ["running-child", "recent-child"])
+}

@@ -105,6 +105,9 @@ final class BridgeModel {
                 if self.rolloutReader.hasTrackedFiles {
                     self.handleRolloutSignals()
                 }
+                if self.store.purgeTerminalSubagents() {
+                    self.publishStore()
+                }
             }
         }
     }
@@ -364,7 +367,9 @@ final class BridgeModel {
         }
         task.updatedAt = max(task.updatedAt, signal.timestamp)
         if task.lifecycle == .running {
-            task.activity = .delegating
+            task.activity = task.subagents.contains { !$0.isTerminal }
+                ? .delegating
+                : .thinking
         }
     }
 

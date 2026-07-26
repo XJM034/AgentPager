@@ -50,6 +50,23 @@ public struct TaskStore: Sendable {
         }
     }
 
+    @discardableResult
+    public mutating func purgeTerminalSubagents(
+        now: Date = .now,
+        retention: TimeInterval = 4
+    ) -> Bool {
+        var changed = false
+        for index in tasks.indices {
+            let previousCount = tasks[index].subagents.count
+            tasks[index].subagents.removeAll { subagent in
+                subagent.isTerminal &&
+                    now.timeIntervalSince(subagent.updatedAt) >= retention
+            }
+            changed = changed || tasks[index].subagents.count != previousCount
+        }
+        return changed
+    }
+
     public func focusedTask() -> TaskSnapshot? {
         tasks.max { lhs, rhs in
             if lhs.effectivePriority == rhs.effectivePriority {
@@ -59,4 +76,3 @@ public struct TaskStore: Sendable {
         }
     }
 }
-

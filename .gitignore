@@ -11,3 +11,4 @@ android/**/build/
 *.jks
 *.keystore
 dist/
+artifacts/link.gif

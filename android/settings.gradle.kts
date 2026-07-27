@@ -14,6 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AgentGrid"
+rootProject.name = "AgentPager"
 include(":app")
-

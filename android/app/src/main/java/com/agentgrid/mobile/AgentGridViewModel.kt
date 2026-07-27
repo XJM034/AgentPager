@@ -167,11 +167,11 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun pairingError(problem: PhoneSessionProblem): String = when (problem) {
-        PhoneSessionProblem.InvalidPairing -> "二维码内容不是有效的 AgentGrid 配对信息"
+        PhoneSessionProblem.InvalidPairing -> "二维码内容不是有效的 AgentPager 配对信息"
         PhoneSessionProblem.UnsupportedVersion -> "配对信息版本不受支持"
         PhoneSessionProblem.InvalidEndpoint -> "配对地址或端口无效"
         PhoneSessionProblem.InvalidSecret -> "配对密钥无效"
         PhoneSessionProblem.CredentialFailure -> "无法安全保存配对信息"
-        else -> "无法建立 AgentGrid 配对"
+        else -> "无法建立 AgentPager 配对"
     }
 }

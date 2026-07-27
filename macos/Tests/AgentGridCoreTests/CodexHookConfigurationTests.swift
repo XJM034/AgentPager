@@ -24,7 +24,7 @@ func hookConfigurationInstallsWithBackup() throws {
     let configuration = CodexHookConfiguration(hooksURL: hooksURL)
 
     let change = try configuration.install(
-        command: "/tmp/AgentGridHooks",
+        command: "/tmp/AgentPagerHooks",
         now: Date(timeIntervalSince1970: 10_000)
     )
     let backupURL = try #require(change.backupURL)
@@ -39,7 +39,7 @@ func hookConfigurationInstallsWithBackup() throws {
     #expect((root["custom"] as? [String: Any])?["enabled"] as? Bool == true)
 }
 
-@Test("Hook Configuration 卸载只移除 AgentGrid 管理项")
+@Test("Hook Configuration 卸载只移除 AgentPager 管理项")
 func hookConfigurationUninstallsWithoutTouchingUserHooks() throws {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -47,7 +47,7 @@ func hookConfigurationUninstallsWithoutTouchingUserHooks() throws {
     let hooksURL = directory.appendingPathComponent("hooks.json")
     let configuration = CodexHookConfiguration(hooksURL: hooksURL)
 
-    _ = try configuration.install(command: "/tmp/AgentGridHooks")
+    _ = try configuration.install(command: "/tmp/AgentPagerHooks")
     var root = try #require(
         JSONSerialization.jsonObject(
             with: Data(contentsOf: hooksURL)
@@ -88,7 +88,7 @@ func hookConfigurationRestoresLatestBackupSafely() throws {
     try original.write(to: hooksURL)
     let configuration = CodexHookConfiguration(hooksURL: hooksURL)
     _ = try configuration.install(
-        command: "/tmp/AgentGridHooks",
+        command: "/tmp/AgentPagerHooks",
         now: Date(timeIntervalSince1970: 20_000)
     )
     let beforeRestore = try Data(contentsOf: hooksURL)

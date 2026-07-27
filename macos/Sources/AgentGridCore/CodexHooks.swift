@@ -178,7 +178,8 @@ public struct HookFileMutation: Sendable {
 }
 
 public enum CodexHookInstaller {
-    public static let managedStatusMessage = "Managed by AgentGrid"
+    public static let managedStatusMessage = "Managed by AgentPager"
+    private static let legacyManagedStatusMessage = "Managed by AgentGrid"
     public static let hookEvents: [(name: String, matcher: String?, timeout: Int)] = [
         ("SessionStart", "startup|resume", 45),
         ("UserPromptSubmit", nil, 45),
@@ -281,8 +282,12 @@ public enum CodexHookInstaller {
             return false
         }
         return hooks.contains {
-            $0["statusMessage"] as? String == managedStatusMessage
-                || (($0["command"] as? String)?.contains("AgentGridHooks") == true)
+            let statusMessage = $0["statusMessage"] as? String
+            let command = $0["command"] as? String
+            return statusMessage == managedStatusMessage
+                || statusMessage == legacyManagedStatusMessage
+                || command?.contains("AgentPagerHooks") == true
+                || command?.contains("AgentGridHooks") == true
         }
     }
 

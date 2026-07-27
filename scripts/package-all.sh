@@ -13,6 +13,6 @@ JAVA_HOME="$JDK目录" ./gradlew testDebugUnitTest assembleDebug
 
 mkdir -p "$输出目录"
 cp "$安卓目录/app/build/outputs/apk/debug/app-debug.apk" \
-    "$输出目录/AgentGrid-debug.apk"
+    "$输出目录/AgentPager-debug.apk"
 
 echo "$输出目录"

@@ -204,7 +204,7 @@ private fun PairingScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                "AGENTGRID",
+                "AGENTPAGER",
                 color = AgentGridColors.Text,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,

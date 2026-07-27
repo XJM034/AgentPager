@@ -8,7 +8,7 @@
       {
         "id": "task-fixture",
         "source": "codexCLI",
-        "projectName": "AgentGrid",
+        "projectName": "AgentPager",
         "lifecycle": "running",
         "activity": "editing",
         "startedAt": 1785067140000,
@@ -21,4 +21,3 @@
     ]
   }
 }
-

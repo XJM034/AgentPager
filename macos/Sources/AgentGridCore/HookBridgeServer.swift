@@ -46,7 +46,7 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
     private func accept(_ connection: NWConnection) {
         connection.stateUpdateHandler = { state in
             if case let .failed(error) = state {
-                fputs("AgentGrid Hook 连接错误：\(error)\n", stderr)
+                fputs("AgentPager Hook 连接错误：\(error)\n", stderr)
                 connection.cancel()
             }
         }

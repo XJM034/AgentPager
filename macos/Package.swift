@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentGrid",
+    name: "AgentPager",
     platforms: [
         .macOS(.v14),
     ],
@@ -27,4 +27,3 @@ let package = Package(
         ),
     ]
 )
-

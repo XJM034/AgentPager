@@ -27,7 +27,7 @@ public final class WebSocketServer: @unchecked Sendable {
 
     public func start(port: UInt16 = 49_362) throws {
         let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-        listener.service = NWListener.Service(name: "AgentGrid Bridge", type: "_agentgrid._tcp")
+        listener.service = NWListener.Service(name: "AgentPager Bridge", type: "_agentgrid._tcp")
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }

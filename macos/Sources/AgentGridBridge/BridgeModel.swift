@@ -127,7 +127,7 @@ final class BridgeModel {
         do {
             let change = try hookConfiguration.uninstall()
             if change.changed {
-                addEvent("AgentGrid Hook 已移除")
+                addEvent("AgentPager Hook 已移除")
             }
             refreshHookStatus()
         } catch {
@@ -140,10 +140,10 @@ final class BridgeModel {
         let task = TaskSnapshot(
             id: "agentgrid-simulator",
             source: .codexDesktop,
-            projectName: "AgentGrid 模拟器",
-            title: "AgentGrid · 像素任务列表联调",
+            projectName: "AgentPager 模拟器",
+            title: "AgentPager · 像素任务列表联调",
             userPrompt: "检查任务行、逐像素 Bloom 和状态动效",
-            latestStep: lifecycle == .running ? "apply_patch android/AgentGridScreen.kt" : nil,
+            latestStep: lifecycle == .running ? "apply_patch android/AgentPagerScreen.kt" : nil,
             tokenUsage: TokenUsage(input: 12_480, cachedInput: 9_200, output: 2_180, total: 14_660),
             subagents: [
                 SubagentSnapshot(
@@ -318,15 +318,26 @@ final class BridgeModel {
     }
 
     private var hookExecutableURL: URL {
-        let sibling = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS/AgentGridHooks")
-        if FileManager.default.isExecutableFile(atPath: sibling.path) {
-            return sibling
+        let executableDirectory = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/MacOS")
+        let currentSibling = executableDirectory
+            .appendingPathComponent("AgentPagerHooks")
+        if FileManager.default.isExecutableFile(atPath: currentSibling.path) {
+            return currentSibling
+        }
+        let legacySibling = executableDirectory
+            .appendingPathComponent("AgentGridHooks")
+        if FileManager.default.isExecutableFile(atPath: legacySibling.path) {
+            return legacySibling
         }
 
-        let executable = URL(fileURLWithPath: CommandLine.arguments[0])
+        let commandDirectory = URL(fileURLWithPath: CommandLine.arguments[0])
             .deletingLastPathComponent()
-            .appendingPathComponent("AgentGridHooks")
-        return executable
+        let currentExecutable = commandDirectory
+            .appendingPathComponent("AgentPagerHooks")
+        if FileManager.default.isExecutableFile(atPath: currentExecutable.path) {
+            return currentExecutable
+        }
+        return commandDirectory.appendingPathComponent("AgentGridHooks")
     }
 }

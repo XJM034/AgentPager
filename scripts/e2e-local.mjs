@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const hookExecutable = resolve(
   root,
-  "dist/AgentGrid Bridge.app/Contents/MacOS/AgentGridHooks",
+  "dist/AgentPager Bridge.app/Contents/MacOS/AgentPagerHooks",
 );
 const pairing = await fetch("http://127.0.0.1:49362/pairing").then((response) => {
   if (!response.ok) {
@@ -239,6 +239,6 @@ socket.addEventListener("error", () => {
     return;
   }
   clearTimeout(timeout);
-  console.error("无法连接 AgentGrid Bridge");
+  console.error("无法连接 AgentPager Bridge");
   process.exitCode = 1;
 });

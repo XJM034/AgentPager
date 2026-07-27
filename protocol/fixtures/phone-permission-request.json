@@ -1,5 +1,5 @@
 {
-  "cwd": "/Users/ranxiu/Desktop/AgentGrid",
+  "cwd": "/workspace/AgentPager",
   "hook_event_name": "PermissionRequest",
   "model": "e2e",
   "session_id": "agentgrid-phone-approval-e2e",

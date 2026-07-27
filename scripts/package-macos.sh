@@ -2,15 +2,15 @@
 set -euo pipefail
 
 项目根目录="${0:A:h:h}"
-应用目录="$项目根目录/dist/AgentGrid Bridge.app"
+应用目录="$项目根目录/dist/AgentPager Bridge.app"
 内容目录="$应用目录/Contents"
 可执行目录="$内容目录/MacOS"
 资源目录="$内容目录/Resources"
-应用可执行文件="$可执行目录/AgentGridBridge"
+应用可执行文件="$可执行目录/AgentPagerBridge"
 需要恢复运行=0
 
 # 覆盖正在执行的签名代码会被 macOS 判定为签名失效，先正常结束同一路径实例。
-for 进程号 in ${(f)"$(pgrep -x AgentGridBridge 2>/dev/null || true)"}; do
+for 进程号 in ${(f)"$(pgrep -x AgentPagerBridge 2>/dev/null || true)"}; do
     [[ -n "$进程号" ]] || continue
     进程命令="$(ps -p "$进程号" -o command= 2>/dev/null || true)"
     if [[ "$进程命令" == "$应用可执行文件" ]]; then
@@ -21,7 +21,7 @@ for 进程号 in ${(f)"$(pgrep -x AgentGridBridge 2>/dev/null || true)"}; do
             sleep 0.1
         done
         if kill -0 "$进程号" 2>/dev/null; then
-            echo "AgentGrid Bridge 未能在 5 秒内退出，已停止打包以保护运行中的应用" >&2
+            echo "AgentPager Bridge 未能在 5 秒内退出，已停止打包以保护运行中的应用" >&2
             exit 1
         fi
     fi
@@ -31,15 +31,20 @@ cd "$项目根目录/macos"
 swift build -c release
 
 mkdir -p "$可执行目录" "$资源目录"
-cp "$项目根目录/macos/.build/release/AgentGridBridge" "$可执行目录/AgentGridBridge"
-cp "$项目根目录/macos/.build/release/AgentGridHooks" "$可执行目录/AgentGridHooks"
+cp "$项目根目录/macos/.build/release/AgentGridBridge" "$可执行目录/AgentPagerBridge"
+cp "$项目根目录/macos/.build/release/AgentGridHooks" "$可执行目录/AgentPagerHooks"
 cp "$项目根目录/macos/AppInfo.plist" "$内容目录/Info.plist"
+cp "$项目根目录/assets/brand/AgentPager.icns" "$资源目录/AgentPager.icns"
 cp "$项目根目录/assets/fonts/fusion_pixel_12px_zh_hans.ttf" \
     "$资源目录/fusion_pixel_12px_zh_hans.ttf"
-cp "$项目根目录/docs/FUSION-PIXEL-OFL.txt" "$资源目录/FUSION-PIXEL-OFL.txt"
-chmod +x "$可执行目录/AgentGridBridge" "$可执行目录/AgentGridHooks"
+cp "$项目根目录/LICENSES/FUSION-PIXEL-NOTICE.txt" \
+    "$资源目录/FUSION-PIXEL-NOTICE.txt"
+cp "$项目根目录/LICENSES/OFL-1.1.txt" "$资源目录/OFL-1.1.txt"
+cp "$项目根目录/LICENSE" "$资源目录/GPL-3.0.txt"
+cp "$项目根目录/NOTICE.md" "$资源目录/NOTICE.md"
+chmod +x "$可执行目录/AgentPagerBridge" "$可执行目录/AgentPagerHooks"
 
-签名身份="${AGENTGRID_CODESIGN_IDENTITY:-}"
+签名身份="${AGENTPAGER_CODESIGN_IDENTITY:-${AGENTGRID_CODESIGN_IDENTITY:-}}"
 if [[ -z "$签名身份" ]]; then
     签名身份="$(security find-identity -v -p codesigning 2>/dev/null \
         | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' \
@@ -58,6 +63,6 @@ fi
 
 if (( 需要恢复运行 )); then
     open -n "$应用目录"
-    echo "已恢复运行 AgentGrid Bridge"
+    echo "已恢复运行 AgentPager Bridge"
 fi
 echo "$应用目录"

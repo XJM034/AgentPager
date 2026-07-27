@@ -96,7 +96,7 @@ class SoundEngine(context: Context) {
     }
 
     companion object {
-        private const val LOG_TAG = "AgentGridSound"
+        private const val LOG_TAG = "AgentPagerSound"
         private const val PREFERENCES_NAME = "agentgrid_sound"
         private const val SOUND_ENABLED_KEY = "enabled"
 

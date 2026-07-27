@@ -5,15 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>AgentGrid Bridge</string>
+    <string>AgentPager Bridge</string>
     <key>CFBundleExecutable</key>
-    <string>AgentGridBridge</string>
+    <string>AgentPagerBridge</string>
+    <key>CFBundleIconFile</key>
+    <string>AgentPager.icns</string>
     <key>CFBundleIdentifier</key>
-    <string>com.agentgrid.bridge</string>
+    <string>com.agentpager.bridge</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>AgentGrid Bridge</string>
+    <string>AgentPager Bridge</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -29,7 +31,6 @@
         <string>_agentgrid._tcp</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>AgentGrid 通过局域网把 Codex 任务状态发送到已配对的手机。</string>
+    <string>AgentPager 通过局域网把 Codex 任务状态发送到已配对的手机。</string>
 </dict>
 </plist>
-

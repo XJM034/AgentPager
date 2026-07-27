@@ -23,10 +23,10 @@ struct BridgeMenuView: View {
                 }
                 .frame(width: 58, height: 58)
                 .animation(statusAnimation, value: serviceLifecycle)
-                .accessibilityLabel("AgentGrid 配置状态：\(model.serviceStatus)")
+                .accessibilityLabel("AgentPager 配置状态：\(model.serviceStatus)")
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("AGENTGRID BRIDGE")
+                    Text("AGENTPAGER BRIDGE")
                         .font(.pixel(15, weight: .bold))
                         .foregroundStyle(PixelTheme.text)
                         .lineLimit(1)
@@ -82,7 +82,7 @@ struct BridgeMenuView: View {
                 openSettings()
                 NSApplication.shared.activate()
             } label: {
-                Text("打开 AGENTGRID 设置")
+                Text("打开 AGENTPAGER 设置")
             }
             .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
             .popoverOptionEntrance(
@@ -93,7 +93,7 @@ struct BridgeMenuView: View {
 
             PixelDivider()
 
-            Button("退出 AGENTGRID") {
+            Button("退出 AGENTPAGER") {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(PixelButtonStyle(accent: PixelTheme.muted))
@@ -256,11 +256,11 @@ struct BridgeSettingsView: View {
                 .padding(14)
                 .background(.white)
                 .frame(width: 258, height: 258)
-                .accessibilityLabel("AgentGrid 手机配对二维码")
+                .accessibilityLabel("AgentPager 手机配对二维码")
 
             VStack(alignment: .leading, spacing: 14) {
                 SettingsTitle("扫描配对")
-                Text("用 Android AgentGrid 扫描左侧二维码")
+                Text("用 Android AgentPager 扫描左侧二维码")
                     .foregroundStyle(PixelTheme.muted)
                 PixelDivider()
                 InfoRow(label: "PHONE", value: "\(model.phoneCount)")

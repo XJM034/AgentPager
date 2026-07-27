@@ -1,119 +1,84 @@
-# AgentGrid
+<p align="center">
+  <img src="assets/brand/agentpager-icon.svg" width="160" alt="AgentPager 图标">
+</p>
 
-AgentGrid 把 Codex Desktop 与 Codex CLI 的实时运行态同步到旧 Android 手机。手机端是原生横屏应用，不依赖浏览器，以紧凑任务列表、彩色像素状态、状态音效和振动表达任务进度。
+<h1 align="center">AgentPager</h1>
 
-## 已实现
+<p align="center"><strong>让闲置 Android 手机，成为 AI Agent 的专属状态终端。</strong></p>
 
-- Codex 开始、思考、工具执行、成功、中断、等待批准、等待回答和离线状态。
-- 每个任务使用 3×3 彩色像素核心；亮起的像素各自拥有独立三层 Bloom，位移、亮度和缩放连续变化。
-- 活跃状态 60 FPS，空闲状态 30 FPS；终态过渡完成后停止持续动画。
-- 任务行依次显示标题、用户输入、最新步骤或命令、来源、Token 总量、执行时间和状态。
-- 点击任务行后自动标为已读，并以内联动效展开输入、当前步骤和 Token 明细；展开内容限制最大高度并可独立滚动。
-- 父任务创建子代理后会自动展开；子代理以内嵌列表显示名称、运行状态、耗时、最新一步和 Token 总量，进入终态后保留约 4 秒再自动清除。
-- 开始、成功、等待批准、等待回答和中断的 8-bit 状态音。
-- 多任务按注意力排序；等待批准和等待回答的任务会优先展开，其余任务降低亮度。
-- 手机反向批准或拒绝仍然有效的 `PermissionRequest`。
-- Codex 5 小时与周用量窗口。
-- 二维码配对、Bonjour 广播、WebSocket 自动重连和心跳。
-- HMAC-SHA256 控制签名、单调序号和重放保护。
-- Mac 端只持久化短期运行态元数据；完成两小时后自动删除，最多保留 20 项。
-- 手机端不保存任务记录；用户输入、最新步骤、子代理明细、问题和审批摘要只存在内存中。
+<p align="center">
+  不必一直盯着 Mac，也不必再买一块开发板。<br>
+  Codex 在做什么、是否完成、何时需要你批准，抬眼就能看到。
+</p>
 
-## 控制能力边界
+AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态实时同步到旧 Android 手机。把手机横放在桌面上，它就会变成一个常亮、安静，又能在关键时刻提醒你的 Agent 控制台。
 
-AgentGrid 只展示 Mac 端确认可执行的按钮。
+## 我为什么构建 AgentPager
 
-| 操作 | 当前状态 | 说明 |
-| --- | --- | --- |
-| 批准 / 拒绝 | 可用 | 通过阻塞中的 Codex `PermissionRequest` Hook 返回真实决策 |
-| 回答问题 | 仅提示 | rollout 能检测等待回答，但现有 Hook 不能稳定回写答案 |
-| 中断 / 重试 | 暂不展示 | 任意现存 Codex Desktop/CLI 任务没有统一、可附着的稳定控制通道 |
+我在社交媒体上看到有人用开发板做任务状态栏，于是也去研究了一下。查了一圈才发现，要满足我对屏幕显示、联网、声音、振动和触控操作的需求，还得搭配不同的硬件。
 
-协议已经为 `answer`、`interrupt` 和 `retry` 预留能力字段；未来接入可附着的 Codex app-server 通道后，手机端会按能力自动显示操作。
+突然我意识到：这不跟手机差不多吗？这些能力它本来就有，屏幕更好、系统更完整，也不需要再买新的设备。
 
-## 目录
+所以有了 AgentPager——让闲置手机重新上岗，成为一块真正好用的 AI Agent 状态终端。
 
-- `macos/`：SwiftUI 菜单栏桥接应用、Codex Hook、本地 rollout 增量读取、状态和用量服务。
-- `android/`：Kotlin + Jetpack Compose 原生横屏应用。
-- `protocol/`：跨端协议、状态和签名约定。
-- `scripts/`：打包、安装和本地端到端验证。
-- `docs/`：第三方代码与字体归属。
+## 为什么用 AgentPager
 
-## 环境
+- **离开 Mac 也不会错过进度**：开始、思考、执行、完成、中断、等待批准、等待回答和离线状态一目了然。
+- **多个任务也能快速找到重点**：需要你处理的任务自动置顶并展开，其他任务降低亮度，减少干扰。
+- **重要时刻主动提醒**：像素动画、8-bit 音效和振动让完成、中断与等待操作不再悄无声息。
+- **手机上直接批准或拒绝**：Codex 发起权限请求时，无需切回电脑即可处理。
+- **子代理进度同屏可见**：父任务会展示正在工作的子代理、耗时、最新步骤与 Token 用量。
+- **额度还剩多少随时可查**：集中查看 Codex 5 小时与周用量窗口，不必等到触顶才发现。
+- **闲置旧手机重新派上用场**：原生横屏界面不依赖浏览器，摆在桌面上就是一块专注的 Agent 信息屏。
 
-- macOS 14 或更高版本。
-- Swift 6 / Xcode 26。
-- Android Studio 自带 JDK、Android SDK 36。
-- Android 10（API 29）或更高版本。
-- Mac 与手机位于同一 Wi-Fi，路由器没有开启客户端隔离。
+**最重要的是：它真的很好看(✧∀✧)！！！**
 
-## 构建
+## 快速开始
 
-一次构建两端：
+### 准备
 
-```bash
-./scripts/package-all.sh
-```
+- 一台运行 macOS 14 或更高版本的 Mac
+- 一台 Android 10 或更高版本的手机
+- Mac 与手机连接同一 Wi-Fi
 
-产物位于：
+### 安装与配对
 
-```text
-dist/AgentGrid Bridge.app
-dist/AgentGrid-debug.apk
-```
+1. 构建 Mac 与 Android 两端：
 
-单独运行逻辑测试：
+   ```bash
+   ./scripts/package-all.sh
+   ```
 
-```bash
-cd macos
-swift test
+2. 打开 `dist/AgentPager Bridge.app`。
+3. 点击菜单栏中的像素信号图标，选择“安装 Codex Hook”。AgentPager 会保留原有 Hook 配置并自动备份。
+4. 打开“AgentPager 设置 → 连接”，显示配对二维码。
+5. 在 Android 手机上安装并打开 `dist/AgentPager-debug.apk`，扫描二维码。
+6. 新建一个 Codex 任务，手机会自动显示它的实时状态。
 
-cd ../android
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-  ./gradlew testDebugUnitTest
-```
-
-项目只包含协议、状态归约、持久化、签名、重放保护和任务选择等逻辑测试，不包含 UI 自动化测试。
-
-## 首次使用
-
-1. 打开 `dist/AgentGrid Bridge.app`。
-2. 点击菜单栏中的九宫格图标，选择“安装 Codex Hook”。安装会保留现有 Hook，并先生成时间戳备份。
-3. 打开“AgentGrid 设置 → 连接”，显示配对二维码。
-4. 在 Android 手机安装并打开 `dist/AgentGrid-debug.apk`，允许相机权限后扫描二维码。
-5. 新启动一个 Codex 任务。手机会自动进入相应动画，并在需要批准时显示“允许 / 拒绝”。
-
-已连接 Android 设备也可以直接安装：
+已连接 Android 设备时，也可以直接运行：
 
 ```bash
 ./scripts/install-android.sh
 ```
 
-华为设备若重启后没有自动进入终端，请在“应用启动管理”中允许 AgentGrid 自启动，并关闭针对 AgentGrid 的电池优化。
+## 当前可用的手机控制
 
-## 运行方式
+| 操作 | 支持情况 |
+| --- | --- |
+| 批准 / 拒绝权限请求 | 可用 |
+| 回答问题 | 可收到提醒，暂不能在手机上回复 |
+| 中断 / 重试任务 | 暂不支持 |
 
-```mermaid
-flowchart LR
-    C["Codex Desktop / CLI"] -->|"生命周期 Hook"| B["AgentGrid Bridge"]
-    C -->|"rollout 增量事件"| B
-    B -->|"WebSocket 状态快照"| A["Android 原生终端"]
-    A -->|"HMAC 签名控制"| B
-    B -->|"批准 / 拒绝决策"| C
-```
+AgentPager 只会展示当前确实可执行的操作，避免按钮看似可用却没有效果。
 
-Bridge 不在线时，Hook 会自动放行，不会阻塞 Codex。配对密钥保存在 macOS Keychain 和 Android Keystore；消息没有额外加密，建议只在可信局域网中使用。
+## 隐私与安全
 
-## 本地端到端验证
-
-先运行 Bridge，再执行：
-
-```bash
-./scripts/e2e-local.mjs
-```
-
-该脚本会验证 Hook → Bridge → WebSocket 状态同步，以及签名控制 → Bridge → Hook 批准返回链路。
+- 手机端不保存任务记录，输入、步骤、问题和审批内容只存在于内存中。
+- Mac 端只保留短期运行状态，完成两小时后自动清理，最多保留 20 项。
+- 配对密钥保存在 macOS Keychain 与 Android Keystore。
+- Bridge 不在线时，Codex Hook 会自动放行，不会阻塞任务。
+- 建议仅在可信的局域网中使用。
 
 ## 许可
 
-项目使用 GPL-3.0。部分必要实现参考并改写自作者自己的 Open Vibe Island，详见 `docs/OPEN_VIBE_ISLAND_ATTRIBUTION.md`；Silkscreen 字体使用 OFL-1.1。
+项目代码使用 GPL-3.0。第三方代码与字体归属见 [NOTICE.md](NOTICE.md)，字体许可全文位于 `LICENSES/`。

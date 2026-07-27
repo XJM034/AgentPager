@@ -24,7 +24,7 @@ func hookInstallerPreservesExistingHooks() throws {
 
     let mutation = try CodexHookInstaller.install(
         existingData: existing,
-        command: "/Applications/AgentGrid Bridge.app/Contents/MacOS/AgentGridHooks"
+        command: "/Applications/AgentPager Bridge.app/Contents/MacOS/AgentPagerHooks"
     )
     let installedContents = try #require(mutation.contents)
     let root = try #require(
@@ -38,7 +38,7 @@ func hookInstallerPreservesExistingHooks() throws {
     #expect(CodexHookInstaller.isInstalled(data: mutation.contents))
 }
 
-@Test("Hook 卸载只删除 AgentGrid 管理项")
+@Test("Hook 卸载只删除 AgentPager 管理项")
 func hookUninstallOnlyRemovesManagedGroups() throws {
     let installed = try CodexHookInstaller.install(
         existingData: Data(
@@ -52,7 +52,7 @@ func hookUninstallOnlyRemovesManagedGroups() throws {
             }
             """.utf8
         ),
-        command: "/tmp/AgentGridHooks"
+        command: "/tmp/AgentPagerHooks"
     )
 
     let uninstalled = try CodexHookInstaller.uninstall(existingData: installed.contents)
@@ -64,4 +64,49 @@ func hookUninstallOnlyRemovesManagedGroups() throws {
     let stopGroups = try #require(hooks["Stop"] as? [[String: Any]])
     #expect(stopGroups.count == 1)
     #expect(!CodexHookInstaller.isInstalled(data: uninstalled.contents))
+}
+
+@Test("品牌迁移后仍识别并替换旧版 AgentGrid Hook")
+func hookInstallerMigratesLegacyManagedGroups() throws {
+    let legacy = Data(
+        """
+        {
+          "hooks": {
+            "SessionStart": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "'/Applications/AgentGrid Bridge.app/Contents/MacOS/AgentGridHooks'",
+                    "statusMessage": "Managed by AgentGrid"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """.utf8
+    )
+
+    let mutation = try CodexHookInstaller.install(
+        existingData: legacy,
+        command: "/Applications/AgentPager Bridge.app/Contents/MacOS/AgentPagerHooks"
+    )
+    let installed = try #require(mutation.contents)
+    let root = try #require(
+        JSONSerialization.jsonObject(with: installed) as? [String: Any]
+    )
+    let hooks = try #require(root["hooks"] as? [String: Any])
+    let groups = try #require(hooks["SessionStart"] as? [[String: Any]])
+    let commands = groups.flatMap { group in
+        (group["hooks"] as? [[String: Any]] ?? []).compactMap {
+            $0["command"] as? String
+        }
+    }
+
+    #expect(groups.count == 1)
+    #expect(commands.count == 1)
+    #expect(commands[0].contains("AgentPagerHooks"))
+    #expect(!commands[0].contains("AgentGridHooks"))
+    #expect(CodexHookInstaller.isInstalled(data: installed))
 }

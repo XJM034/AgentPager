@@ -287,9 +287,8 @@ public struct TaskCatalog: Sendable {
 
         let isCurrent = signal.timestamp >= task.updatedAt
         if let lifecycle = signal.lifecycle, isCurrent || task.lifecycle == .starting {
-            if !(task.isTerminal && ![.succeeded, .interrupted].contains(lifecycle)) {
-                task.lifecycle = lifecycle
-            }
+            // 时间较新的新一轮输入可以让已完成任务恢复运行；旧 rollout 已由 isCurrent 拦截。
+            task.lifecycle = lifecycle
         }
         if let activity = signal.activity, isCurrent || task.activity == nil {
             task.activity = activity

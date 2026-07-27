@@ -120,6 +120,41 @@ func staleRolloutDoesNotReopenTerminalTask() {
     #expect(updated.userPrompt == "可以补充的旧消息")
 }
 
+@Test("新一轮用户输入会把已完成 Task 重新打开")
+func freshUserMessageReopensTerminalTask() throws {
+    let completedAt = Date.now
+    let task = TaskSnapshot(
+        id: "session-1",
+        source: .codexDesktop,
+        projectName: "AgentGrid",
+        lifecycle: .succeeded,
+        updatedAt: completedAt,
+        completedAt: completedAt,
+        isUnread: true
+    )
+    let line = try JSONSerialization.data(withJSONObject: [
+        "type": "event_msg",
+        "payload": [
+            "type": "user_message",
+            "message": "继续处理这个任务",
+        ],
+    ])
+    let signal = try #require(CodexRolloutReader.signal(
+        from: line,
+        sessionID: "session-1",
+        cwd: "/tmp/AgentGrid",
+        now: completedAt.addingTimeInterval(1)
+    ))
+    var catalog = TaskCatalog(restoring: [task])
+
+    catalog.accept(.rollout([signal]))
+    let updated = try #require(catalog.projection().tasks.first)
+
+    #expect(updated.lifecycle == .running)
+    #expect(updated.completedAt == nil)
+    #expect(updated.userPrompt == "继续处理这个任务")
+}
+
 @Test("子代理变化与父 Task 活动在同一 Revision 中提交")
 func subagentAndParentActivityCommitTogether() {
     let now = Date(timeIntervalSince1970: 5_000)

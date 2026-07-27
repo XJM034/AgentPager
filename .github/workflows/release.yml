@@ -1,0 +1,226 @@
+name: 构建与发布
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: 构建 Android APK
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 配置 JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: 设置版本号
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          echo "AGENTPAGER_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "AGENTPAGER_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+
+      - name: 检查正式签名配置
+        shell: bash
+        run: |
+          configured=0
+          for value in \
+            "$ANDROID_KEYSTORE_BASE64" \
+            "$ANDROID_KEY_ALIAS" \
+            "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_STORE_PASSWORD"; do
+            [[ -n "$value" ]] && configured=$((configured + 1))
+          done
+          if [[ "$configured" -ne 0 && "$configured" -ne 4 ]]; then
+            echo "::error::Android 签名 Secrets 必须全部配置，不能只配置其中一部分"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* && "$configured" -eq 0 ]]; then
+            echo "::error::发布前请完整配置 ANDROID_KEYSTORE_BASE64、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD 和 ANDROID_STORE_PASSWORD"
+            exit 1
+          fi
+
+      - name: 运行逻辑测试并构建 APK
+        shell: bash
+        run: |
+          cd android
+          chmod +x gradlew
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
+            ./gradlew testDebugUnitTest assembleRelease
+          else
+            ./gradlew testDebugUnitTest assembleDebug
+          fi
+
+      - name: 签名正式 APK
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          mkdir -p dist
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/agentpager-release.jks"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          "$APKSIGNER" sign \
+            --ks "$RUNNER_TEMP/agentpager-release.jks" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass "pass:$ANDROID_STORE_PASSWORD" \
+            --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+            --out dist/AgentPager.apk \
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+          "$APKSIGNER" verify --verbose dist/AgentPager.apk
+
+      - name: 整理手动构建 APK
+        if: env.ANDROID_KEYSTORE_BASE64 == ''
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/AgentPager.apk
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentPager-Android
+          path: dist/AgentPager.apk
+          if-no-files-found: error
+
+  macos:
+    name: 构建 macOS DMG
+    runs-on: macos-26
+    env:
+      MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 设置版本号
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          echo "AGENTPAGER_VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "AGENTPAGER_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+
+      - name: 导入 Developer ID 证书
+        if: env.MACOS_CERTIFICATE_P12 != ''
+        shell: bash
+        run: |
+          certificate_path="$RUNNER_TEMP/agentpager-certificate.p12"
+          keychain_path="$RUNNER_TEMP/agentpager-signing.keychain-db"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$certificate_path"
+          security create-keychain -p actions "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p actions "$keychain_path"
+          security import "$certificate_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -k actions \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          signing_identity="$(security find-identity -v -p codesigning "$keychain_path" \
+            | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' \
+            | head -n 1)"
+          if [[ -z "$signing_identity" ]]; then
+            echo "::error::证书中没有 Developer ID Application 身份"
+            exit 1
+          fi
+          echo "AGENTPAGER_CODESIGN_IDENTITY=$signing_identity" >> "$GITHUB_ENV"
+
+      - name: 运行逻辑测试
+        run: swift test
+        working-directory: macos
+
+      - name: 构建通用 DMG
+        shell: bash
+        env:
+          AGENTPAGER_UNIVERSAL: "1"
+        run: |
+          chmod +x scripts/package-macos.sh scripts/package-dmg.sh
+          ./scripts/package-dmg.sh
+
+      - name: 提交 Apple 公证
+        if: env.MACOS_CERTIFICATE_P12 != ''
+        shell: bash
+        run: |
+          if [[ -z "$APPLE_ID" || -z "$APPLE_APP_PASSWORD" || -z "$APPLE_TEAM_ID" ]]; then
+            echo "::notice::未配置完整的 Apple 公证 Secrets，本次 DMG 仅签名、不公证"
+            exit 0
+          fi
+          xcrun notarytool submit dist/AgentPager-macOS.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple dist/AgentPager-macOS.dmg
+
+      - name: 上传 DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentPager-macOS
+          path: dist/AgentPager-macOS.dmg
+          if-no-files-found: error
+
+  release:
+    name: 发布 GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - android
+      - macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载安装包
+        uses: actions/download-artifact@v5
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: 生成校验文件
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum AgentPager.apk AgentPager-macOS.dmg > SHA256SUMS.txt
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              release-assets/* \
+              --title "AgentPager $GITHUB_REF_NAME" \
+              --generate-notes
+          fi

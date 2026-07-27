@@ -28,11 +28,40 @@ for 进程号 in ${(f)"$(pgrep -x AgentPagerBridge 2>/dev/null || true)"}; do
 done
 
 cd "$项目根目录/macos"
-swift build -c release
 
-mkdir -p "$可执行目录" "$资源目录"
-cp "$项目根目录/macos/.build/release/AgentGridBridge" "$可执行目录/AgentPagerBridge"
-cp "$项目根目录/macos/.build/release/AgentGridHooks" "$可执行目录/AgentPagerHooks"
+if [[ "${AGENTPAGER_UNIVERSAL:-0}" == "1" ]]; then
+    ARM缓存目录="$项目根目录/macos/.build/agentpager-arm64"
+    X86缓存目录="$项目根目录/macos/.build/agentpager-x86_64"
+    ARM构建目录="$(swift build -c release \
+        --scratch-path "$ARM缓存目录" \
+        --triple arm64-apple-macosx14.0 --show-bin-path)"
+    X86构建目录="$(swift build -c release \
+        --scratch-path "$X86缓存目录" \
+        --triple x86_64-apple-macosx14.0 --show-bin-path)"
+    swift build -c release \
+        --scratch-path "$ARM缓存目录" \
+        --triple arm64-apple-macosx14.0
+    swift build -c release \
+        --scratch-path "$X86缓存目录" \
+        --triple x86_64-apple-macosx14.0
+
+    mkdir -p "$可执行目录" "$资源目录"
+    lipo -create \
+        "$ARM构建目录/AgentGridBridge" \
+        "$X86构建目录/AgentGridBridge" \
+        -output "$可执行目录/AgentPagerBridge"
+    lipo -create \
+        "$ARM构建目录/AgentGridHooks" \
+        "$X86构建目录/AgentGridHooks" \
+        -output "$可执行目录/AgentPagerHooks"
+else
+    构建目录="$(swift build -c release --show-bin-path)"
+    swift build -c release
+    mkdir -p "$可执行目录" "$资源目录"
+    cp "$构建目录/AgentGridBridge" "$可执行目录/AgentPagerBridge"
+    cp "$构建目录/AgentGridHooks" "$可执行目录/AgentPagerHooks"
+fi
+
 cp "$项目根目录/macos/AppInfo.plist" "$内容目录/Info.plist"
 cp "$项目根目录/assets/brand/AgentPager.icns" "$资源目录/AgentPager.icns"
 cp "$项目根目录/assets/fonts/fusion_pixel_12px_zh_hans.ttf" \
@@ -43,6 +72,17 @@ cp "$项目根目录/LICENSES/OFL-1.1.txt" "$资源目录/OFL-1.1.txt"
 cp "$项目根目录/LICENSE" "$资源目录/GPL-3.0.txt"
 cp "$项目根目录/NOTICE.md" "$资源目录/NOTICE.md"
 chmod +x "$可执行目录/AgentPagerBridge" "$可执行目录/AgentPagerHooks"
+
+if [[ -n "${AGENTPAGER_VERSION_NAME:-}" ]]; then
+    /usr/libexec/PlistBuddy -c \
+        "Set :CFBundleShortVersionString $AGENTPAGER_VERSION_NAME" \
+        "$内容目录/Info.plist"
+fi
+if [[ -n "${AGENTPAGER_VERSION_CODE:-}" ]]; then
+    /usr/libexec/PlistBuddy -c \
+        "Set :CFBundleVersion $AGENTPAGER_VERSION_CODE" \
+        "$内容目录/Info.plist"
+fi
 
 签名身份="${AGENTPAGER_CODESIGN_IDENTITY:-${AGENTGRID_CODESIGN_IDENTITY:-}}"
 if [[ -z "$签名身份" ]]; then

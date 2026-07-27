@@ -187,7 +187,8 @@ private fun PairingScreen(
             .fillMaxSize()
             .background(AgentGridColors.Background)
             .padding(28.dp),
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
+        // 横屏下拉开取景框与操作说明，避免两块内容视觉粘连。
+        horizontalArrangement = Arrangement.spacedBy(48.dp),
     ) {
         Box(
             modifier = Modifier
@@ -211,12 +212,19 @@ private fun PairingScreen(
                 letterSpacing = 2.sp,
             )
             Spacer(Modifier.height(10.dp))
-            Text("扫描 Mac 端配对码", color = AgentGridColors.Cyan, fontSize = 16.sp)
-            Spacer(Modifier.height(22.dp))
+            Text("扫描 Mac 上的二维码", color = AgentGridColors.Cyan, fontSize = 16.sp)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "在 Mac 上打开 AgentGrid Bridge → 连接，\n扫描其中显示的二维码",
+                color = AgentGridColors.Muted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(18.dp))
             OutlinedTextField(
                 value = manualText,
                 onValueChange = { manualText = it },
-                label = { Text("或粘贴配对文本") },
+                label = { Text("无法扫码？粘贴 Mac 端配对文本") },
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
             )

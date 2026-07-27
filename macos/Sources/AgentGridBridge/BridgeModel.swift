@@ -151,7 +151,7 @@ final class BridgeModel {
                     path: "/root/protocol_v2",
                     lifecycle: lifecycle == .interrupted ? .interrupted : .running,
                     activity: .editing,
-                    latestStep: "apply_patch protocol/README.md",
+                    latestStep: "apply_patch protocol/fixtures/task-snapshot.json",
                     tokenUsage: TokenUsage(input: 3_200, output: 680, total: 3_880),
                     startedAt: now.addingTimeInterval(-31),
                     updatedAt: now

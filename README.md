@@ -33,33 +33,24 @@ AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态实时同步到旧 And
 
 **最重要的是：它真的很好看(✧∀✧)！！！**
 
+## 下载
+
+前往 [GitHub Releases](../../releases/latest) 直接下载安装包：
+
+- `AgentPager.apk`：安装到 Android 10 或更高版本的手机
+- `AgentPager-macOS.dmg`：安装到 macOS 14 或更高版本的 Mac
+
+
+> 未经 Apple 公证的版本首次启动时，需要在 macOS“系统设置 → 隐私与安全性”中确认打开。
+
 ## 快速开始
 
-### 准备
-
-- 一台运行 macOS 14 或更高版本的 Mac
-- 一台 Android 10 或更高版本的手机
-- Mac 与手机连接同一 Wi-Fi
-
-### 安装与配对
-
-1. 构建 Mac 与 Android 两端：
-
-   ```bash
-   ./scripts/package-all.sh
-   ```
-
-2. 打开 `dist/AgentPager Bridge.app`。
+1. 从 Releases 下载 APK 和 DMG，分别安装到 Android 手机与 Mac。
+2. 打开 Mac 上的 `AgentPager Bridge`。
 3. 点击菜单栏中的像素信号图标，选择“安装 Codex Hook”。AgentPager 会保留原有 Hook 配置并自动备份。
 4. 打开“AgentPager 设置 → 连接”，显示配对二维码。
-5. 在 Android 手机上安装并打开 `dist/AgentPager-debug.apk`，扫描二维码。
+5. 打开手机上的 AgentPager，扫描二维码。
 6. 新建一个 Codex 任务，手机会自动显示它的实时状态。
-
-已连接 Android 设备时，也可以直接运行：
-
-```bash
-./scripts/install-android.sh
-```
 
 ## 当前可用的手机控制
 
@@ -78,6 +69,9 @@ AgentPager 只会展示当前确实可执行的操作，避免按钮看似可用
 - 配对密钥保存在 macOS Keychain 与 Android Keystore。
 - Bridge 不在线时，Codex Hook 会自动放行，不会阻塞任务。
 - 建议仅在可信的局域网中使用。
+
+
+**如果觉得本项目对你有用的话，欢迎 Star 鼓励一下 🌟**
 
 ## 许可
 

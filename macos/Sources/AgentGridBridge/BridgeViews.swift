@@ -174,6 +174,7 @@ struct BridgeSettingsView: View {
     let model: BridgeModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: Tab = .pairing
+    @State private var pairingTextCopied = false
     @Namespace private var tabSelection
 
     var body: some View {
@@ -260,9 +261,46 @@ struct BridgeSettingsView: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 SettingsTitle("扫描配对")
-                Text("用 Android AgentPager 扫描左侧二维码")
+                Text("左侧二维码就是配对码，用 Android AgentPager 扫描即可")
                     .foregroundStyle(PixelTheme.muted)
                 PixelDivider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("配对文本（可直接选择）")
+                        .font(.pixel(10, weight: .bold))
+                        .foregroundStyle(PixelTheme.cyan)
+                    ScrollView(.vertical) {
+                        // 配对内容较长，限制显示高度并允许选择完整文本。
+                        Text(
+                            model.pairingText.isEmpty
+                                ? "正在生成配对文本…"
+                                : model.pairingText
+                        )
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(PixelTheme.text)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                    }
+                    .frame(height: 72)
+                    .background(PixelTheme.background)
+                    .overlay {
+                        Rectangle()
+                            .stroke(PixelTheme.divider, lineWidth: 1)
+                    }
+                }
+                Button {
+                    // 给无法扫码的场景提供与手机端输入框对应的文本入口。
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pairingTextCopied = pasteboard.setString(
+                        model.pairingText,
+                        forType: .string
+                    )
+                } label: {
+                    Text(pairingTextCopied ? "已复制配对文本" : "复制配对文本")
+                }
+                .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                .disabled(model.pairingText.isEmpty)
                 InfoRow(label: "PHONE", value: "\(model.phoneCount)")
                 InfoRow(label: "SERVICE", value: model.serviceStatus)
                 InfoRow(

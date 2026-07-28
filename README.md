@@ -2,6 +2,8 @@
   <img src="assets/brand/agentpager-icon.svg" width="160" alt="AgentPager 图标">
 </p>
 
+<p align="center"><a href="#english">English</a></p>
+
 <h1 align="center">AgentPager</h1>
 
 <p align="center"><strong>让闲置 Android 手机，成为 AI Agent 的专属状态终端。</strong></p>
@@ -83,3 +85,87 @@ AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态实时同步到旧 And
 ## 许可
 
 项目代码使用 GPL-3.0。第三方代码与字体归属见 [NOTICE.md](NOTICE.md)，字体许可全文位于 `LICENSES/`。
+
+---
+
+<a id="english"></a>
+
+<p align="center">
+  <img src="assets/brand/agentpager-icon.svg" width="160" alt="AgentPager icon">
+</p>
+
+<h1 align="center">AgentPager</h1>
+
+<p align="center"><strong>Turn an idle Android phone into a dedicated status terminal for your AI agents.</strong></p>
+
+<p align="center">
+  No more staring at your Mac or buying another development board.<br>
+  See what Codex is doing, when it finishes, and when it needs your approval at a glance.
+</p>
+
+AgentPager synchronizes the live status of Codex Desktop and Codex CLI to an old Android phone. Place the phone horizontally on your desk and it becomes an always-on, quiet agent console that gets your attention when it matters.
+
+## See It in Action
+
+<p align="center"><img src="artifacts/converted.gif" width="400" alt="Status update animation demo"></p>
+
+## Why I Built AgentPager
+
+I saw someone on social media build a task status display with a development board, so I looked into it too. It turned out that meeting my needs for a screen, networking, sound, vibration, and touch controls would require several pieces of hardware.
+
+Then it clicked: isn't that basically a phone? It already has all of those capabilities, with a better screen, a more complete operating system, and no need to buy new hardware.
+
+That is how AgentPager came to be: putting an idle phone back to work as a genuinely useful AI agent status terminal.
+
+## Why AgentPager
+
+- **Never miss progress when you are away from your Mac**: Starts, thinking, execution, completion, interruption, approval requests, answer requests, and offline status are all visible at a glance.
+- **Find what matters across multiple tasks quickly**: Tasks that need your attention are automatically pinned and expanded, while others dim to reduce distraction.
+- **Get proactive alerts at important moments**: Pixel animations, 8-bit sound effects, and vibration make completions, interruptions, and action requests hard to miss.
+- **Approve or reject requests right from your phone**: Handle Codex permission requests without switching back to your computer.
+- **See sub-agent progress on the same screen**: Parent tasks show active sub-agents, elapsed time, the latest step, and token usage.
+- **Check your remaining quota anytime**: View Codex five-hour and weekly usage windows in one place instead of discovering the limit only after hitting it.
+- **Give an old phone a new job**: The native landscape interface does not depend on a browser; leave it on your desk as a focused agent information display.
+
+**Most importantly: it looks really good (✧∀✧)!!!**
+
+## Download
+
+Go to [GitHub Releases](../../releases/latest) to download the installers directly:
+
+- `AgentPager.apk`: Install on an Android 10 or later phone.
+- `AgentPager-macOS.dmg`: Install on a Mac running macOS 14 or later.
+
+> For the non-notarized build, confirm that you want to open it in macOS **System Settings > Privacy & Security** the first time you launch it.
+
+## Quick Start
+
+1. Download the APK and DMG from Releases, then install them on your Android phone and Mac respectively.
+2. Open `AgentPager Bridge` on your Mac.
+3. Click the pixel signal icon in the menu bar and choose **Install Codex Hook**. AgentPager keeps your existing Hook configuration and automatically creates a backup.
+4. Open **AgentPager Settings > Connection** to display the pairing QR code.
+5. Open AgentPager on your phone and scan the QR code.
+6. Create a Codex task. Its live status will automatically appear on your phone.
+
+## Currently Available Phone Controls
+
+| Action | Support |
+| --- | --- |
+| Approve / reject permission requests | Available |
+| Answer questions | Notifications are available; replying from the phone is not yet supported |
+| Interrupt / retry tasks | Not yet supported |
+
+## Privacy and Security
+
+- This is fully local software: all information stays on your computer and phone.
+- Use it only on a trusted local network.
+
+**If you find this project useful, a Star would mean a lot.**
+
+## Contributing
+
+Contributions are welcome. Codex is currently the only supported agent, and support for more agents can be added.
+
+## License
+
+The project code is licensed under GPL-3.0. See [NOTICE.md](NOTICE.md) for third-party code and font attributions; full font license texts are in `LICENSES/`.

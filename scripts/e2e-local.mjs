@@ -5,11 +5,15 @@ import { createHmac, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const hookExecutable = resolve(
-  root,
-  "dist/AgentPager Bridge.app/Contents/MacOS/AgentPagerHooks",
-);
-const pairing = await fetch("http://127.0.0.1:49362/pairing").then((response) => {
+const hookExecutable =
+  process.env.AGENTPAGER_HOOK_EXECUTABLE ??
+  resolve(root, "dist/AgentPager Bridge.app/Contents/MacOS/AgentPagerHooks");
+const hookArguments = process.env.AGENTPAGER_HOOK_ARGUMENTS
+  ? JSON.parse(process.env.AGENTPAGER_HOOK_ARGUMENTS)
+  : [];
+const pairingURL =
+  process.env.AGENTPAGER_PAIRING_URL ?? "http://127.0.0.1:49362/pairing";
+const pairing = await fetch(pairingURL).then((response) => {
   if (!response.ok) {
     throw new Error(`配对端点返回 ${response.status}`);
   }
@@ -34,7 +38,7 @@ const timeout = setTimeout(() => {
   socket.close();
   console.error("未在限定时间内收到 Hook 状态");
   process.exitCode = 1;
-}, 5_000);
+}, Number(process.env.AGENTPAGER_E2E_TIMEOUT_MS ?? 5_000));
 
 socket.addEventListener("open", () => {
   const events = [
@@ -57,7 +61,7 @@ socket.addEventListener("open", () => {
   ];
 
   for (const event of events) {
-    const result = spawnSync(hookExecutable, {
+    const result = spawnSync(hookExecutable, hookArguments, {
       input: JSON.stringify(event),
       encoding: "utf8",
     });
@@ -71,7 +75,7 @@ socket.addEventListener("open", () => {
 
 function startPermissionRequest() {
   permissionStarted = true;
-  const child = spawn(hookExecutable, [], {
+  const child = spawn(hookExecutable, hookArguments, {
     stdio: ["pipe", "pipe", "pipe"],
   });
   let stdout = "";
@@ -148,7 +152,7 @@ function sendApproval() {
 
 function sendStop() {
   stopSent = true;
-  const result = spawnSync(hookExecutable, {
+  const result = spawnSync(hookExecutable, hookArguments, {
     input: JSON.stringify({
       cwd: root,
       hook_event_name: "Stop",
@@ -188,7 +192,7 @@ function maybeFinish() {
   socket.close();
   setTimeout(async () => {
     try {
-      const response = await fetch("http://127.0.0.1:49362/pairing");
+      const response = await fetch(pairingURL);
       if (!response.ok) {
         throw new Error(`Bridge 返回 ${response.status}`);
       }
@@ -234,11 +238,15 @@ socket.addEventListener("message", (event) => {
   maybeFinish();
 });
 
-socket.addEventListener("error", () => {
+socket.addEventListener("error", (event) => {
   if (completed || closingExpected) {
     return;
   }
   clearTimeout(timeout);
-  console.error("无法连接 AgentPager Bridge");
+  console.error(
+    `无法连接 AgentPager Bridge${
+      event.error?.message ? `：${event.error.message}` : ""
+    }`,
+  );
   process.exitCode = 1;
 });

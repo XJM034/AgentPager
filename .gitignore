@@ -6,6 +6,8 @@ macos/.swiftpm/
 android/.gradle/
 android/local.properties
 android/**/build/
+windows/**/bin/
+windows/**/obj/
 *.apk
 *.aab
 *.jks

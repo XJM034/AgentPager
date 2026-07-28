@@ -48,18 +48,25 @@ AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态实时同步到旧 And
 
 - `AgentPager.apk`：安装到 Android 10 或更高版本的手机
 - `AgentPager-macOS.dmg`：安装到 macOS 14 或更高版本的 Mac
+- `AgentPager-Windows-Setup.exe`：安装到 Windows 10/11 x64
 
 
 > 未经 Apple 公证的版本首次启动时，需要在 macOS“系统设置 → 隐私与安全性”中确认打开。
+>
+> Windows 安装包暂未签名。如果 SmartScreen 显示“Windows 已保护你的电脑”，请选择“更多信息 → 仍要运行”。首次启动时请在防火墙提示中只允许“专用网络”。
+>
+> Windows 安装包相对较大，是因为它采用自包含发布，将 .NET 8、WPF 和局域网服务所需的运行库一起打包，用户无需预先安装 .NET。经安装器压缩后约 60 MB。
 
 ## 快速开始
 
-1. 从 Releases 下载 APK 和 DMG，分别安装到 Android 手机与 Mac。
-2. 打开 Mac 上的 `AgentPager Bridge`。
-3. 点击菜单栏中的像素信号图标，选择“安装 Codex Hook”。AgentPager 会保留原有 Hook 配置并自动备份。
+1. 从 Releases 下载 APK，以及对应电脑系统的 DMG 或 Windows 安装器。
+2. 打开电脑上的 `AgentPager Bridge`。
+3. 点击 macOS 菜单栏或 Windows 系统托盘中的图标，选择“安装 Codex Hook”。AgentPager 会保留原有 Hook 配置并自动备份。
 4. 打开“AgentPager 设置 → 连接”，显示配对二维码。
 5. 打开手机上的 AgentPager，扫描二维码。
 6. 新建一个 Codex 任务，手机会自动显示它的实时状态。
+
+Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运行在 WSL2 中。写入 Hook 后，需在 Codex 中运行 `/hooks` 并信任 AgentPager Hook。
 
 ## 当前可用的手机控制
 
@@ -135,17 +142,24 @@ Go to [GitHub Releases](../../releases/latest) to download the installers direct
 
 - `AgentPager.apk`: Install on an Android 10 or later phone.
 - `AgentPager-macOS.dmg`: Install on a Mac running macOS 14 or later.
+- `AgentPager-Windows-Setup.exe`: Install on a Windows 10/11 x64 PC.
 
 > For the non-notarized build, confirm that you want to open it in macOS **System Settings > Privacy & Security** the first time you launch it.
+>
+> The Windows installer is currently unsigned. If SmartScreen appears, choose **More info > Run anyway**. On first launch, allow AgentPager only on **Private networks** in the Windows Firewall prompt.
+>
+> The Windows package is relatively large because it is self-contained and bundles .NET 8, WPF, and the runtime components required by the LAN service, so users do not need to install .NET separately. The published single executable is about 200 MB and compresses to roughly 60 MB in the installer.
 
 ## Quick Start
 
-1. Download the APK and DMG from Releases, then install them on your Android phone and Mac respectively.
-2. Open `AgentPager Bridge` on your Mac.
-3. Click the pixel signal icon in the menu bar and choose **Install Codex Hook**. AgentPager keeps your existing Hook configuration and automatically creates a backup.
+1. Download the APK and the DMG or Windows installer for your computer.
+2. Open `AgentPager Bridge` on your computer.
+3. Click the icon in the macOS menu bar or Windows system tray and choose **Install Codex Hook**. AgentPager keeps your existing Hook configuration and automatically creates a backup.
 4. Open **AgentPager Settings > Connection** to display the pairing QR code.
 5. Open AgentPager on your phone and scan the QR code.
 6. Create a Codex task. Its live status will automatically appear on your phone.
+
+The first Windows release supports native Codex running with PowerShell; Codex running inside WSL2 is not yet supported. After installing the Hook, run `/hooks` in Codex and trust the AgentPager definition.
 
 ## Currently Available Phone Controls
 

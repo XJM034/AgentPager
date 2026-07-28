@@ -96,7 +96,7 @@ jobs:
           cp android/app/build/outputs/apk/debug/app-debug.apk dist/AgentPager.apk
 
       - name: 上传 APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: AgentPager-Android
           path: dist/AgentPager.apk
@@ -181,7 +181,7 @@ jobs:
           xcrun stapler staple dist/AgentPager-macOS.dmg
 
       - name: 上传 DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: AgentPager-macOS
           path: dist/AgentPager-macOS.dmg
@@ -199,7 +199,7 @@ jobs:
 
     steps:
       - name: 下载安装包
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true

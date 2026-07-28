@@ -76,6 +76,10 @@ AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态实时同步到旧 And
 
 **如果觉得本项目对你有用的话，欢迎 Star 鼓励一下 🌟**
 
+## 贡献
+
+欢迎贡献，现在仅支持 Codex，可以支持更多的 Agent。
+
 ## 许可
 
 项目代码使用 GPL-3.0。第三方代码与字体归属见 [NOTICE.md](NOTICE.md)，字体许可全文位于 `LICENSES/`。

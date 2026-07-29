@@ -187,12 +187,53 @@ jobs:
           path: dist/AgentPager-macOS.dmg
           if-no-files-found: error
 
+  windows:
+    name: 构建 Windows 安装器
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 配置 .NET 8
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: 安装 Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: 设置版本号
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: powershell
+        run: |
+          "AGENTPAGER_VERSION_NAME=$($env:GITHUB_REF_NAME.TrimStart('v'))" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: 构建安装器
+        shell: powershell
+        run: ./scripts/package-windows.ps1
+
+      - name: 上传 Windows 安装器
+        uses: actions/upload-artifact@v7
+        with:
+          name: AgentPager-Windows
+          path: dist/AgentPager-Windows-Setup.exe
+          if-no-files-found: error
+
+      - name: 运行 Windows 端到端验证（不阻断发布）
+        continue-on-error: true
+        shell: powershell
+        run: ./scripts/e2e-windows.ps1 -BridgeExecutable ./dist/windows-publish/AgentPagerBridge.exe
+
   release:
     name: 发布 GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
     needs:
       - android
       - macos
+      - windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -208,7 +249,11 @@ jobs:
         shell: bash
         run: |
           cd release-assets
-          sha256sum AgentPager.apk AgentPager-macOS.dmg > SHA256SUMS.txt
+          sha256sum \
+            AgentPager.apk \
+            AgentPager-macOS.dmg \
+            AgentPager-Windows-Setup.exe \
+            > SHA256SUMS.txt
 
       - name: 创建或更新 Release
         env:

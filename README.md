@@ -13,7 +13,7 @@
   Codex 在做什么、是否完成、何时需要你批准，抬眼就能看到。
 </p>
 
-AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态实时同步到旧 Android 手机。把手机横放在桌面上，它就会变成一个常亮、安静，又能在关键时刻提醒你的 Agent 控制台。
+AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态通过局域网实时同步到旧 Android 手机。把手机横放在桌面上，它就会变成一个常亮、安静，又能在关键时刻提醒你的 Agent 控制台。
 
 ## 查看效果
 

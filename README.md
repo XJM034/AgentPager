@@ -2,7 +2,7 @@
   <img src="assets/brand/agentpager-icon.svg" width="160" alt="AgentPager 图标">
 </p>
 
-<p align="center"><a href="#english">English</a></p>
+<p align="center"><a href="#english">English</a> · <a href="https://afetmin.github.io/AgentPager/">在线介绍页</a></p>
 
 <h1 align="center">AgentPager</h1>
 

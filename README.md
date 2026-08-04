@@ -62,11 +62,14 @@ AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态通过局域网实时�
 1. 从 Releases 下载 APK，以及对应电脑系统的 DMG 或 Windows 安装器。
 2. 打开电脑上的 `AgentPager Bridge`。
 3. 点击 macOS 菜单栏或 Windows 系统托盘中的图标，选择“安装 Codex Hook”。AgentPager 会保留原有 Hook 配置并自动备份。
-4. 打开“AgentPager 设置 → 连接”，显示配对二维码。
-5. 打开手机上的 AgentPager，扫描二维码。
-6. 新建一个 Codex 任务，手机会自动显示它的实时状态。
+4. 在 Codex 中信任 AgentPager Hook，否则 Hook 不会被实际调用：
+   - **Codex CLI / TUI**：运行 `/hooks`，把 AgentPager Hook 标记为信任。
+   - **Codex Desktop（macOS 桌面版）**：在“设置”里找到 AgentPager Hook 并点击信任，没有 `/hooks` 斜杠命令。
+5. 打开“AgentPager 设置 → 连接”，显示配对二维码。
+6. 打开手机上的 AgentPager，扫描二维码。
+7. 新建一个 Codex 任务，手机会自动显示它的实时状态。
 
-Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运行在 WSL2 中。写入 Hook 后，需在 Codex 中运行 `/hooks` 并信任 AgentPager Hook。
+Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运行在 WSL2 中。
 
 ## 当前可用的手机控制
 
@@ -155,11 +158,14 @@ Go to [GitHub Releases](../../releases/latest) to download the installers direct
 1. Download the APK and the DMG or Windows installer for your computer.
 2. Open `AgentPager Bridge` on your computer.
 3. Click the icon in the macOS menu bar or Windows system tray and choose **Install Codex Hook**. AgentPager keeps your existing Hook configuration and automatically creates a backup.
-4. Open **AgentPager Settings > Connection** to display the pairing QR code.
-5. Open AgentPager on your phone and scan the QR code.
-6. Create a Codex task. Its live status will automatically appear on your phone.
+4. Trust the AgentPager Hook in Codex, otherwise the Hook will not actually be invoked:
+   - **Codex CLI / TUI**: run `/hooks` and mark the AgentPager Hook as trusted.
+   - **Codex Desktop (macOS app)**: trust the AgentPager Hook in **Settings**; there is no `/hooks` slash command.
+5. Open **AgentPager Settings > Connection** to display the pairing QR code.
+6. Open AgentPager on your phone and scan the QR code.
+7. Create a Codex task. Its live status will automatically appear on your phone.
 
-The first Windows release supports native Codex running with PowerShell; Codex running inside WSL2 is not yet supported. After installing the Hook, run `/hooks` in Codex and trust the AgentPager definition.
+The first Windows release supports native Codex running with PowerShell; Codex running inside WSL2 is not yet supported.
 
 ## Currently Available Phone Controls
 

@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentPager · 让闲置 Android 手机成为 AI Agent 的专属状态终端</title>
+<meta name="description" content="AgentPager 将 Codex 的运行状态通过局域网实时同步到旧 Android 手机，抬眼就能看到 Agent 在做什么、是否完成、何时需要你批准。">
+<link rel="stylesheet" href="vendor/pixel-grid.full.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect x='64' y='64' width='896' height='896' rx='196' fill='%23090B10'/%3E%3Cg shape-rendering='crispEdges'%3E%3Crect x='148' y='372' width='132' height='132' fill='%234E8CFF'/%3E%3Crect x='316' y='372' width='132' height='132' fill='%234E8CFF'/%3E%3Crect x='484' y='372' width='132' height='132' fill='%23FF744F'/%3E%3Crect x='148' y='540' width='132' height='132' fill='%234E8CFF'/%3E%3Crect x='484' y='540' width='132' height='132' fill='%234E8CFF'/%3E%3Crect x='148' y='708' width='132' height='132' fill='%2335BDAA'/%3E%3Crect x='316' y='708' width='132' height='132' fill='%234E8CFF'/%3E%3Crect x='484' y='708' width='132' height='132' fill='%234E8CFF'/%3E%3C/g%3E%3Cpath d='M622 274H776V430H724V326H622Z' fill='%23FF744F'/%3E%3Cpath d='M622 164H886V430H834V216H622Z' fill='%23FF744F'/%3E%3C/svg%3E">
+<style>
+/* ============ 字体 ============ */
+@font-face{
+  font-family:'Fusion Pixel';
+  src:url('fonts/fusion_pixel_12px_zh_hans.ttf') format('truetype');
+  font-display:swap;
+}
+@font-face{
+  font-family:'Press Start 2P';
+  src:url('https://cdn.jsdelivr.net/npm/@fontsource/press-start-2p@5.2.5/files/press-start-2p-latin-400-normal.woff2') format('woff2');
+  font-display:swap;
+}
+
+/* ============ 设计变量(取自 AgentGridTheme.kt) ============ */
+:root{
+  --bg:        #05070B;
+  --surface:   #0B1018;
+  --raised:    #101824;
+  --divider:   #18212E;
+  --text:      #E8EDF5;
+  --muted:     #7F8A9A;
+  --dimmed:    #4F5968;
+  --blue:      #60A5FA;
+  --cyan:      #5EEAD4;
+  --violet:    #A78BFA;
+  --indigo:    #818CF8;
+  --orange:    #FB923C;
+  --amber:     #FDBA4A;
+  --yellow:    #FACC15;
+  --green:     #4ADE80;
+  --red:       #FB7185;
+  --brand-blue:#4E8CFF;
+  --brand-org: #FF744F;
+  --brand-teal:#35BDAA;
+  --px-font:'Fusion Pixel','Press Start 2P',monospace;
+  --en-font:'Press Start 2P','Fusion Pixel',monospace;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--px-font);
+  font-size:16px;
+  line-height:1.9;
+  overflow-x:hidden;
+  image-rendering:pixelated;
+}
+::selection{background:var(--brand-org);color:#05070B;}
+
+/* CRT 扫描线覆层 */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.14) 0 1px,transparent 1px 3px);
+  mix-blend-mode:multiply;
+}
+
+a{color:var(--cyan);text-decoration:none;}
+a:hover{color:var(--yellow);}
+img{image-rendering:pixelated;}
+
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px;}
+.en{font-family:var(--en-font);}
+.dim{color:var(--muted);}
+section{padding:96px 0;position:relative;}
+
+/* ============ 像素边框工具 ============ */
+.px-box{
+  background:var(--surface);
+  border:3px solid var(--divider);
+  box-shadow:6px 6px 0 #000;
+}
+.px-tag{
+  display:inline-block;padding:4px 12px;border:2px solid currentColor;
+  font-size:14px;line-height:1.4;
+}
+
+/* ============ 顶部导航 ============ */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(5,7,11,.92);
+  border-bottom:3px solid var(--divider);
+  backdrop-filter:blur(4px);
+}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px;}
+nav .logo{display:flex;align-items:center;gap:10px;color:var(--text);font-size:15px;letter-spacing:1px;}
+nav .logo:hover{color:var(--text);}
+nav .links{display:flex;gap:26px;font-size:14px;}
+nav .links a{color:var(--muted);}
+nav .links a:hover{color:var(--yellow);}
+@media(max-width:640px){nav .links{display:none;}}
+
+/* ============ Hero ============ */
+.hero{min-height:100vh;display:flex;align-items:center;padding:120px 0 80px;}
+.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:64px;align-items:center;}
+@media(max-width:880px){.hero-grid{grid-template-columns:1fr;gap:48px;}}
+
+.hero h1{
+  font-family:var(--en-font);
+  font-size:clamp(34px,5.2vw,58px);
+  line-height:1.25;letter-spacing:2px;
+  text-shadow:4px 4px 0 #000;
+}
+.hero h1 .p1{color:var(--brand-blue);}
+.hero h1 .p2{color:var(--brand-org);}
+.hero .slogan{
+  margin-top:28px;font-size:clamp(18px,2.2vw,24px);color:var(--text);
+}
+.hero .sub{margin-top:16px;color:var(--muted);font-size:16px;max-width:34em;}
+
+.blink{animation:blink 1s steps(2,start) infinite;}
+@keyframes blink{50%{opacity:0;}}
+
+.hero-cta{margin-top:40px;display:flex;gap:18px;flex-wrap:wrap;}
+.px-btn{
+  display:inline-block;font-family:var(--px-font);font-size:16px;
+  padding:14px 26px;color:#05070B;background:var(--brand-org);
+  border:3px solid #000;
+  box-shadow:inset -4px -4px 0 rgba(0,0,0,.28),inset 4px 4px 0 rgba(255,255,255,.22),5px 5px 0 #000;
+  cursor:pointer;transition:transform .06s steps(2),box-shadow .06s steps(2);
+}
+.px-btn:hover{color:#05070B;transform:translate(2px,2px);box-shadow:inset -4px -4px 0 rgba(0,0,0,.28),inset 4px 4px 0 rgba(255,255,255,.22),3px 3px 0 #000;}
+.px-btn:active{transform:translate(5px,5px);box-shadow:inset -4px -4px 0 rgba(0,0,0,.28),inset 4px 4px 0 rgba(255,255,255,.22),0 0 0 #000;}
+.px-btn.ghost{background:var(--raised);color:var(--text);}
+.px-btn.ghost:hover{color:var(--yellow);}
+
+/* 手机演示框 */
+.phone-stage{display:flex;justify-content:center;}
+.phone{
+  background:#090B10;border:4px solid var(--divider);
+  box-shadow:10px 10px 0 #000,inset 0 0 0 3px #000;
+  padding:14px;width:min(300px,80vw);
+}
+.phone .notch{height:14px;display:flex;justify-content:center;margin-bottom:10px;}
+.phone .notch i{width:74px;height:8px;background:var(--divider);display:block;}
+.phone .scr{border:3px solid #000;background:#000;line-height:0;}
+.phone .scr img{width:100%;height:auto;}
+.phone .homebar{height:16px;display:flex;justify-content:center;align-items:flex-end;}
+.phone .homebar i{width:90px;height:5px;background:var(--dimmed);display:block;}
+.phone-caption{text-align:center;margin-top:18px;color:var(--dimmed);font-size:13px;}
+
+/* 漂浮像素装饰 */
+.float-px{position:absolute;pointer-events:none;opacity:.55;animation:floaty 5s steps(10) infinite;}
+@keyframes floaty{50%{transform:translateY(-14px);}}
+
+/* ============ 跑马灯分隔 ============ */
+.marquee{
+  border-top:3px solid var(--divider);border-bottom:3px solid var(--divider);
+  background:var(--surface);overflow:hidden;white-space:nowrap;padding:12px 0;
+}
+.marquee-inner{display:inline-block;animation:mq 26s linear infinite;}
+.marquee span{font-size:14px;color:var(--muted);margin-right:56px;letter-spacing:2px;}
+.marquee b{font-weight:normal;}
+@keyframes mq{to{transform:translateX(-50%);}}
+
+/* ============ 章节标题 ============ */
+.sec-head{margin-bottom:56px;}
+.sec-kicker{font-family:var(--en-font);font-size:12px;color:var(--brand-org);letter-spacing:3px;}
+.sec-title{font-size:clamp(24px,3.4vw,36px);margin-top:14px;text-shadow:3px 3px 0 #000;}
+.sec-desc{margin-top:12px;color:var(--muted);max-width:40em;}
+
+/* ============ 状态图鉴 ============ */
+.status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;}
+.status-card{padding:22px 20px;position:relative;transition:transform .1s steps(3);}
+.status-card:hover{transform:translateY(-4px);border-color:var(--dimmed);}
+.status-card .led{width:16px;height:16px;margin-bottom:14px;box-shadow:0 0 10px currentColor;}
+.status-card .name{font-size:18px;}
+.status-card .en-name{font-family:var(--en-font);font-size:10px;color:var(--dimmed);margin-top:6px;letter-spacing:1px;}
+.status-card .desc{color:var(--muted);font-size:14px;margin-top:10px;line-height:1.7;}
+.pulse{animation:pulse 1.2s steps(2) infinite;}
+@keyframes pulse{50%{opacity:.25;}}
+
+/* ============ 特性 ============ */
+.feat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;}
+.feat{padding:28px 26px;}
+.feat .ico{font-family:var(--en-font);font-size:20px;margin-bottom:16px;}
+.feat h3{font-size:19px;margin-bottom:10px;}
+.feat p{color:var(--muted);font-size:15px;}
+
+/* ============ 快速开始 ============ */
+.steps{counter-reset:step;display:grid;gap:18px;}
+.step{display:flex;gap:22px;padding:24px 26px;align-items:flex-start;}
+.step::before{
+  counter-increment:step;content:counter(step,decimal-leading-zero);
+  font-family:var(--en-font);font-size:22px;color:var(--brand-org);
+  text-shadow:2px 2px 0 #000;flex-shrink:0;margin-top:2px;
+}
+.step h3{font-size:17px;margin-bottom:6px;}
+.step p{color:var(--muted);font-size:15px;}
+.step code{
+  background:#000;color:var(--green);padding:2px 8px;font-size:14px;
+  border:2px solid var(--divider);font-family:var(--px-font);
+}
+
+/* ============ 下载 ============ */
+.dl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px;}
+.dl-card{padding:30px 26px;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center;}
+.dl-card .plat{font-family:var(--en-font);font-size:15px;letter-spacing:2px;}
+.dl-card .file{color:var(--muted);font-size:13px;}
+.dl-card .req{color:var(--dimmed);font-size:13px;}
+.dl-card .px-btn{width:100%;text-align:center;}
+.note{margin-top:28px;padding:20px 24px;color:var(--muted);font-size:14px;border-left:6px solid var(--amber);}
+
+/* ============ 隐私 ============ */
+.privacy{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;}
+.priv-card{padding:26px;}
+.priv-card h3{font-size:18px;margin-bottom:10px;}
+.priv-card p{color:var(--muted);font-size:15px;}
+
+/* ============ 页脚 ============ */
+footer{border-top:3px solid var(--divider);padding:48px 0 64px;background:var(--surface);}
+.foot-grid{display:flex;justify-content:space-between;gap:32px;flex-wrap:wrap;align-items:center;}
+.foot-logo{display:flex;align-items:center;gap:12px;}
+.foot-links{display:flex;gap:24px;font-size:14px;flex-wrap:wrap;}
+.foot-links a{color:var(--muted);}
+.foot-links a:hover{color:var(--yellow);}
+.copy{margin-top:26px;color:var(--dimmed);font-size:13px;}
+
+/* ============ 状态图鉴 · 3x3 像素格 ============ */
+.status-card .pg-slot{height:56px;display:flex;align-items:center;margin-bottom:16px;}
+.status-card .pixel-grid{
+  grid-template-columns:repeat(3,14px);
+  grid-template-rows:repeat(3,14px);
+  gap:4px;
+}
+.status-card .pixel-grid__cell{border-radius:0;transition:background-color 300ms ease-out,box-shadow 300ms ease-out;}
+/* 静态态(完成/中断/离线/空闲):常亮或常暗,无循环动画 */
+.status-card .pixel-grid.is-static .pixel-grid__cell{transition:none;}
+</style>
+</head>
+<body>
+
+<!-- ================= 导航 ================= -->
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#top">
+      <svg width="26" height="26" viewBox="0 0 1024 1024" shape-rendering="crispEdges" aria-hidden="true">
+        <rect x="64" y="64" width="896" height="896" rx="196" fill="#090B10"/>
+        <rect x="148" y="372" width="132" height="132" fill="#4E8CFF"/><rect x="316" y="372" width="132" height="132" fill="#4E8CFF"/>
+        <rect x="484" y="372" width="132" height="132" fill="#FF744F"/><rect x="148" y="540" width="132" height="132" fill="#4E8CFF"/>
+        <rect x="484" y="540" width="132" height="132" fill="#4E8CFF"/><rect x="148" y="708" width="132" height="132" fill="#35BDAA"/>
+        <rect x="316" y="708" width="132" height="132" fill="#4E8CFF"/><rect x="484" y="708" width="132" height="132" fill="#4E8CFF"/>
+        <path d="M622 274H776V430H724V326H622Z" fill="#FF744F"/><path d="M622 164H886V430H834V216H622Z" fill="#FF744F"/>
+      </svg>
+      <span class="en" style="font-size:13px;">AgentPager</span>
+    </a>
+    <div class="links">
+      <a href="#status">状态图鉴</a>
+      <a href="#features">特性</a>
+      <a href="#quickstart">快速开始</a>
+      <a href="#download">下载</a>
+      <a href="https://github.com/afetmin/AgentPager" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ================= Hero ================= -->
+<header class="hero" id="top">
+  <!-- 漂浮像素 -->
+  <div class="float-px" style="top:18%;left:6%;width:12px;height:12px;background:var(--brand-blue);"></div>
+  <div class="float-px" style="top:64%;left:3%;width:8px;height:8px;background:var(--brand-org);animation-delay:1s;"></div>
+  <div class="float-px" style="top:26%;right:8%;width:10px;height:10px;background:var(--brand-teal);animation-delay:2s;"></div>
+  <div class="float-px" style="top:78%;right:14%;width:14px;height:14px;background:var(--violet);animation-delay:.5s;"></div>
+
+  <div class="wrap hero-grid">
+    <div>
+      <span class="px-tag" style="color:var(--brand-org);">LAN · PIXEL · 8-BIT</span>
+      <h1 style="margin-top:26px;">
+        <span class="p1">AGENT</span><span class="p2">PAGER</span><span class="blink" style="color:var(--text);">_</span>
+      </h1>
+      <p class="slogan">让闲置 Android 手机，<br>成为 AI Agent 的专属状态终端。</p>
+      <p class="sub">
+        不必一直盯着 Mac，也不必再买一块开发板。Codex 在做什么、是否完成、
+        何时需要你批准——抬眼就能看到。把手机横放在桌面上，它就是一块常亮、
+        安静，又能在关键时刻提醒你的 Agent 控制台。
+      </p>
+      <div class="hero-cta">
+        <a class="px-btn" href="#download">▶ 立即下载</a>
+        <a class="px-btn ghost" href="#quickstart">快速开始</a>
+      </div>
+    </div>
+
+    <div class="phone-stage">
+      <div>
+        <div class="phone">
+          <div class="notch"><i></i></div>
+          <div class="scr"><img src="demo.gif" alt="AgentPager 状态更新动画演示" width="480" height="853"></div>
+          <div class="homebar"><i></i></div>
+        </div>
+        <p class="phone-caption">▲ 真实运行画面 · 像素动画实时渲染</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= 跑马灯 ================= -->
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-inner" id="mq">
+    <span><b style="color:var(--violet);">■</b> 正在启动</span>
+    <span><b style="color:var(--cyan);">■</b> 正在读取</span>
+    <span><b style="color:var(--indigo);">■</b> 正在编辑</span>
+    <span><b style="color:var(--orange);">■</b> 正在执行</span>
+    <span><b style="color:var(--blue);">■</b> 正在测试</span>
+    <span><b style="color:var(--amber);">■</b> 等待批准</span>
+    <span><b style="color:var(--yellow);">■</b> 等待回答</span>
+    <span><b style="color:var(--green);">■</b> 任务完成</span>
+    <span><b style="color:var(--muted);">■</b> 已中断</span>
+    <span><b style="color:var(--dimmed);">■</b> 离线</span>
+  </div>
+</div>
+
+<!-- ================= 为什么 ================= -->
+<section id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker">WHY AGENTPAGER</div>
+      <h2 class="sec-title">旧手机重新上岗</h2>
+      <p class="sec-desc">
+        有人用开发板做任务状态栏。但屏幕、联网、声音、振动、触控……这些能力手机本来就有，
+        而且屏幕更好、系统更完整，还不用买新设备。于是有了 AgentPager。
+      </p>
+    </div>
+    <div class="feat-grid">
+      <div class="feat px-box">
+        <div class="ico" style="color:var(--cyan);">[◎]</div>
+        <h3>离开电脑也不错过进度</h3>
+        <p>开始、思考、执行、完成、中断、等待批准、等待回答、离线——所有状态一目了然。</p>
+      </div>
+      <div class="feat px-box">
+        <div class="ico" style="color:var(--amber);">[▲]</div>
+        <h3>重点任务自动置顶</h3>
+        <p>需要你处理的任务自动置顶并展开，其他任务降低亮度，多任务并行也能快速找到重点。</p>
+      </div>
+      <div class="feat px-box">
+        <div class="ico" style="color:var(--brand-org);">[♪]</div>
+        <h3>重要时刻主动提醒</h3>
+        <p>像素动画、8-bit 音效和振动，让完成、中断与等待操作不再悄无声息。</p>
+      </div>
+      <div class="feat px-box">
+        <div class="ico" style="color:var(--green);">[✓]</div>
+        <h3>手机上直接批准 / 拒绝</h3>
+        <p>Codex 发起权限请求时，无需切回电脑，在手机上点一下即可处理。</p>
+      </div>
+      <div class="feat px-box">
+        <div class="ico" style="color:var(--violet);">[⌬]</div>
+        <h3>子代理进度同屏可见</h3>
+        <p>父任务展示正在工作的子代理、耗时、最新步骤与 Token 用量。</p>
+      </div>
+      <div class="feat px-box">
+        <div class="ico" style="color:var(--blue);">[%]</div>
+        <h3>额度余量随时可查</h3>
+        <p>集中查看 Codex 5 小时与周用量窗口，不必等到触顶才发现。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 状态图鉴 ================= -->
+<section id="status" style="background:var(--surface);border-top:3px solid var(--divider);border-bottom:3px solid var(--divider);">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker">STATUS CODEX</div>
+      <h2 class="sec-title">状态图鉴 · 一色一态</h2>
+      <p class="sec-desc">颜色即语言。余光扫过屏幕，就知道 Agent 此刻处于什么状态。</p>
+    </div>
+    <div class="status-grid">
+      <div class="status-card px-box" style="color:var(--violet);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="starting"></div></div>
+        <div class="name" style="color:var(--violet);">正在启动</div>
+        <div class="en-name">STARTING</div>
+        <div class="desc">任务已下发，Agent 正在初始化环境。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--cyan);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="reading"></div></div>
+        <div class="name" style="color:var(--cyan);">读取 / 搜索 / 浏览</div>
+        <div class="en-name">READING · SEARCHING</div>
+        <div class="desc">Agent 正在理解代码库与上下文。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--indigo);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="editing"></div></div>
+        <div class="name" style="color:var(--indigo);">正在编辑</div>
+        <div class="en-name">EDITING</div>
+        <div class="desc">代码正在被改写，文件逐行更新。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--orange);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="executing"></div></div>
+        <div class="name" style="color:var(--orange);">正在执行</div>
+        <div class="en-name">EXECUTING</div>
+        <div class="desc">命令与脚本正在终端中运行。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--blue);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="testing"></div></div>
+        <div class="name" style="color:var(--blue);">正在测试</div>
+        <div class="en-name">TESTING</div>
+        <div class="desc">测试套件运行中，验证改动是否正确。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--amber);border-color:var(--amber);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="approval"></div></div>
+        <div class="name" style="color:var(--amber);">等待批准</div>
+        <div class="en-name">WAITING_APPROVAL</div>
+        <div class="desc">需要你的权限确认——手机上可直接批准或拒绝。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--yellow);border-color:var(--yellow);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="answer"></div></div>
+        <div class="name" style="color:var(--yellow);">等待回答</div>
+        <div class="en-name">WAITING_ANSWER</div>
+        <div class="desc">Agent 有问题要问你，会收到提醒。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--green);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="succeeded"></div></div>
+        <div class="name" style="color:var(--green);">任务完成</div>
+        <div class="en-name">SUCCEEDED</div>
+        <div class="desc">8-bit 音效响起，收工。</div>
+      </div>
+      <div class="status-card px-box" style="color:var(--muted);">
+        <div class="pg-slot"><div class="pixel-grid" data-pg="offline"></div></div>
+        <div class="name" style="color:var(--muted);">已中断 / 离线</div>
+        <div class="en-name">INTERRUPTED · OFFLINE</div>
+        <div class="desc">任务被打断，或电脑端连接已断开。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 快速开始 ================= -->
+<section id="quickstart">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker">QUEST START</div>
+      <h2 class="sec-title">快速开始 · 七步上岗</h2>
+    </div>
+    <div class="steps">
+      <div class="step px-box"><div><h3>下载安装包</h3><p>从 Releases 下载 APK（手机）和 DMG / EXE（电脑）。</p></div></div>
+      <div class="step px-box"><div><h3>打开电脑端 Bridge</h3><p>启动 AgentPager Bridge，它驻留在 macOS 菜单栏 / Windows 系统托盘。</p></div></div>
+      <div class="step px-box"><div><h3>安装 Codex Hook</h3><p>点击托盘图标选择「安装 Codex Hook」，原有配置会自动备份保留。</p></div></div>
+      <div class="step px-box"><div><h3>信任 Hook</h3><p>Codex CLI 运行 <code>/hooks</code> 标记信任；Codex Desktop 在设置里点击信任。</p></div></div>
+      <div class="step px-box"><div><h3>显示配对二维码</h3><p>打开「AgentPager 设置 → 连接」，屏幕出现配对二维码。</p></div></div>
+      <div class="step px-box"><div><h3>手机扫码配对</h3><p>打开手机上的 AgentPager，扫一扫即完成局域网配对。</p></div></div>
+      <div class="step px-box"><div><h3>开跑</h3><p>新建一个 Codex 任务，手机自动显示实时状态。任务完成。</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 下载 ================= -->
+<section id="download" style="background:var(--surface);border-top:3px solid var(--divider);border-bottom:3px solid var(--divider);">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker">INSERT COIN</div>
+      <h2 class="sec-title">下载 · 三端齐备</h2>
+    </div>
+    <div class="dl-grid">
+      <div class="dl-card px-box">
+        <div class="plat" style="color:var(--green);">ANDROID</div>
+        <div class="file">AgentPager.apk</div>
+        <div class="req">Android 10 或更高版本</div>
+        <a class="px-btn" style="background:var(--green);" href="https://github.com/afetmin/AgentPager/releases/latest" target="_blank" rel="noopener">下载 APK</a>
+      </div>
+      <div class="dl-card px-box">
+        <div class="plat" style="color:var(--blue);">MACOS</div>
+        <div class="file">AgentPager-macOS.dmg</div>
+        <div class="req">macOS 14 或更高版本</div>
+        <a class="px-btn" style="background:var(--blue);" href="https://github.com/afetmin/AgentPager/releases/latest" target="_blank" rel="noopener">下载 DMG</a>
+      </div>
+      <div class="dl-card px-box">
+        <div class="plat" style="color:var(--amber);">WINDOWS</div>
+        <div class="file">AgentPager-Windows-Setup.exe</div>
+        <div class="req">Windows 10 / 11 x64 · 自包含约 60MB</div>
+        <a class="px-btn" style="background:var(--amber);" href="https://github.com/afetmin/AgentPager/releases/latest" target="_blank" rel="noopener">下载 EXE</a>
+      </div>
+    </div>
+    <div class="note px-box" style="border-left:6px solid var(--amber);">
+      <strong style="color:var(--amber);">注意：</strong>
+      macOS 未经公证的版本首次启动需在「系统设置 → 隐私与安全性」中确认打开；
+      Windows 安装包暂未签名，SmartScreen 提示时请选择「更多信息 → 仍要运行」，防火墙请仅允许「专用网络」。
+    </div>
+  </div>
+</section>
+
+<!-- ================= 隐私 ================= -->
+<section id="privacy">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker">NO CLOUD</div>
+      <h2 class="sec-title">隐私与安全 · 纯本地</h2>
+    </div>
+    <div class="privacy">
+      <div class="priv-card px-box">
+        <h3 style="color:var(--cyan);">数据不出局域网</h3>
+        <p>这是个纯本地软件，所有信息只在你的电脑和你的手机之间流动，不经过任何云端服务器。</p>
+      </div>
+      <div class="priv-card px-box">
+        <h3 style="color:var(--yellow);">可信网络使用</h3>
+        <p>建议仅在可信的局域网中使用，例如家庭或办公室内网。</p>
+      </div>
+      <div class="priv-card px-box">
+        <h3 style="color:var(--brand-org);">开源可审计</h3>
+        <p>代码以 GPL-3.0 开源，欢迎 Star，也欢迎贡献更多 Agent 的支持。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 页脚 ================= -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-logo">
+        <svg width="34" height="34" viewBox="0 0 1024 1024" shape-rendering="crispEdges" aria-hidden="true">
+          <rect x="64" y="64" width="896" height="896" rx="196" fill="#090B10"/>
+          <rect x="148" y="372" width="132" height="132" fill="#4E8CFF"/><rect x="316" y="372" width="132" height="132" fill="#4E8CFF"/>
+          <rect x="484" y="372" width="132" height="132" fill="#FF744F"/><rect x="148" y="540" width="132" height="132" fill="#4E8CFF"/>
+          <rect x="484" y="540" width="132" height="132" fill="#4E8CFF"/><rect x="148" y="708" width="132" height="132" fill="#35BDAA"/>
+          <rect x="316" y="708" width="132" height="132" fill="#4E8CFF"/><rect x="484" y="708" width="132" height="132" fill="#4E8CFF"/>
+          <path d="M622 274H776V430H724V326H622Z" fill="#FF744F"/><path d="M622 164H886V430H834V216H622Z" fill="#FF744F"/>
+        </svg>
+        <div>
+          <div class="en" style="font-size:13px;">AgentPager</div>
+          <div class="dim" style="font-size:13px;">它真的很好看 (✧∀✧)</div>
+        </div>
+      </div>
+      <div class="foot-links">
+        <a href="#status">状态图鉴</a>
+        <a href="#quickstart">快速开始</a>
+        <a href="#download">下载</a>
+        <a href="https://github.com/afetmin/AgentPager" target="_blank" rel="noopener">GitHub ↗</a>
+      </div>
+    </div>
+    <p class="copy">© AgentPager · GPL-3.0 License · 像素字体：Fusion Pixel（缝合像素字体）· Made with ♥ and 8-bit sounds</p>
+  </div>
+</footer>
+
+<script src="vendor/pixel-grid.js"></script>
+<script>
+// 跑马灯内容复制一份实现无缝滚动
+(function(){
+  var mq = document.getElementById('mq');
+  mq.innerHTML += mq.innerHTML;
+})();
+
+/* ============================================================
+   状态图鉴 · 用 3-pixel-grid 真实渲染每种 Agent 状态
+   颜色取自 android/.../AgentGridTheme.kt,动效语义对应:
+   启动=汇聚 读取=波浪 编辑=蛇形 执行=风车 测试=棋盘
+   等待批准=四角急促闪烁 等待回答=中心呼吸 完成=常亮 离线=熄灭
+   ============================================================ */
+(function(){
+  var C = {
+    violet:'#A78BFA', cyan:'#5EEAD4', indigo:'#818CF8', orange:'#FB923C',
+    blue:'#60A5FA', amber:'#FDBA4A', yellow:'#FACC15', green:'#4ADE80', muted:'#7F8A9A'
+  };
+
+  // 循环动画态:动画预设 + 状态色
+  var ANIMATED = {
+    starting:  { anim:'spiral-cw',     color:C.violet },  // 螺旋汇聚,初始化
+    reading:   { anim:'wave-lr',       color:C.cyan   },  // 波浪扫过,读取上下文
+    editing:   { anim:'snake',         color:C.indigo },  // 蛇形游走,逐行改写
+    executing: { anim:'pinwheel',      color:C.orange },  // 风车飞转,命令狂奔
+    testing:   { anim:'checkerboard',  color:C.blue   },  // 棋盘交替,断言往返
+    approval:  { anim:'corners-first', color:C.amber  },  // 四角急促,催促处理
+    answer:    { anim:'center-out',    color:C.yellow }   // 中心呼吸,等你开口
+  };
+
+  Object.keys(ANIMATED).forEach(function(key){
+    var el = document.querySelector('[data-pg="'+key+'"]');
+    if(!el) return;
+    var cfg = ANIMATED[key];
+    var preset = PixelGrid.getAnimation(cfg.anim);
+    PixelGrid.create(el, {
+      animation: {
+        name:     'ap-'+key,
+        delays:   preset.delays.slice(),
+        duration: preset.duration,
+        colors:   Array(9).fill(cfg.color)   // hex 逐格着色,走库的原生路径
+      },
+      bloom: 3
+    });
+  });
+
+  // 静态态:任务完成 = 九格常亮
+  var okEl = document.querySelector('[data-pg="succeeded"]');
+  if(okEl){
+    okEl.classList.add('is-static');
+    var done = PixelGrid.create(okEl, {
+      animation:{ name:'ap-done', delays:Array(9).fill(0), duration:1e9,
+                  colors:Array(9).fill(C.green) },
+      bloom: 3
+    });
+    done.stop();                       // 清掉循环,直接点亮
+    okEl.querySelectorAll('.pixel-grid__cell').forEach(function(c){ c.classList.add('is-on'); });
+  }
+
+  // 静态态:已中断/离线 = 全部熄灭(仅渲染暗格)
+  var offEl = document.querySelector('[data-pg="offline"]');
+  if(offEl){
+    offEl.classList.add('is-static');
+    var off = PixelGrid.create(offEl, {
+      animation:{ name:'ap-off', delays:Array(9).fill(0), duration:1e9,
+                  colors:Array(9).fill(C.muted) },
+      autoplay:false
+    });
+    off.stop();
+  }
+})();
+</script>
+</body>
+</html>

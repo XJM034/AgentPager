@@ -79,6 +79,20 @@ struct BridgeMenuView: View {
             )
 
             Button {
+                model.installClaudeHooks()
+            } label: {
+                Text(model.claudeHookInstalled ? "修复 CLAUDE CODE HOOK" : "安装 CLAUDE CODE HOOK")
+                    .contentTransition(.interpolate)
+            }
+            .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+            .animation(statusAnimation, value: model.claudeHookInstalled)
+            .popoverOptionEntrance(
+                isPresented: menuAppeared,
+                reduceMotion: reduceMotion,
+                order: 1
+            )
+
+            Button {
                 openSettings()
                 NSApplication.shared.activate()
             } label: {
@@ -88,7 +102,7 @@ struct BridgeMenuView: View {
             .popoverOptionEntrance(
                 isPresented: menuAppeared,
                 reduceMotion: reduceMotion,
-                order: 1
+                order: 2
             )
 
             PixelDivider()
@@ -100,7 +114,7 @@ struct BridgeMenuView: View {
             .popoverOptionEntrance(
                 isPresented: menuAppeared,
                 reduceMotion: reduceMotion,
-                order: 2
+                order: 3
             )
         }
         .padding(17)
@@ -166,7 +180,7 @@ struct BridgeMenuView: View {
 struct BridgeSettingsView: View {
     private enum Tab: String, CaseIterable {
         case pairing = "连接"
-        case hook = "Codex"
+        case hook = "Hook"
         case simulator = "模拟器"
         case diagnostics = "诊断"
     }
@@ -316,9 +330,12 @@ struct BridgeSettingsView: View {
 
     private var hookView: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SettingsTitle("Codex 生命周期 Hook")
+            SettingsTitle("Agent 生命周期 Hook")
             PixelPanel {
                 VStack(alignment: .leading, spacing: 13) {
+                    Text("Codex")
+                        .font(.pixel(13, weight: .bold))
+                        .foregroundStyle(PixelTheme.cyan)
                     ZStack(alignment: .leading) {
                         InfoRow(
                             label: "STATUS",
@@ -341,7 +358,34 @@ struct BridgeSettingsView: View {
                     }
                 }
             }
-            Text("Bridge 不在线时 Hook 自动放行，不会阻塞 Codex。")
+            PixelPanel {
+                VStack(alignment: .leading, spacing: 13) {
+                    Text("Claude Code")
+                        .font(.pixel(13, weight: .bold))
+                        .foregroundStyle(PixelTheme.violet)
+                    ZStack(alignment: .leading) {
+                        InfoRow(
+                            label: "STATUS",
+                            value: model.claudeHookInstalled ? "已安装" : "未安装",
+                            accent: model.claudeHookInstalled ? PixelTheme.green : PixelTheme.amber
+                        )
+                        .id(model.claudeHookInstalled)
+                        .transition(hookStatusTransition)
+                    }
+                    .animation(hookStatusAnimation, value: model.claudeHookInstalled)
+                    Text("向 ~/.claude/settings.json 写入生命周期 Hook，覆盖开始、工具、权限、完成等事件；保留现有 Hook 并自动备份。")
+                        .foregroundStyle(PixelTheme.muted)
+                        .lineSpacing(4)
+                    HStack(spacing: 10) {
+                        Button("安装或修复") { model.installClaudeHooks() }
+                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+                        Button("卸载") { model.uninstallClaudeHooks() }
+                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                            .disabled(!model.claudeHookInstalled)
+                    }
+                }
+            }
+            Text("Bridge 不在线时 Hook 自动放行，不会阻塞 Agent。")
                 .font(.pixel(10))
                 .foregroundStyle(PixelTheme.muted)
             Spacer()

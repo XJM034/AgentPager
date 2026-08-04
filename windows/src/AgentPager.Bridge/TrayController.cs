@@ -26,6 +26,7 @@ public sealed class TrayController : IDisposable
             _server, _hook, _link,
             new ToolStripSeparator(),
             new ToolStripMenuItem("安装或修复 Codex Hook", null, (_, _) => _runtime.InstallHook()),
+            new ToolStripMenuItem("安装或修复 Claude Code Hook", null, (_, _) => _runtime.InstallClaudeHook()),
             new ToolStripMenuItem("打开 AgentPager 设置", null, (_, _) => showWindow()),
             new ToolStripSeparator(),
             new ToolStripMenuItem("退出 AgentPager", null, (_, _) => exit()),

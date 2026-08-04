@@ -41,7 +41,11 @@ try {
         param([hashtable]$Payload)
         $startInfo = [Diagnostics.ProcessStartInfo]::new()
         $startInfo.FileName = $BridgeExecutable
-        $startInfo.Arguments = "--hook"
+        if ($HookSource -eq "claude") {
+            $startInfo.Arguments = "--hook --source claude"
+        } else {
+            $startInfo.Arguments = "--hook"
+        }
         $startInfo.UseShellExecute = $false
         $startInfo.CreateNoWindow = $true
         $startInfo.RedirectStandardInput = $true
@@ -105,6 +109,8 @@ try {
 
     $taskID = "agentpager-windows-e2e-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
     $cwd = $projectRoot
+    $HookSource = $env:AGENTPAGER_HOOK_SOURCE
+    if (-not $HookSource) { $HookSource = "codex" }
     Invoke-Hook ([ordered]@{
         cwd = $cwd
         hook_event_name = "SessionStart"
@@ -197,7 +203,7 @@ try {
         throw "Permission hook did not receive a response."
     }
     $permissionOutput = $permission.StandardOutput.ReadToEnd()
-    if ($permissionOutput -notmatch '"decision":"allow"') {
+    if (-not ($permissionOutput -match '"decision":"allow"' -or $permissionOutput -match '"behavior":"allow"')) {
         throw "Permission hook did not emit allow: $permissionOutput"
     }
 

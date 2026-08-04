@@ -11,6 +11,7 @@ final class BridgeModel {
     private(set) var phoneCount = 0
     private(set) var serviceStatus = "正在启动"
     private(set) var hookInstalled = false
+    private(set) var claudeHookInstalled = false
     private(set) var lastError: String?
     private(set) var pairingText = ""
     private(set) var recentEvents: [String] = []
@@ -19,6 +20,7 @@ final class BridgeModel {
     private var replayGuard = ReplayGuard()
     private var pairingSecret = Data()
     private let hookConfiguration = CodexHookConfiguration()
+    private let claudeHookConfiguration = ClaudeHookConfiguration()
     private var rolloutObservation = CodexRolloutObservation()
     private var hookServer: HookBridgeServer?
     private var webSocketServer: WebSocketServer?
@@ -46,9 +48,9 @@ final class BridgeModel {
                 String(data: try encoder.encode(payload), encoding: .utf8) ?? ""
             pairingText = pairingPayloadText
 
-            let hookServer = HookBridgeServer { [weak self] hook in
+            let hookServer = HookBridgeServer { [weak self] envelope in
                 Task { @MainActor in
-                    self?.handle(hook)
+                    self?.handle(envelope)
                 }
             }
             try hookServer.start()
@@ -85,6 +87,7 @@ final class BridgeModel {
         }
 
         refreshHookStatus()
+        refreshClaudeHookStatus()
         refreshUsage()
         handleRolloutObservation()
         refreshTask = Task { [weak self] in
@@ -127,11 +130,36 @@ final class BridgeModel {
         do {
             let change = try hookConfiguration.uninstall()
             if change.changed {
-                addEvent("AgentPager Hook 已移除")
+                addEvent("AgentPager Codex Hook 已移除")
             }
             refreshHookStatus()
         } catch {
             lastError = "卸载 Hook 失败：\(error.localizedDescription)"
+        }
+    }
+
+    func installClaudeHooks() {
+        do {
+            let command = ClaudeHookInstaller.hookCommand(for: hookExecutableURL.path)
+            let change = try claudeHookConfiguration.install(command: command)
+            if change.changed {
+                addEvent("Claude Code Hook 已安装")
+            }
+            refreshClaudeHookStatus()
+        } catch {
+            lastError = "安装 Claude Code Hook 失败：\(error.localizedDescription)"
+        }
+    }
+
+    func uninstallClaudeHooks() {
+        do {
+            let change = try claudeHookConfiguration.uninstall()
+            if change.changed {
+                addEvent("AgentPager Claude Code Hook 已移除")
+            }
+            refreshClaudeHookStatus()
+        } catch {
+            lastError = "卸载 Claude Code Hook 失败：\(error.localizedDescription)"
         }
     }
 
@@ -189,12 +217,24 @@ final class BridgeModel {
         lastError = nil
     }
 
-    private func handle(_ hook: CodexHookPayload) {
-        rolloutObservation.include(hook)
-        let commit = catalog.accept(.hook(hook))
-        let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
-        guard let task else { return }
-        addEvent("\(task.projectName) · \(task.lifecycle.rawValue)")
+    private func handle(_ envelope: HookEnvelope) {
+        let commit: TaskCatalogCommit?
+        let projectSummary: String
+        let lifecycleSummary: String
+        switch envelope {
+        case let .codex(hook):
+            rolloutObservation.include(hook)
+            commit = catalog.accept(.hook(hook))
+            let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
+            projectSummary = task?.projectName ?? "Codex"
+            lifecycleSummary = task?.lifecycle.rawValue ?? ""
+        case let .claude(hook):
+            commit = catalog.accept(.claudeHook(hook))
+            let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
+            projectSummary = task?.projectName ?? "Claude Code"
+            lifecycleSummary = task?.lifecycle.rawValue ?? ""
+        }
+        addEvent("\(projectSummary) · \(lifecycleSummary)")
         if let commit {
             applyCatalogCommit(commit)
         }
@@ -276,6 +316,10 @@ final class BridgeModel {
 
     private func refreshHookStatus() {
         hookInstalled = hookConfiguration.isInstalled()
+    }
+
+    private func refreshClaudeHookStatus() {
+        claudeHookInstalled = claudeHookConfiguration.isInstalled()
     }
 
     private func publishCatalog(focusedTaskIDOverride: String? = nil) {

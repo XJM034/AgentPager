@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace AgentPager.Core;
 
-public enum AgentSource { CodexDesktop, CodexCLI }
+public enum AgentSource { CodexDesktop, CodexCLI, ClaudeCode }
 public enum AgentLifecycle { Offline, Idle, Starting, Running, WaitingApproval, WaitingAnswer, Succeeded, Interrupted }
 public enum AgentActivity { Thinking, Reading, Searching, Editing, Executing, Testing, Browsing, Delegating }
 public enum TaskCapability { Approve, Deny, Answer, Interrupt, Retry }
@@ -226,8 +226,11 @@ internal sealed class WireEnumConverter<T> : JsonConverter<T> where T : struct, 
     private static string WireName(T value)
     {
         var name = value.ToString();
-        if (typeof(T) == typeof(AgentSource) && name == nameof(AgentSource.CodexCLI))
-            return "codexCLI";
+        if (typeof(T) == typeof(AgentSource))
+        {
+            if (name == nameof(AgentSource.CodexCLI)) return "codexCLI";
+            if (name == nameof(AgentSource.ClaudeCode)) return "claudeCode";
+        }
         return char.ToLowerInvariant(name[0]) + name[1..];
     }
 }

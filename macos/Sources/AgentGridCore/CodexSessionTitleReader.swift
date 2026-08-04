@@ -76,7 +76,12 @@ public struct CodexSessionTitleSynchronizer: Sendable {
     public init() {}
 
     public func needsRefresh(for tasks: [TaskSnapshot]) -> Bool {
-        tasks.contains { synchronizedTitles[$0.id] == nil }
+        // 标题源是 Codex 的 session_index.jsonl，只对 Codex 会话有意义；
+        // Claude 会话的标题来自 UserPromptSubmit，无需进入该同步流程。
+        tasks.contains {
+            ($0.source == .codexCLI || $0.source == .codexDesktop)
+            && synchronizedTitles[$0.id] == nil
+        }
     }
 
     @discardableResult

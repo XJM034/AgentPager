@@ -10,6 +10,9 @@ enum class AgentSource {
 
     @SerialName("codexCLI")
     CODEX_CLI,
+
+    @SerialName("claudeCode")
+    CLAUDE_CODE,
 }
 
 @Serializable

@@ -7,10 +7,10 @@ using AgentPager.Core;
 
 namespace AgentPager.Bridge;
 
-public sealed class HookTcpServer(Func<CodexHookPayload, Task> hookHandler, DailyFileLog log)
+public sealed class HookTcpServer(Func<HookEnvelope, Task> hookHandler, DailyFileLog log)
     : ICodexPermissionResolver, IAsyncDisposable
 {
-    private readonly ConcurrentDictionary<string, TcpClient> _pending = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, (TcpClient Client, HookSource Source)> _pending = new(StringComparer.Ordinal);
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
     private Task? _acceptTask;
@@ -25,13 +25,17 @@ public sealed class HookTcpServer(Func<CodexHookPayload, Task> hookHandler, Dail
 
     public bool Resolve(string sessionID, CodexPermissionDecision decision)
     {
-        if (!_pending.TryRemove(sessionID, out var client)) return false;
+        if (!_pending.TryRemove(sessionID, out var entry)) return false;
         try
         {
-            using (client)
+            using (entry.Client)
             {
-                var response = CodexHookOutput.Permission(decision);
-                client.GetStream().Write(response);
+                var response = entry.Source == HookSource.Claude
+                    ? ClaudeHookOutput.Permission(decision == CodexPermissionDecision.Allow
+                        ? ClaudePermissionDecision.Allow
+                        : ClaudePermissionDecision.Deny)
+                    : CodexHookOutput.Permission(decision);
+                entry.Client.GetStream().Write(response);
             }
             return true;
         }
@@ -60,18 +64,39 @@ public sealed class HookTcpServer(Func<CodexHookPayload, Task> hookHandler, Dail
             using var reader = new StreamReader(stream, Encoding.UTF8, false, 4096, leaveOpen: true);
             var line = await reader.ReadLineAsync(cancellationToken);
             if (line is null) { client.Dispose(); return; }
-            var hook = JsonSerializer.Deserialize<CodexHookPayload>(line, WireJson.Options);
-            if (hook is null) { client.Dispose(); return; }
 
-            if (hook.HookEventName == CodexHookEventName.PermissionRequest)
+            var envelope = DecodeEnvelope(line);
+            if (envelope is null)
             {
-                if (_pending.TryGetValue(hook.SessionID, out var previous)) previous.Dispose();
-                _pending[hook.SessionID] = client;
-                await hookHandler(hook);
+                // 无法识别来源时按 Codex 兼容旧版 CLI；解析失败则放行不阻塞。
+                envelope = TryDecodeCodex(line);
+            }
+            if (envelope is null) { client.Dispose(); return; }
+
+            var isPermission = envelope switch
+            {
+                HookEnvelope.Codex codex => codex.Hook.HookEventName == CodexHookEventName.PermissionRequest,
+                HookEnvelope.Claude claude => claude.Hook.HookEventName == "PermissionRequest",
+                _ => false,
+            };
+            var sessionID = envelope switch
+            {
+                HookEnvelope.Codex codex => codex.Hook.SessionID,
+                HookEnvelope.Claude claude => claude.Hook.SessionID,
+                _ => null,
+            };
+            if (sessionID is null) { client.Dispose(); return; }
+
+            if (isPermission)
+            {
+                var source = envelope is HookEnvelope.Claude ? HookSource.Claude : HookSource.Codex;
+                if (_pending.TryGetValue(sessionID, out var previous)) previous.Client.Dispose();
+                _pending[sessionID] = (client, source);
+                await hookHandler(envelope);
                 return;
             }
 
-            await hookHandler(hook);
+            await hookHandler(envelope);
             await stream.WriteAsync("\n"u8.ToArray(), cancellationToken);
             client.Dispose();
         }
@@ -82,11 +107,45 @@ public sealed class HookTcpServer(Func<CodexHookPayload, Task> hookHandler, Dail
         }
     }
 
+    private static HookEnvelope? DecodeEnvelope(string line)
+    {
+        JsonObject? root;
+        try { root = JsonNode.Parse(line)?.AsObject(); }
+        catch { return null; }
+        if (root is null) return null;
+        if (root["hook_source"]?.GetValue<string>() is not { } rawSource ||
+            !Enum.TryParse<HookSource>(rawSource, ignoreCase: true, out var source) ||
+            root["payload"] is null)
+            return null;
+
+        var payloadNode = root["payload"]!.ToJsonString();
+        return source switch
+        {
+            HookSource.Codex => JsonSerializer.Deserialize<CodexHookPayload>(payloadNode, WireJson.Options) is { } codex
+                ? new HookEnvelope.Codex(codex)
+                : null,
+            HookSource.Claude => JsonSerializer.Deserialize<ClaudeHookPayload>(payloadNode, WireJson.Options) is { } claude
+                ? new HookEnvelope.Claude(claude)
+                : null,
+            _ => null,
+        };
+    }
+
+    private static HookEnvelope? TryDecodeCodex(string line)
+    {
+        try
+        {
+            var payload = JsonSerializer.Deserialize<CodexHookPayload>(line, WireJson.Options);
+            return payload is null ? null : new HookEnvelope.Codex(payload);
+        }
+        catch (JsonException) { return null; }
+    }
+
     public async ValueTask DisposeAsync()
     {
         _cancellation?.Cancel();
         _listener?.Stop();
-        foreach (var client in _pending.Values) client.Dispose();
+        foreach (var entry in _pending.Values) entry.Client.Dispose();
         _pending.Clear();
         if (_acceptTask is not null)
             try { await _acceptTask; } catch (OperationCanceledException) { }

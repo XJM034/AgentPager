@@ -31,6 +31,6 @@
         <string>_agentgrid._tcp</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>AgentPager 通过局域网把 Codex 任务状态发送到已配对的手机。</string>
+    <string>AgentPager 通过局域网把 Codex 与 Claude Code 任务状态发送到已配对的手机。</string>
 </dict>
 </plist>

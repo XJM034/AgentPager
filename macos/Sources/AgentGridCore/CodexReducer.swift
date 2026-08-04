@@ -88,6 +88,25 @@ public enum CodexEventReducer {
         }
     }
 
+    /// 任意 Hook JSON 值转成可读字符串，供 latestStep/summary 复用。
+    public static func stringValue(for value: HookJSONValue?) -> String? {
+        guard let value else { return nil }
+        switch value {
+        case let .string(text): return text
+        case let .number(number): return String(number)
+        case let .boolean(flag): return flag ? "true" : "false"
+        case .null: return "null"
+        case let .array(items):
+            return "[\(items.compactMap { stringValue(for: $0) }.joined(separator: ", "))]"
+        case let .object(obj):
+            let rendered = obj.keys.sorted().map { key in
+                let value = stringValue(for: obj[key]) ?? "null"
+                return "\(key): \(value)"
+            }.joined(separator: ", ")
+            return "{\(rendered)}"
+        }
+    }
+
     public static func activity(for toolName: String?) -> AgentActivity {
         let name = toolName?.lowercased() ?? ""
         if name.contains("test") || name.contains("gradle") || name.contains("xcode") {
@@ -111,7 +130,7 @@ public enum CodexEventReducer {
         return .executing
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    static func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
         let normalized = value
             .replacingOccurrences(of: "\n", with: " ")
@@ -120,7 +139,7 @@ public enum CodexEventReducer {
         return normalized.isEmpty ? nil : normalized
     }
 
-    private static func isCommandTool(_ name: String) -> Bool {
+    static func isCommandTool(_ name: String) -> Bool {
         let leafName = name
             .split(separator: ".")
             .last?

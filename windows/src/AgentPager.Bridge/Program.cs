@@ -3,6 +3,7 @@ using System.IO.Pipes;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using AgentPager.Core;
 
@@ -16,7 +17,7 @@ public static class Program
     public static int Main(string[] args)
     {
         if (args.Contains("--hook", StringComparer.OrdinalIgnoreCase))
-            return HookClient.RunAsync().GetAwaiter().GetResult();
+            return HookClient.RunAsync(args).GetAwaiter().GetResult();
         if (args.Contains("--uninstall-hook", StringComparer.OrdinalIgnoreCase))
             return Maintenance.Uninstall();
 
@@ -36,27 +37,34 @@ public static class Program
 
 internal static class HookClient
 {
-    public static async Task<int> RunAsync()
+    public static async Task<int> RunAsync(string[] args)
     {
+        var source = ResolveSource(args);
         try
         {
             using var input = Console.OpenStandardInput();
             using var memory = new MemoryStream();
             await input.CopyToAsync(memory);
             var payloadData = memory.ToArray();
-            var payload = JsonSerializer.Deserialize<CodexHookPayload>(payloadData, WireJson.Options);
-            if (payload is null) return 0;
 
+            // 按来源解码载荷，仅用于判断事件类型以设置等待时长；解析失败保持 fail-open。
+            var isPermission = source == HookSource.Claude
+                ? IsClaudePermission(payloadData)
+                : IsCodexPermission(payloadData);
+
+            var envelope = WrapInEnvelope(payloadData, source);
             using var client = new TcpClient();
             using var connectTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
             await client.ConnectAsync("127.0.0.1", 49361, connectTimeout.Token);
             await using var stream = client.GetStream();
-            await stream.WriteAsync(payloadData);
+            await stream.WriteAsync(envelope);
             await stream.WriteAsync("\n"u8.ToArray());
             await stream.FlushAsync();
 
-            var wait = payload.HookEventName == CodexHookEventName.PermissionRequest
-                ? TimeSpan.FromHours(1) : TimeSpan.FromSeconds(5);
+            // 权限请求可能等用户在手机上操作很久；与 settings.json 的 hook timeout 对齐。
+            var wait = isPermission
+                ? (source == HookSource.Claude ? TimeSpan.FromHours(24) : TimeSpan.FromHours(1))
+                : TimeSpan.FromSeconds(5);
             using var readTimeout = new CancellationTokenSource(wait);
             var response = new MemoryStream();
             var buffer = new byte[4096];
@@ -75,9 +83,60 @@ internal static class HookClient
         }
         catch (Exception error) when (error is IOException or SocketException or OperationCanceledException or JsonException)
         {
-            // Hook 必须 fail-open，Bridge 不可用不能阻塞 Codex。
+            // Hook 必须 fail-open，Bridge 不可用不能阻塞 Agent。
         }
         return 0;
+    }
+
+    private static HookSource ResolveSource(string[] args)
+    {
+        for (var index = 0; index < args.Length - 1; index++)
+        {
+            if (string.Equals(args[index], "--source", StringComparison.OrdinalIgnoreCase) &&
+                Enum.TryParse<HookSource>(args[index + 1], ignoreCase: true, out var source))
+                return source;
+        }
+        return HookSource.Codex;
+    }
+
+    private static bool IsCodexPermission(byte[] payloadData)
+    {
+        try
+        {
+            var payload = JsonSerializer.Deserialize<CodexHookPayload>(payloadData, WireJson.Options);
+            return payload?.HookEventName == CodexHookEventName.PermissionRequest;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static bool IsClaudePermission(byte[] payloadData)
+    {
+        try
+        {
+            var payload = JsonSerializer.Deserialize<ClaudeHookPayload>(payloadData, WireJson.Options);
+            return payload?.HookEventName == "PermissionRequest";
+        }
+        catch (JsonException) { return false; }
+    }
+
+    /// <summary>把原始 Hook 载荷包进 {hook_source, payload} 信封。</summary>
+    private static byte[] WrapInEnvelope(byte[] payloadData, HookSource source)
+    {
+        try
+        {
+            var payloadNode = JsonNode.Parse(payloadData);
+            var envelope = new JsonObject
+            {
+                ["hook_source"] = source.ToString().ToLowerInvariant(),
+                ["payload"] = payloadNode,
+            };
+            return System.Text.Encoding.UTF8.GetBytes(envelope.ToJsonString());
+        }
+        catch (JsonException)
+        {
+            // 极端情况下无法解析时退化为原样发送，服务器仍按 codex 兼容。
+            return payloadData;
+        }
     }
 }
 
@@ -85,13 +144,14 @@ internal static class Maintenance
 {
     public static int Uninstall()
     {
-        try
-        {
-            _ = new CodexHookConfiguration().Uninstall();
-            StartupRegistration.Disable();
-            return 0;
-        }
-        catch { return 1; }
+        var ok = 0;
+        try { _ = new CodexHookConfiguration().Uninstall(); }
+        catch { ok = 1; }
+        try { _ = new ClaudeHookConfiguration().Uninstall(); }
+        catch { ok = 1; }
+        try { StartupRegistration.Disable(); }
+        catch { ok = 1; }
+        return ok;
     }
 }
 

@@ -74,6 +74,41 @@ public sealed class TaskCatalog
         return true;
     }
 
+    public bool Accept(ClaudeHookPayload hook, DateTimeOffset? receivedAt = null)
+    {
+        var now = receivedAt ?? DateTimeOffset.UtcNow;
+        var existing = _tasks.FirstOrDefault(task => task.Id == hook.SessionID);
+        Upsert(ClaudeEventReducer.Reduce(hook, existing, now));
+        switch (hook.HookEventName)
+        {
+            case "PermissionRequest":
+                _requests[hook.SessionID] = new(
+                    hook.SessionID,
+                    PendingRequestKind.Approval,
+                    ClaudeEventReducer.Summary(hook.ToolInput) ?? hook.ToolName,
+                    []);
+                break;
+            case "Notification":
+                _requests[hook.SessionID] = new(
+                    hook.SessionID,
+                    PendingRequestKind.Question,
+                    hook.Title ?? hook.Message,
+                    []);
+                break;
+            case "Stop":
+            case "SessionEnd":
+            case "PermissionDenied":
+                _requests.Remove(hook.SessionID);
+                break;
+            default:
+                if (_tasks.First(task => task.Id == hook.SessionID).Lifecycle == AgentLifecycle.Running)
+                    _requests.Remove(hook.SessionID);
+                break;
+        }
+        Changed();
+        return true;
+    }
+
     public bool Accept(IEnumerable<CodexRolloutSignal> values)
     {
         var changed = false;
@@ -433,6 +468,174 @@ public static class CodexEventReducer
     private static bool IsCommandTool(string value) =>
         new[] { "exec", "exec_command", "terminal_interaction", "bash", "shell", "apply_patch" }
             .Contains(value.Split('.').Last().ToLowerInvariant());
+}
+
+public static class ClaudeEventReducer
+{
+    public static TaskSnapshot Reduce(ClaudeHookPayload hook, TaskSnapshot? existing, DateTimeOffset now)
+    {
+        var task = existing ?? new(
+            hook.SessionID,
+            AgentSource.ClaudeCode,
+            hook.ProjectName,
+            hook.ProjectName,
+            null, null, null, [],
+            AgentLifecycle.Starting, null,
+            now, now, null,
+            false, false, false, []);
+        task = task with { ProjectName = hook.ProjectName, UpdatedAt = now, CompletedAt = null };
+
+        switch (hook.HookEventName)
+        {
+            case "SessionStart":
+                return task with { Lifecycle = AgentLifecycle.Starting, Activity = AgentActivity.Thinking, Capabilities = [] };
+            case "UserPromptSubmit":
+                return UserPrompt(task, hook.Prompt);
+            case "PreToolUse":
+                return task with
+                {
+                    Lifecycle = AgentLifecycle.Running,
+                    Activity = CodexEventReducer.ActivityFor(hook.ToolName),
+                    LatestStep = CodexEventReducer.LatestStep(hook.ToolName, Summary(hook.ToolInput)),
+                    Capabilities = [],
+                };
+            case "PostToolUse":
+            case "PostToolUseFailure":
+            case "PreCompact":
+                return task with { Lifecycle = AgentLifecycle.Running, Activity = AgentActivity.Thinking, Capabilities = [] };
+            case "PermissionRequest":
+                return task with
+                {
+                    Lifecycle = AgentLifecycle.WaitingApproval,
+                    Activity = AgentActivity.Executing,
+                    Capabilities = [TaskCapability.Approve, TaskCapability.Deny],
+                };
+            case "PermissionDenied":
+                return task with
+                {
+                    Lifecycle = AgentLifecycle.Interrupted,
+                    Activity = null,
+                    CompletedAt = now,
+                    IsUnread = true,
+                    Capabilities = [],
+                };
+            case "Notification":
+                // Claude 的 Notification 涵盖空闲提示与提问；手机端暂不能回复。
+                return task with { Lifecycle = AgentLifecycle.WaitingAnswer, Activity = AgentActivity.Thinking, Capabilities = [] };
+            case "Stop":
+                return task with
+                {
+                    Lifecycle = task.Lifecycle == AgentLifecycle.Interrupted
+                        ? AgentLifecycle.Interrupted : AgentLifecycle.Succeeded,
+                    Activity = null,
+                    CompletedAt = now,
+                    IsUnread = true,
+                    Capabilities = [],
+                };
+            case "StopFailure":
+                return task with
+                {
+                    Lifecycle = task.Lifecycle == AgentLifecycle.Succeeded ? AgentLifecycle.Running : task.Lifecycle,
+                    Capabilities = [],
+                };
+            case "SessionEnd":
+                return task with
+                {
+                    Lifecycle = task.IsTerminal ? task.Lifecycle : AgentLifecycle.Offline,
+                    Activity = null,
+                    Capabilities = [],
+                };
+            case "SubagentStart":
+            case "SubagentStop":
+                return ApplySubagent(hook, task, now);
+            default:
+                return task with { UpdatedAt = now };
+        }
+    }
+
+    /// <summary>从 Claude 的任意 tool_input JSON 中提取最具信息量的字段。</summary>
+    public static string? Summary(JsonElement? toolInput)
+    {
+        if (toolInput is null) return null;
+        var value = toolInput.Value;
+        if (value.ValueKind != JsonValueKind.Object)
+            return DisplayValue(value);
+        foreach (var key in new[] { "command", "file_path", "path", "pattern", "query", "prompt", "description", "url" })
+        {
+            if (value.TryGetProperty(key, out var child) && DisplayValue(child) is { Length: > 0 } text)
+                return text;
+        }
+        return null;
+    }
+
+    private static TaskSnapshot ApplySubagent(ClaudeHookPayload hook, TaskSnapshot task, DateTimeOffset now)
+    {
+        var id = hook.AgentID ?? hook.ToolUseID;
+        if (id is null) return task;
+        var displayName = !string.IsNullOrWhiteSpace(hook.AgentType) ? hook.AgentType! : "Claude 子代理";
+        var path = "/" + (hook.AgentType ?? "subagent");
+        var subagent = task.Subagents.FirstOrDefault(value => value.Id == id) ??
+            new(id, path, displayName,
+                AgentLifecycle.Running, AgentActivity.Thinking,
+                null, null, now, now);
+        if (hook.HookEventName == "SubagentStart")
+        {
+            subagent = subagent with
+            {
+                Lifecycle = AgentLifecycle.Running,
+                Activity = AgentActivity.Delegating,
+                Path = path,
+                DisplayName = displayName,
+                LatestStep = Normalize(hook.TaskDescription) ?? subagent.LatestStep,
+            };
+        }
+        else if (hook.HookEventName == "SubagentStop")
+        {
+            subagent = subagent with { Lifecycle = AgentLifecycle.Succeeded, Activity = null };
+        }
+        subagent = subagent with { UpdatedAt = now };
+        var subagents = task.Subagents.Where(value => value.Id != id).Append(subagent)
+            .OrderBy(value => value.IsTerminal).ThenBy(value => value.StartedAt).ToList();
+        return task with
+        {
+            Subagents = subagents,
+            Lifecycle = AgentLifecycle.Running,
+            Activity = subagents.Any(value => !value.IsTerminal) ? AgentActivity.Delegating : AgentActivity.Thinking,
+            UpdatedAt = now,
+        };
+    }
+
+    private static TaskSnapshot UserPrompt(TaskSnapshot task, string? prompt)
+    {
+        var normalized = Normalize(prompt);
+        return task with
+        {
+            Lifecycle = AgentLifecycle.Running,
+            Activity = AgentActivity.Thinking,
+            UserPrompt = normalized ?? task.UserPrompt,
+            Title = normalized is not null && task.Title == task.ProjectName
+                ? CodexEventReducer.Title(task.ProjectName, normalized) : task.Title,
+            Capabilities = [],
+        };
+    }
+
+    private static string? DisplayValue(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString(),
+        JsonValueKind.Number => value.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.Null => "null",
+        _ => null,
+    };
+
+    private static string? Normalize(string? value)
+    {
+        if (value is null) return null;
+        var result = string.Join(' ', value.Replace('\n', ' ')
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return result.Length == 0 ? null : result;
+    }
 }
 
 public static class ToolStepSanitizer

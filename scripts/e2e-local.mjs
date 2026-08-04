@@ -11,6 +11,9 @@ const hookExecutable =
 const hookArguments = process.env.AGENTPAGER_HOOK_ARGUMENTS
   ? JSON.parse(process.env.AGENTPAGER_HOOK_ARGUMENTS)
   : [];
+const hookSource = process.env.AGENTPAGER_HOOK_SOURCE ?? "codex";
+const isClaude = hookSource === "claude";
+const hookArgs = isClaude ? [...hookArguments, "--source", "claude"] : hookArguments;
 const pairingURL =
   process.env.AGENTPAGER_PAIRING_URL ?? "http://127.0.0.1:49362/pairing";
 const pairing = await fetch(pairingURL).then((response) => {
@@ -61,7 +64,7 @@ socket.addEventListener("open", () => {
   ];
 
   for (const event of events) {
-    const result = spawnSync(hookExecutable, hookArguments, {
+    const result = spawnSync(hookExecutable, hookArgs, {
       input: JSON.stringify(event),
       encoding: "utf8",
     });
@@ -75,7 +78,7 @@ socket.addEventListener("open", () => {
 
 function startPermissionRequest() {
   permissionStarted = true;
-  const child = spawn(hookExecutable, hookArguments, {
+  const child = spawn(hookExecutable, hookArgs, {
     stdio: ["pipe", "pipe", "pipe"],
   });
   let stdout = "";
@@ -94,7 +97,10 @@ function startPermissionRequest() {
       socket.close();
       throw new Error(stderr || `权限 Hook 退出码 ${code}`);
     }
-    permissionAllowed = stdout.includes('"decision":"allow"');
+    // Codex 输出 decision=allow，Claude Code 输出 behavior=allow。
+    permissionAllowed =
+      stdout.includes('"decision":"allow"') ||
+      stdout.includes('"behavior":"allow"');
     maybeFinish();
   });
   child.stdin.end(
@@ -152,7 +158,7 @@ function sendApproval() {
 
 function sendStop() {
   stopSent = true;
-  const result = spawnSync(hookExecutable, hookArguments, {
+  const result = spawnSync(hookExecutable, hookArgs, {
     input: JSON.stringify({
       cwd: root,
       hook_event_name: "Stop",

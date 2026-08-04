@@ -274,6 +274,31 @@
                                Text="Bridge 不在线时普通 Hook 自动放行，不会阻塞 Codex。手机批准/拒绝只对真实 PermissionRequest 生效。"/>
                 </StackPanel>
             </TabItem>
+
+            <TabItem Header="CLAUDE">
+                <StackPanel Margin="28">
+                    <TextBlock Text="Claude Code 生命周期 Hook" FontSize="18" FontWeight="Bold"
+                               Foreground="#A78BFA"/>
+                    <Border Margin="0,18,0,0" Padding="18" Background="#090D12"
+                            BorderBrush="{StaticResource Border}" BorderThickness="1">
+                        <StackPanel>
+                            <DockPanel>
+                                <TextBlock Text="配置状态"/>
+                                <TextBlock x:Name="ClaudeHookStatusText" DockPanel.Dock="Right"
+                                           Foreground="#A78BFA" FontWeight="Bold"/>
+                            </DockPanel>
+                            <TextBlock Margin="0,18,0,0" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
+                                       Text="向 ~/.claude/settings.json 写入生命周期 Hook，覆盖开始、工具、权限、完成等事件；保留现有 Hook 并自动备份。安装后 Claude Code 首次触发 Hook 时会询问是否信任。"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                <Button Content="安装或修复" Click="InstallClaudeHook_Click"/>
+                                <Button Content="卸载" BorderBrush="#FF5D72" Click="UninstallClaudeHook_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Margin="0,18,0,0" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
+                               Text="Bridge 不在线时 Hook 自动放行，不会阻塞 Claude Code。"/>
+                </StackPanel>
+            </TabItem>
         </TabControl>
 
         <Border Grid.Row="4" Padding="11,8" Background="{StaticResource Surface}"

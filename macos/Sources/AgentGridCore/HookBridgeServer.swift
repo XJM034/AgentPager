@@ -1,13 +1,20 @@
 import Foundation
 import Network
 
+/// 桥接服务器收到并已分类的 Hook 事件。
+public enum HookEnvelope: Sendable {
+    case codex(CodexHookPayload)
+    case claude(ClaudeHookPayload)
+}
+
 public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendable {
-    public typealias EventHandler = @Sendable (CodexHookPayload) -> Void
+    public typealias EventHandler = @Sendable (HookEnvelope) -> Void
 
     private let queue = DispatchQueue(label: "com.agentgrid.hook-server")
     private let lock = NSLock()
     private var listener: NWListener?
-    private var pending: [String: NWConnection] = [:]
+    /// 等待手机端裁决的权限连接，按会话 ID 索引并携带来源以选择响应格式。
+    private var pending: [String: (connection: NWConnection, source: HookSource)] = [:]
     private let eventHandler: EventHandler
 
     public init(eventHandler: @escaping EventHandler) {
@@ -27,19 +34,28 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
         listener?.cancel()
         listener = nil
         lock.withLock {
-            pending.values.forEach { $0.cancel() }
+            pending.values.forEach { $0.connection.cancel() }
             pending.removeAll()
         }
     }
 
     public func resolve(sessionID: String, decision: CodexPermissionDecision) {
-        let connection = lock.withLock { pending.removeValue(forKey: sessionID) }
-        guard let connection,
-              let response = try? CodexHookOutput.permission(decision) else {
+        let entry = lock.withLock { pending.removeValue(forKey: sessionID) }
+        guard let entry else { return }
+        let response: Data?
+        switch entry.source {
+        case .codex:
+            response = try? CodexHookOutput.permission(decision)
+        case .claude:
+            let claudeDecision: ClaudePermissionDecision = decision == .allow ? .allow : .deny
+            response = try? ClaudeHookOutput.permission(claudeDecision)
+        }
+        guard let response else {
+            entry.connection.cancel()
             return
         }
-        connection.send(content: response, completion: .contentProcessed { _ in
-            connection.cancel()
+        entry.connection.send(content: response, completion: .contentProcessed { _ in
+            entry.connection.cancel()
         })
     }
 
@@ -78,20 +94,90 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
     }
 
     private func handle(_ data: Data, connection: NWConnection) {
-        guard let hook = try? JSONDecoder().decode(CodexHookPayload.self, from: data) else {
+        let envelope = decodeEnvelope(data)
+
+        switch envelope {
+        case let .codex(payload):
+            // Codex 走原有路径；旧版 CLI 未带信封时也落到这里。
+            eventHandler(.codex(payload))
+            if payload.hookEventName == .permissionRequest {
+                holdForApproval(
+                    sessionID: payload.sessionID,
+                    source: .codex,
+                    connection: connection
+                )
+            } else {
+                acknowledge(connection)
+            }
+        case let .claude(payload):
+            eventHandler(.claude(payload))
+            if payload.event == .permissionRequest {
+                holdForApproval(
+                    sessionID: payload.sessionID,
+                    source: .claude,
+                    connection: connection
+                )
+            } else {
+                acknowledge(connection)
+            }
+        case nil:
+            // 无法识别来源时按 Codex 兼容旧 CLI；解析失败则放行不阻塞。
+            if let payload = try? JSONDecoder().decode(CodexHookPayload.self, from: data) {
+                eventHandler(.codex(payload))
+                if payload.hookEventName == .permissionRequest {
+                    holdForApproval(
+                        sessionID: payload.sessionID,
+                        source: .codex,
+                        connection: connection
+                    )
+                } else {
+                    acknowledge(connection)
+                }
+            } else {
+                connection.cancel()
+            }
+        }
+    }
+
+    private func holdForApproval(
+        sessionID: String,
+        source: HookSource,
+        connection: NWConnection
+    ) {
+        lock.withLock {
+            pending[sessionID] = (connection: connection, source: source)
+        }
+    }
+
+    private func acknowledge(_ connection: NWConnection) {
+        // 空行响应：Codex 视为继续；Claude 视为 continue=true。两端都放行。
+        connection.send(content: Data("\n".utf8), completion: .contentProcessed { _ in
             connection.cancel()
-            return
+        })
+    }
+
+    private func decodeEnvelope(_ data: Data) -> HookEnvelope? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawSource = object["hook_source"] as? String,
+              let source = HookSource(rawValue: rawSource),
+              let payloadObject = object["payload"] else {
+            return nil
         }
 
-        eventHandler(hook)
-        if hook.hookEventName == .permissionRequest {
-            lock.withLock {
-                pending[hook.sessionID] = connection
+        let payloadData = try? JSONSerialization.data(withJSONObject: payloadObject)
+        switch source {
+        case .codex:
+            if let payloadData,
+               let payload = try? JSONDecoder().decode(CodexHookPayload.self, from: payloadData) {
+                return .codex(payload)
             }
-        } else {
-            connection.send(content: Data("\n".utf8), completion: .contentProcessed { _ in
-                connection.cancel()
-            })
+            return nil
+        case .claude:
+            if let payloadData,
+               let payload = try? JSONDecoder().decode(ClaudeHookPayload.self, from: payloadData) {
+                return .claude(payload)
+            }
+            return nil
         }
     }
 }

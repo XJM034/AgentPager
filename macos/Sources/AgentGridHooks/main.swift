@@ -31,17 +31,24 @@ private final class HookClientState: @unchecked Sendable {
 }
 
 @main
-struct AgentGridHooksCommand {
+struct AgentPagerHooksCommand {
     static func main() {
+        let source = resolveSource(from: CommandLine.arguments)
         let input = FileHandle.standardInput.readDataToEndOfFile()
-        guard let payload = try? JSONDecoder().decode(CodexHookPayload.self, from: input) else {
-            // Hook 解析失败时保持 fail-open，不能阻塞 Codex。
-            return
+
+        // 按来源解码载荷，仅用于判断事件类型以设置等待时长；
+        // 解析失败时保持 fail-open，不能阻塞 Agent。
+        let isPermission: Bool
+        switch source {
+        case .claude:
+            let payload = try? JSONDecoder().decode(ClaudeHookPayload.self, from: input)
+            isPermission = payload?.event == .permissionRequest
+        case .codex:
+            let payload = try? JSONDecoder().decode(CodexHookPayload.self, from: input)
+            isPermission = payload?.hookEventName == .permissionRequest
         }
 
-        var mutableLine = input
-        mutableLine.append(UInt8(ascii: "\n"))
-        let line = mutableLine
+        let line = wrapInEnvelope(input: input, source: source)
         let connection = NWConnection(
             host: "127.0.0.1",
             port: NWEndpoint.Port(rawValue: 49_361)!,
@@ -73,8 +80,10 @@ struct AgentGridHooksCommand {
         }
         connection.start(queue: queue)
 
-        let timeout: DispatchTime = payload.hookEventName == .permissionRequest
-            ? .now() + 3_600
+        // 权限请求可能等用户在手机上操作很久；与安装到 settings.json 的
+        // hook timeout 对齐：Codex 1 小时、Claude 24 小时。其余事件 5 秒放行。
+        let timeout: DispatchTime = isPermission
+            ? .now() + (source == .claude ? 86_400 : 3_600)
             : .now() + 5
         let response = clientState.wait(until: timeout)
         connection.cancel()
@@ -82,5 +91,42 @@ struct AgentGridHooksCommand {
         if !response.isEmpty {
             FileHandle.standardOutput.write(response)
         }
+    }
+
+    private static func resolveSource(from arguments: [String]) -> HookSource {
+        // 兼容 `--source claude` 与 `--source=claude` 两种写法。
+        var iterator = arguments.dropFirst().makeIterator()
+        while let argument = iterator.next() {
+            if argument == "--source", let value = iterator.next() {
+                return HookSource(rawValue: value) ?? .codex
+            }
+            if argument.hasPrefix("--source=") {
+                let value = String(argument.dropFirst("--source=".count))
+                return HookSource(rawValue: value) ?? .codex
+            }
+        }
+        return .codex
+    }
+
+    /// 把原始 Hook 载荷包进 `{hook_source, payload}` 信封并加换行，
+    /// 让桥接服务器能按来源选择解码器与响应格式。
+    private static func wrapInEnvelope(input: Data, source: HookSource) -> Data {
+        guard let payload = try? JSONSerialization.jsonObject(with: input) else {
+            // 极端情况下无法解析时，退化为原样发送，服务器仍按 codex 兼容。
+            var fallback = input
+            fallback.append(UInt8(ascii: "\n"))
+            return fallback
+        }
+        let envelope: [String: Any] = [
+            "hook_source": source.rawValue,
+            "payload": payload,
+        ]
+        let data = (try? JSONSerialization.data(
+            withJSONObject: envelope,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        )) ?? input
+        var line = data
+        line.append(UInt8(ascii: "\n"))
+        return line
     }
 }

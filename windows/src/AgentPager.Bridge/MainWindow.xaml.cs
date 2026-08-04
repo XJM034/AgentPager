@@ -33,6 +33,7 @@ public partial class MainWindow : Window
         ServiceStatusText.Text = state.ServiceStatus;
         PhoneCountText.Text = state.PhoneCount.ToString();
         HookStatusText.Text = state.HookInstalled ? "已写入" : "未安装";
+        ClaudeHookStatusText.Text = state.ClaudeHookInstalled ? "已写入" : "未安装";
         LastHookText.Text = state.LastHookAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "尚未收到";
         PairingTextBox.Text = state.PairingText;
         PairingQrImage.Source = QrCode(state.PairingText);
@@ -56,6 +57,8 @@ public partial class MainWindow : Window
 
     private void InstallHook_Click(object sender, RoutedEventArgs e) => _runtime.InstallHook();
     private void UninstallHook_Click(object sender, RoutedEventArgs e) => _runtime.UninstallHook();
+    private void InstallClaudeHook_Click(object sender, RoutedEventArgs e) => _runtime.InstallClaudeHook();
+    private void UninstallClaudeHook_Click(object sender, RoutedEventArgs e) => _runtime.UninstallClaudeHook();
     private void RefreshNetworks_Click(object sender, RoutedEventArgs e) => _runtime.RefreshNetworks();
 
     private void NetworkCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

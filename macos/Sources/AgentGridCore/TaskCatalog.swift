@@ -66,6 +66,7 @@ public protocol CodexPermissionResolving: Sendable {
 
 public enum TaskCatalogInput: Sendable {
     case hook(CodexHookPayload, receivedAt: Date = .now)
+    case claudeHook(ClaudeHookPayload, receivedAt: Date = .now)
     case rollout([CodexRolloutSignal])
     case synthetic(TaskSnapshot)
 }
@@ -94,6 +95,8 @@ public struct TaskCatalog: Sendable {
 
         switch input {
         case let .hook(hook, receivedAt):
+            apply(hook, receivedAt: receivedAt)
+        case let .claudeHook(hook, receivedAt):
             apply(hook, receivedAt: receivedAt)
         case let .rollout(signals):
             for signal in signals.sorted(by: Self.signalOrder) {
@@ -264,6 +267,45 @@ public struct TaskCatalog: Sendable {
             if task.lifecycle == .running {
                 requestsByTaskID.removeValue(forKey: hook.sessionID)
             }
+        }
+        store.upsert(task)
+    }
+
+    private mutating func apply(
+        _ hook: ClaudeHookPayload,
+        receivedAt: Date
+    ) {
+        let existing = store.tasks.first { $0.id == hook.sessionID }
+        let task = ClaudeEventReducer.task(
+            from: hook,
+            existing: existing,
+            now: receivedAt
+        )
+
+        switch hook.event {
+        case .permissionRequest:
+            requestsByTaskID[hook.sessionID] = PendingRequest(
+                taskID: hook.sessionID,
+                kind: .approval,
+                summary: ClaudeEventReducer.summary(from: hook.toolInput)
+                    ?? hook.toolName
+            )
+        case .notification:
+            requestsByTaskID[hook.sessionID] = PendingRequest(
+                taskID: hook.sessionID,
+                kind: .question,
+                summary: hook.title ?? hook.message
+            )
+        case .stop, .sessionEnd, .permissionDenied:
+            requestsByTaskID.removeValue(forKey: hook.sessionID)
+        case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse,
+             .postToolUseFailure, .preCompact, .subagentStart, .subagentStop,
+             .stopFailure:
+            if task.lifecycle == .running {
+                requestsByTaskID.removeValue(forKey: hook.sessionID)
+            }
+        case nil:
+            break
         }
         store.upsert(task)
     }

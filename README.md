@@ -13,7 +13,7 @@
   Codex 在做什么、是否完成、何时需要你批准，抬眼就能看到。
 </p>
 
-AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态通过局域网实时同步到旧 Android 手机。把手机横放在桌面上，它就会变成一个常亮、安静，又能在关键时刻提醒你的 Agent 控制台。
+AgentPager 将 Codex Desktop、Codex CLI 与 Claude Code 的运行状态通过局域网实时同步到旧 Android 手机。把手机横放在桌面上，它就会变成一个常亮、安静，又能在关键时刻提醒你的 Agent 控制台。
 
 ## 查看效果
 
@@ -61,13 +61,14 @@ AgentPager 将 Codex Desktop 与 Codex CLI 的运行状态通过局域网实时�
 
 1. 从 Releases 下载 APK，以及对应电脑系统的 DMG 或 Windows 安装器。
 2. 打开电脑上的 `AgentPager Bridge`。
-3. 点击 macOS 菜单栏或 Windows 系统托盘中的图标，选择“安装 Codex Hook”。AgentPager 会保留原有 Hook 配置并自动备份。
-4. 在 Codex 中信任 AgentPager Hook，否则 Hook 不会被实际调用：
+3. 点击 macOS 菜单栏或 Windows 系统托盘中的图标，选择“安装 Codex Hook”或“安装 Claude Code Hook”。AgentPager 会保留原有 Hook 配置并自动备份。
+4. 在对应 Agent 中信任 AgentPager Hook，否则 Hook 不会被实际调用：
    - **Codex CLI / TUI**：运行 `/hooks`，把 AgentPager Hook 标记为信任。
    - **Codex Desktop（macOS 桌面版）**：在“设置”里找到 AgentPager Hook 并点击信任，没有 `/hooks` 斜杠命令。
+   - **Claude Code**：Claude Code 会在首次触发 Hook 时询问是否信任，选择信任即可。
 5. 打开“AgentPager 设置 → 连接”，显示配对二维码。
 6. 打开手机上的 AgentPager，扫描二维码。
-7. 新建一个 Codex 任务，手机会自动显示它的实时状态。
+7. 新建一个 Codex 或 Claude Code 任务，手机会自动显示它的实时状态。
 
 Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运行在 WSL2 中。
 
@@ -90,7 +91,7 @@ Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运
 
 ## 贡献
 
-欢迎贡献，现在仅支持 Codex，可以支持更多的 Agent。
+欢迎贡献，现在支持 Codex 与 Claude Code，可以支持更多的 Agent。
 
 ## 许可
 
@@ -113,7 +114,7 @@ Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运
   See what Codex is doing, when it finishes, and when it needs your approval at a glance.
 </p>
 
-AgentPager synchronizes the live status of Codex Desktop and Codex CLI to an old Android phone. Place the phone horizontally on your desk and it becomes an always-on, quiet agent console that gets your attention when it matters.
+AgentPager synchronizes the live status of Codex Desktop, Codex CLI, and Claude Code to an old Android phone. Place the phone horizontally on your desk and it becomes an always-on, quiet agent console that gets your attention when it matters.
 
 ## See It in Action
 
@@ -157,13 +158,14 @@ Go to [GitHub Releases](../../releases/latest) to download the installers direct
 
 1. Download the APK and the DMG or Windows installer for your computer.
 2. Open `AgentPager Bridge` on your computer.
-3. Click the icon in the macOS menu bar or Windows system tray and choose **Install Codex Hook**. AgentPager keeps your existing Hook configuration and automatically creates a backup.
-4. Trust the AgentPager Hook in Codex, otherwise the Hook will not actually be invoked:
+3. Click the icon in the macOS menu bar or Windows system tray and choose **Install Codex Hook** or **Install Claude Code Hook**. AgentPager keeps your existing Hook configuration and automatically creates a backup.
+4. Trust the AgentPager Hook in the corresponding agent, otherwise the Hook will not actually be invoked:
    - **Codex CLI / TUI**: run `/hooks` and mark the AgentPager Hook as trusted.
    - **Codex Desktop (macOS app)**: trust the AgentPager Hook in **Settings**; there is no `/hooks` slash command.
+   - **Claude Code**: Claude Code prompts for trust the first time a Hook fires; choose to trust it.
 5. Open **AgentPager Settings > Connection** to display the pairing QR code.
 6. Open AgentPager on your phone and scan the QR code.
-7. Create a Codex task. Its live status will automatically appear on your phone.
+7. Create a Codex or Claude Code task. Its live status will automatically appear on your phone.
 
 The first Windows release supports native Codex running with PowerShell; Codex running inside WSL2 is not yet supported.
 
@@ -184,7 +186,7 @@ The first Windows release supports native Codex running with PowerShell; Codex r
 
 ## Contributing
 
-Contributions are welcome. Codex is currently the only supported agent, and support for more agents can be added.
+Contributions are welcome. Codex and Claude Code are now supported, and support for more agents can be added.
 
 ## License
 

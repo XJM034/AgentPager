@@ -8,6 +8,7 @@ public sealed record BridgeViewState(
     string ServiceStatus,
     int PhoneCount,
     bool HookInstalled,
+    bool ClaudeHookInstalled,
     DateTimeOffset? LastHookAt,
     string? LastError,
     string PairingText,
@@ -18,7 +19,7 @@ public sealed record BridgeViewState(
 public sealed class BridgeRuntime : IAsyncDisposable
 {
     private abstract record BridgeEvent;
-    private sealed record HookEvent(CodexHookPayload Hook) : BridgeEvent;
+    private sealed record HookEvent(HookEnvelope Envelope) : BridgeEvent;
     private sealed record RolloutEvent(List<CodexRolloutSignal> Signals) : BridgeEvent;
     private sealed record ControlEvent(string Text) : BridgeEvent;
     private sealed record PhoneCountEvent(int Count) : BridgeEvent;
@@ -33,6 +34,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
     private readonly CodexRolloutObserver _rollout = new();
     private readonly CodexUsageLoader _usageLoader = new();
     private readonly CodexHookConfiguration _hookConfiguration = new();
+    private readonly ClaudeHookConfiguration _claudeHookConfiguration = new();
     private readonly ReplayGuard _replayGuard = new();
     private readonly byte[] _pairingSecret;
     private readonly TaskCatalog _catalog;
@@ -75,7 +77,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
         try
         {
             _hookServer = new HookTcpServer(
-                hook => _events.Writer.WriteAsync(new HookEvent(hook), token).AsTask(), _log);
+                envelope => _events.Writer.WriteAsync(new HookEvent(envelope), token).AsTask(), _log);
             _hookServer.Start();
             _lanServer = new(
                 PairingText,
@@ -130,6 +132,38 @@ public sealed class BridgeRuntime : IAsyncDisposable
         PublishState();
     }
 
+    public void InstallClaudeHook()
+    {
+        try
+        {
+            var result = _claudeHookConfiguration.Install(Environment.ProcessPath!);
+            _log.Write("INFO", result.Changed ? "Claude Code Hook 已安装。" : "Claude Code Hook 已是最新状态。");
+            _lastError = null;
+        }
+        catch (Exception error)
+        {
+            _lastError = $"安装 Claude Code Hook 失败：{error.Message}";
+            _log.Write("ERROR", _lastError);
+        }
+        PublishState();
+    }
+
+    public void UninstallClaudeHook()
+    {
+        try
+        {
+            _ = _claudeHookConfiguration.Uninstall();
+            _lastError = null;
+            _log.Write("INFO", "Claude Code Hook 已移除。");
+        }
+        catch (Exception error)
+        {
+            _lastError = $"卸载 Claude Code Hook 失败：{error.Message}";
+            _log.Write("ERROR", _lastError);
+        }
+        PublishState();
+    }
+
     public void SelectAddress(string address)
     {
         if (_networks.All(value => value.Address != address)) return;
@@ -166,9 +200,13 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 switch (value)
                 {
                     case HookEvent hook:
-                        _rollout.Include(hook.Hook);
                         _lastHookAt = DateTimeOffset.Now;
-                        changed = _catalog.Accept(hook.Hook);
+                        changed = hook.Envelope switch
+                        {
+                            HookEnvelope.Codex codex => HandleCodexHook(codex.Hook),
+                            HookEnvelope.Claude claude => _catalog.Accept(claude.Hook),
+                            _ => false,
+                        };
                         break;
                     case RolloutEvent rollout:
                         changed = _catalog.Accept(rollout.Signals);
@@ -199,6 +237,12 @@ public sealed class BridgeRuntime : IAsyncDisposable
                 PublishState();
             }
         }
+    }
+
+    private bool HandleCodexHook(CodexHookPayload hook)
+    {
+        _rollout.Include(hook);
+        return _catalog.Accept(hook);
     }
 
     private async Task<bool> HandleControl(string text)
@@ -302,6 +346,7 @@ public sealed class BridgeRuntime : IAsyncDisposable
         _serviceStatus,
         _phoneCount,
         _hookConfiguration.IsInstalled(),
+        _claudeHookConfiguration.IsInstalled(),
         _lastHookAt,
         _lastError,
         PairingText(),

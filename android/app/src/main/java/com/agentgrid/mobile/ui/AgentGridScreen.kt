@@ -789,9 +789,9 @@ private fun TaskMeta(task: TaskSnapshot, alpha: Float) {
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            MetaTag("Codex", AgentGridColors.Blue, alpha)
+            MetaTag(agentBadge(task.source), agentBadgeColor(task.source), alpha)
             MetaTag(
-                if (task.source.name == "CODEX_DESKTOP") "ChatGPT.app" else "Terminal",
+                agentOriginLabel(task.source),
                 AgentGridColors.Muted,
                 alpha,
             )
@@ -1131,6 +1131,22 @@ private fun lifecycleColor(
         AgentActivity.TESTING -> AgentGridColors.Blue
         else -> AgentGridColors.Violet
     }
+}
+
+private fun agentBadge(source: AgentSource): String = when (source) {
+    AgentSource.CODEX_DESKTOP, AgentSource.CODEX_CLI -> "Codex"
+    AgentSource.CLAUDE_CODE -> "Claude"
+}
+
+private fun agentBadgeColor(source: AgentSource): Color = when (source) {
+    AgentSource.CLAUDE_CODE -> AgentGridColors.Violet
+    else -> AgentGridColors.Blue
+}
+
+private fun agentOriginLabel(source: AgentSource): String = when (source) {
+    AgentSource.CODEX_DESKTOP -> "ChatGPT.app"
+    AgentSource.CODEX_CLI -> "Terminal"
+    AgentSource.CLAUDE_CODE -> "Claude Code"
 }
 
 private fun activityText(activity: AgentActivity?): String = when (activity) {

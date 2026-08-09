@@ -21,16 +21,17 @@ public enum ClaudeEventReducer {
 
         task.projectName = hook.projectName
         task.updatedAt = now
-        task.completedAt = nil
 
         switch hook.event {
         case .sessionStart:
             task.lifecycle = .starting
             task.activity = .thinking
+            task.completedAt = nil
             task.capabilities = []
         case .userPromptSubmit:
             task.lifecycle = .running
             task.activity = .thinking
+            task.completedAt = nil
             if let prompt = CodexEventReducer.normalized(hook.prompt) {
                 task.userPrompt = prompt
                 if existing == nil || task.title == task.projectName {
@@ -44,6 +45,7 @@ public enum ClaudeEventReducer {
         case .preToolUse:
             task.lifecycle = .running
             task.activity = CodexEventReducer.activity(for: hook.toolName)
+            task.completedAt = nil
             task.latestStep = latestStep(
                 toolName: hook.toolName,
                 summary: summary(from: hook.toolInput)
@@ -52,10 +54,16 @@ public enum ClaudeEventReducer {
         case .postToolUse, .postToolUseFailure, .preCompact:
             task.lifecycle = .running
             task.activity = .thinking
+            task.completedAt = nil
             task.capabilities = []
         case .permissionRequest:
             task.lifecycle = .waitingApproval
             task.activity = .executing
+            task.completedAt = nil
+            task.latestStep = latestStep(
+                toolName: hook.toolName,
+                summary: summary(from: hook.toolInput)
+            )
             task.capabilities = [.approve, .deny]
         case .permissionDenied:
             task.lifecycle = .interrupted
@@ -64,11 +72,14 @@ public enum ClaudeEventReducer {
             task.isUnread = true
             task.capabilities = []
         case .notification:
-            // Claude 的 Notification 涵盖空闲提示与提问；手机端暂不能回复，
-            // 标记为等待回答以触发提醒，但不授予回复能力。
-            task.lifecycle = .waitingAnswer
-            task.activity = .thinking
-            task.capabilities = []
+            // 只有确实等待用户输入的通知才进入等待回答。
+            // permission_prompt 由 PermissionRequest 负责，其他状态通知不应覆盖任务状态。
+            if isAnswerNotification(hook.notificationType) {
+                task.lifecycle = .waitingAnswer
+                task.activity = .thinking
+                task.completedAt = nil
+                task.capabilities = []
+            }
         case .stop:
             if task.lifecycle != .interrupted {
                 task.lifecycle = .succeeded
@@ -79,11 +90,15 @@ public enum ClaudeEventReducer {
             task.capabilities = []
         case .stopFailure:
             // Stop 失败时保持当前运行态，不误标为完成。
-            task.lifecycle = task.lifecycle == .succeeded ? .running : task.lifecycle
+            if task.lifecycle == .succeeded {
+                task.lifecycle = .running
+                task.completedAt = nil
+            }
             task.capabilities = []
         case .sessionEnd:
             if !task.isTerminal {
                 task.lifecycle = .offline
+                task.completedAt = nil
             }
             task.activity = nil
             task.capabilities = []
@@ -92,6 +107,7 @@ public enum ClaudeEventReducer {
             // 与 Codex 的 rollout 子代理路径一致。
             applySubagent(hook, task: &task, now: now)
             task.lifecycle = .running
+            task.completedAt = nil
             task.activity = task.subagents.contains { !$0.isTerminal }
                 ? .delegating
                 : .thinking
@@ -118,6 +134,12 @@ public enum ClaudeEventReducer {
             }
         }
         return nil
+    }
+
+    /// 会让 Claude 暂停并等待用户输入的通知类型。
+    public static func isAnswerNotification(_ notificationType: String?) -> Bool {
+        ["idle_prompt", "elicitation_dialog", "agent_needs_input"]
+            .contains(notificationType)
     }
 
     private static func applySubagent(

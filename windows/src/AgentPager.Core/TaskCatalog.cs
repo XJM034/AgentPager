@@ -89,11 +89,12 @@ public sealed class TaskCatalog
                     []);
                 break;
             case "Notification":
-                _requests[hook.SessionID] = new(
-                    hook.SessionID,
-                    PendingRequestKind.Question,
-                    hook.Title ?? hook.Message,
-                    []);
+                if (ClaudeEventReducer.IsAnswerNotification(hook.NotificationType))
+                    _requests[hook.SessionID] = new(
+                        hook.SessionID,
+                        PendingRequestKind.Question,
+                        hook.Title ?? hook.Message,
+                        []);
                 break;
             case "Stop":
             case "SessionEnd":
@@ -367,7 +368,7 @@ public static class CodexEventReducer
             AgentLifecycle.Starting, null,
             now, now, null,
             false, false, false, []);
-        task = task with { ProjectName = hook.ProjectName, UpdatedAt = now, CompletedAt = null };
+        task = task with { ProjectName = hook.ProjectName, UpdatedAt = now };
         return hook.HookEventName switch
         {
             CodexHookEventName.SessionStart => task with
@@ -488,7 +489,13 @@ public static class ClaudeEventReducer
         switch (hook.HookEventName)
         {
             case "SessionStart":
-                return task with { Lifecycle = AgentLifecycle.Starting, Activity = AgentActivity.Thinking, Capabilities = [] };
+                return task with
+                {
+                    Lifecycle = AgentLifecycle.Starting,
+                    Activity = AgentActivity.Thinking,
+                    CompletedAt = null,
+                    Capabilities = [],
+                };
             case "UserPromptSubmit":
                 return UserPrompt(task, hook.Prompt);
             case "PreToolUse":
@@ -497,17 +504,26 @@ public static class ClaudeEventReducer
                     Lifecycle = AgentLifecycle.Running,
                     Activity = CodexEventReducer.ActivityFor(hook.ToolName),
                     LatestStep = CodexEventReducer.LatestStep(hook.ToolName, Summary(hook.ToolInput)),
+                    CompletedAt = null,
                     Capabilities = [],
                 };
             case "PostToolUse":
             case "PostToolUseFailure":
             case "PreCompact":
-                return task with { Lifecycle = AgentLifecycle.Running, Activity = AgentActivity.Thinking, Capabilities = [] };
+                return task with
+                {
+                    Lifecycle = AgentLifecycle.Running,
+                    Activity = AgentActivity.Thinking,
+                    CompletedAt = null,
+                    Capabilities = [],
+                };
             case "PermissionRequest":
                 return task with
                 {
                     Lifecycle = AgentLifecycle.WaitingApproval,
                     Activity = AgentActivity.Executing,
+                    LatestStep = CodexEventReducer.LatestStep(hook.ToolName, Summary(hook.ToolInput)),
+                    CompletedAt = null,
                     Capabilities = [TaskCapability.Approve, TaskCapability.Deny],
                 };
             case "PermissionDenied":
@@ -520,8 +536,16 @@ public static class ClaudeEventReducer
                     Capabilities = [],
                 };
             case "Notification":
-                // Claude 的 Notification 涵盖空闲提示与提问；手机端暂不能回复。
-                return task with { Lifecycle = AgentLifecycle.WaitingAnswer, Activity = AgentActivity.Thinking, Capabilities = [] };
+                // 只有确实等待用户输入的通知才进入等待回答；其他通知保持现有状态。
+                return IsAnswerNotification(hook.NotificationType)
+                    ? task with
+                    {
+                        Lifecycle = AgentLifecycle.WaitingAnswer,
+                        Activity = AgentActivity.Thinking,
+                        CompletedAt = null,
+                        Capabilities = [],
+                    }
+                    : task;
             case "Stop":
                 return task with
                 {
@@ -536,6 +560,7 @@ public static class ClaudeEventReducer
                 return task with
                 {
                     Lifecycle = task.Lifecycle == AgentLifecycle.Succeeded ? AgentLifecycle.Running : task.Lifecycle,
+                    CompletedAt = task.Lifecycle == AgentLifecycle.Succeeded ? null : task.CompletedAt,
                     Capabilities = [],
                 };
             case "SessionEnd":
@@ -543,6 +568,7 @@ public static class ClaudeEventReducer
                 {
                     Lifecycle = task.IsTerminal ? task.Lifecycle : AgentLifecycle.Offline,
                     Activity = null,
+                    CompletedAt = task.IsTerminal ? task.CompletedAt : null,
                     Capabilities = [],
                 };
             case "SubagentStart":
@@ -567,6 +593,10 @@ public static class ClaudeEventReducer
         }
         return null;
     }
+
+    /// <summary>会让 Claude 暂停并等待用户输入的通知类型。</summary>
+    public static bool IsAnswerNotification(string? notificationType) =>
+        notificationType is "idle_prompt" or "elicitation_dialog" or "agent_needs_input";
 
     private static TaskSnapshot ApplySubagent(ClaudeHookPayload hook, TaskSnapshot task, DateTimeOffset now)
     {
@@ -602,6 +632,7 @@ public static class ClaudeEventReducer
             Lifecycle = AgentLifecycle.Running,
             Activity = subagents.Any(value => !value.IsTerminal) ? AgentActivity.Delegating : AgentActivity.Thinking,
             UpdatedAt = now,
+            CompletedAt = null,
         };
     }
 
@@ -615,6 +646,7 @@ public static class ClaudeEventReducer
             UserPrompt = normalized ?? task.UserPrompt,
             Title = normalized is not null && task.Title == task.ProjectName
                 ? CodexEventReducer.Title(task.ProjectName, normalized) : task.Title,
+            CompletedAt = null,
             Capabilities = [],
         };
     }

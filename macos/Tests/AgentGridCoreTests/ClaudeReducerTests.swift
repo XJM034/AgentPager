@@ -56,7 +56,7 @@ func claudeStopSucceeds() {
 }
 
 @Test("TaskCatalog 接受 Claude 权限请求并登记 PendingRequest")
-func taskCatalogAcceptsClaudePermissionRequest() {
+func taskCatalogAcceptsClaudePermissionRequest() throws {
     var catalog = TaskCatalog()
     let accepted = catalog.accept(.claudeHook(ClaudeHookPayload(
         cwd: "/tmp/agentpager",
@@ -72,6 +72,99 @@ func taskCatalogAcceptsClaudePermissionRequest() {
     #expect(task.lifecycle == .waitingApproval)
     #expect(projection.pendingRequests.count == 1)
     #expect(projection.pendingRequests.first?.kind == .approval)
+}
+
+@Test("Claude 权限通知不会覆盖待审批状态")
+func claudePermissionNotificationPreservesApproval() throws {
+    var catalog = TaskCatalog()
+    _ = catalog.accept(.claudeHook(ClaudeHookPayload(
+        cwd: "/tmp/agentpager",
+        hookEventName: "PermissionRequest",
+        sessionID: "claude-1",
+        toolName: "Bash",
+        toolInput: .object(["command": .string("echo hi")])
+    )))
+
+    _ = catalog.accept(.claudeHook(ClaudeHookPayload(
+        cwd: "/tmp/agentpager",
+        hookEventName: "Notification",
+        sessionID: "claude-1",
+        message: "Claude 需要批准 Bash",
+        notificationType: "permission_prompt"
+    )))
+
+    let projection = catalog.projection()
+    let task = try #require(projection.tasks.first { $0.id == "claude-1" })
+    #expect(task.lifecycle == .waitingApproval)
+    #expect(task.capabilities == [.approve, .deny])
+    #expect(projection.pendingRequests.count == 1)
+    #expect(projection.pendingRequests.first?.kind == .approval)
+}
+
+@Test("Claude 通知按类型区分状态通知与等待输入")
+func claudeNotificationsFollowType() throws {
+    var catalog = TaskCatalog()
+    _ = catalog.accept(.claudeHook(ClaudeHookPayload(
+        cwd: "/tmp/agentpager",
+        hookEventName: "UserPromptSubmit",
+        sessionID: "claude-1",
+        prompt: "继续处理"
+    )))
+
+    _ = catalog.accept(.claudeHook(ClaudeHookPayload(
+        cwd: "/tmp/agentpager",
+        hookEventName: "Notification",
+        sessionID: "claude-1",
+        message: "认证成功",
+        notificationType: "auth_success"
+    )))
+
+    var projection = catalog.projection()
+    var task = try #require(projection.tasks.first { $0.id == "claude-1" })
+    #expect(task.lifecycle == .running)
+    #expect(projection.pendingRequests.isEmpty)
+
+    _ = catalog.accept(.claudeHook(ClaudeHookPayload(
+        cwd: "/tmp/agentpager",
+        hookEventName: "Notification",
+        sessionID: "claude-1",
+        message: "Claude 正在等待输入",
+        notificationType: "idle_prompt"
+    )))
+
+    projection = catalog.projection()
+    task = try #require(projection.tasks.first { $0.id == "claude-1" })
+    #expect(task.lifecycle == .waitingAnswer)
+    #expect(projection.pendingRequests.first?.kind == .question)
+}
+
+@Test("Claude 状态通知保留终态完成时间")
+func claudeStatusNotificationPreservesTerminalCompletion() throws {
+    let stoppedAt = Date(timeIntervalSince1970: 100)
+    var catalog = TaskCatalog()
+    _ = catalog.accept(.claudeHook(
+        ClaudeHookPayload(
+            cwd: "/tmp/agentpager",
+            hookEventName: "Stop",
+            sessionID: "claude-1"
+        ),
+        receivedAt: stoppedAt
+    ))
+
+    _ = catalog.accept(.claudeHook(
+        ClaudeHookPayload(
+            cwd: "/tmp/agentpager",
+            hookEventName: "Notification",
+            sessionID: "claude-1",
+            message: "认证成功",
+            notificationType: "auth_success"
+        ),
+        receivedAt: stoppedAt.addingTimeInterval(1)
+    ))
+
+    let task = try #require(catalog.projection().tasks.first { $0.id == "claude-1" })
+    #expect(task.lifecycle == .succeeded)
+    #expect(task.completedAt == stoppedAt)
 }
 
 @Test("TaskCatalog 在 Claude Stop 后清除待办权限")

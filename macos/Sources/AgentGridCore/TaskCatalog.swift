@@ -291,11 +291,13 @@ public struct TaskCatalog: Sendable {
                     ?? hook.toolName
             )
         case .notification:
-            requestsByTaskID[hook.sessionID] = PendingRequest(
-                taskID: hook.sessionID,
-                kind: .question,
-                summary: hook.title ?? hook.message
-            )
+            if ClaudeEventReducer.isAnswerNotification(hook.notificationType) {
+                requestsByTaskID[hook.sessionID] = PendingRequest(
+                    taskID: hook.sessionID,
+                    kind: .question,
+                    summary: hook.title ?? hook.message
+                )
+            }
         case .stop, .sessionEnd, .permissionDenied:
             requestsByTaskID.removeValue(forKey: hook.sessionID)
         case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse,

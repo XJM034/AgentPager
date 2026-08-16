@@ -226,6 +226,8 @@ struct BridgeSettingsView: View {
                     .buttonStyle(.plain)
                 }
             }
+            // Hook 页内容较高时，不允许内容区压缩顶部 Tab 栏。
+            .fixedSize(horizontal: false, vertical: true)
             .background(PixelTheme.surface)
 
             ZStack {

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = $(if ($env:AGENTPAGER_VERSION_NAME) { $env:AGENTPAGER_VERSION_NAME } else { "0.1.0" }),
+    [string]$Version = $(if ($env:AGENTPAGER_VERSION_NAME) { $env:AGENTPAGER_VERSION_NAME } else { "0.3.0" }),
     [string]$Configuration = "Release"
 )
 

@@ -10,7 +10,7 @@
 
 <p align="center">
   不必一直盯着 Mac，也不必再买一块开发板。<br>
-  Codex 在做什么、是否完成、何时需要你批准，抬眼就能看到。
+  AI Agent 在做什么、是否完成、何时需要你处理，抬眼就能看到。
 </p>
 
 AgentPager 将 Codex Desktop、Codex CLI 与 Claude Code 的运行状态通过局域网实时同步到旧 Android 手机。把手机横放在桌面上，它就会变成一个常亮、安静，又能在关键时刻提醒你的 Agent 控制台。
@@ -41,6 +41,13 @@ AgentPager 将 Codex Desktop、Codex CLI 与 Claude Code 的运行状态通过�
 - **闲置旧手机重新派上用场**：原生横屏界面不依赖浏览器，摆在桌面上就是一块专注的 Agent 信息屏。
 
 **最重要的是：它真的很好看(✧∀✧)！！！**
+
+## 支持的 Agent
+
+| Agent | 状态同步 | 手机端操作 |
+| --- | --- | --- |
+| Codex Desktop / CLI | 支持 | 支持批准或拒绝权限请求 |
+| Claude Code | 支持 | 暂不支持 |
 
 ## 下载
 
@@ -111,7 +118,7 @@ Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运
 
 <p align="center">
   No more staring at your Mac or buying another development board.<br>
-  See what Codex is doing, when it finishes, and when it needs your approval at a glance.
+  See what your AI agents are doing, when they finish, and when they need you at a glance.
 </p>
 
 AgentPager synchronizes the live status of Codex Desktop, Codex CLI, and Claude Code to an old Android phone. Place the phone horizontally on your desk and it becomes an always-on, quiet agent console that gets your attention when it matters.
@@ -139,6 +146,13 @@ That is how AgentPager came to be: putting an idle phone back to work as a genui
 - **Give an old phone a new job**: The native landscape interface does not depend on a browser; leave it on your desk as a focused agent information display.
 
 **Most importantly: it looks really good (✧∀✧)!!!**
+
+## Supported Agents
+
+| Agent | Status sync | Phone controls |
+| --- | --- | --- |
+| Codex Desktop / CLI | Supported | Approve or reject permission requests |
+| Claude Code | Supported | Not yet supported |
 
 ## Download
 

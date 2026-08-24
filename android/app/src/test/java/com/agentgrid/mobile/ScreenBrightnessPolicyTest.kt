@@ -17,7 +17,7 @@ class ScreenBrightnessPolicyTest {
         activeLifecycles.forEach { lifecycle ->
             assertEquals(
                 0.42f,
-                ScreenBrightnessPolicy.brightnessFor(lifecycle, 0.42f),
+                ScreenBrightnessPolicy.brightnessFor(lifecycle, 0.42f, 0.18f),
                 0.0001f,
             )
         }
@@ -35,8 +35,8 @@ class ScreenBrightnessPolicyTest {
 
         inactiveLifecycles.forEach { lifecycle ->
             assertEquals(
-                ScreenBrightnessPolicy.IDLE_BRIGHTNESS,
-                ScreenBrightnessPolicy.brightnessFor(lifecycle, 0.8f),
+                0.37f,
+                ScreenBrightnessPolicy.brightnessFor(lifecycle, 0.8f, 0.37f),
                 0.0001f,
             )
         }
@@ -45,12 +45,12 @@ class ScreenBrightnessPolicyTest {
     @Test
     fun `任务亮度会限制在系统允许范围内`() {
         assertEquals(
-            ScreenBrightnessPolicy.MIN_ACTIVE_BRIGHTNESS,
+            ScreenBrightnessPolicy.MIN_BRIGHTNESS,
             ScreenBrightnessPolicy.sanitizeActiveBrightness(-1f),
             0.0001f,
         )
         assertEquals(
-            ScreenBrightnessPolicy.MAX_ACTIVE_BRIGHTNESS,
+            ScreenBrightnessPolicy.MAX_BRIGHTNESS,
             ScreenBrightnessPolicy.sanitizeActiveBrightness(2f),
             0.0001f,
         )
@@ -59,5 +59,16 @@ class ScreenBrightnessPolicyTest {
             ScreenBrightnessPolicy.sanitizeActiveBrightness(Float.NaN),
             0.0001f,
         )
+        assertEquals(
+            ScreenBrightnessPolicy.DEFAULT_IDLE_BRIGHTNESS,
+            ScreenBrightnessPolicy.sanitizeIdleBrightness(Float.NaN),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun `默认任务和空闲亮度都是最高亮度`() {
+        assertEquals(1f, ScreenBrightnessPolicy.DEFAULT_ACTIVE_BRIGHTNESS, 0.0001f)
+        assertEquals(1f, ScreenBrightnessPolicy.DEFAULT_IDLE_BRIGHTNESS, 0.0001f)
     }
 }

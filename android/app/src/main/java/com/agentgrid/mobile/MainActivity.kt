@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
             screenBrightness = ScreenBrightnessPolicy.brightnessFor(
                 lifecycle = viewModel.state.value.focusedTask?.lifecycle,
                 activeBrightness = viewModel.state.value.activeTaskBrightness,
+                idleBrightness = viewModel.state.value.idleBrightness,
             )
         }
         enterTerminalMode()
@@ -34,11 +35,13 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(
                 state.focusedTask?.lifecycle,
                 state.activeTaskBrightness,
+                state.idleBrightness,
             ) {
                 window.attributes = window.attributes.apply {
                     screenBrightness = ScreenBrightnessPolicy.brightnessFor(
                         lifecycle = state.focusedTask?.lifecycle,
                         activeBrightness = state.activeTaskBrightness,
+                        idleBrightness = state.idleBrightness,
                     )
                 }
             }
@@ -50,6 +53,7 @@ class MainActivity : ComponentActivity() {
                 onFocus = viewModel::focus,
                 onToggleDashboard = viewModel::toggleDashboard,
                 onActiveTaskBrightnessChange = viewModel::setActiveTaskBrightness,
+                onIdleBrightnessChange = viewModel::setIdleBrightness,
                 onExitTerminal = {
                     viewModel.setTerminalMode(false)
                     exitTerminalMode()

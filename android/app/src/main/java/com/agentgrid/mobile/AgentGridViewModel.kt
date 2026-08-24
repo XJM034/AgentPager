@@ -33,6 +33,7 @@ data class AgentGridUiState(
     val pairingError: String? = null,
     val terminalMode: Boolean = true,
     val activeTaskBrightness: Float = ScreenBrightnessPolicy.DEFAULT_ACTIVE_BRIGHTNESS,
+    val idleBrightness: Float = ScreenBrightnessPolicy.DEFAULT_IDLE_BRIGHTNESS,
 ) {
     val focusedTask: TaskSnapshot?
         get() = taskProjection.focusedTask
@@ -48,6 +49,12 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
                 preferences.getFloat(
                     "active-task-brightness",
                     ScreenBrightnessPolicy.DEFAULT_ACTIVE_BRIGHTNESS,
+                ),
+            ),
+            idleBrightness = ScreenBrightnessPolicy.sanitizeIdleBrightness(
+                preferences.getFloat(
+                    "idle-brightness",
+                    ScreenBrightnessPolicy.DEFAULT_IDLE_BRIGHTNESS,
                 ),
             ),
         ),
@@ -142,6 +149,12 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
         val brightness = ScreenBrightnessPolicy.sanitizeActiveBrightness(value)
         preferences.edit { putFloat("active-task-brightness", brightness) }
         mutableState.value = mutableState.value.copy(activeTaskBrightness = brightness)
+    }
+
+    fun setIdleBrightness(value: Float) {
+        val brightness = ScreenBrightnessPolicy.sanitizeIdleBrightness(value)
+        preferences.edit { putFloat("idle-brightness", brightness) }
+        mutableState.value = mutableState.value.copy(idleBrightness = brightness)
     }
 
     override fun onCleared() {

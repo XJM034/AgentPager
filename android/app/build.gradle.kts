@@ -17,6 +17,7 @@ android {
 
     defaultConfig {
         applicationId = "com.agentgrid.mobile"
+        manifestPlaceholders["appLabel"] = "AgentPager"
         minSdk = 29
         targetSdk = 36
         versionCode = providers.environmentVariable("AGENTPAGER_VERSION_CODE")
@@ -28,6 +29,14 @@ android {
             ?: "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".custom"
+            versionNameSuffix = "-custom"
+            manifestPlaceholders["appLabel"] = "AgentPager Custom"
+        }
     }
 
     buildFeatures {

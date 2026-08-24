@@ -136,6 +136,7 @@ fun AgentGridScreen(
     onFocus: (String) -> Unit,
     onToggleDashboard: () -> Unit,
     onActiveTaskBrightnessChange: (Float) -> Unit,
+    onIdleBrightnessChange: (Float) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
     AgentGridTheme {
@@ -170,6 +171,7 @@ fun AgentGridScreen(
                     onFocus = onFocus,
                     onToggleDashboard = onToggleDashboard,
                     onActiveTaskBrightnessChange = onActiveTaskBrightnessChange,
+                    onIdleBrightnessChange = onIdleBrightnessChange,
                     onExitTerminal = onExitTerminal,
                 )
             }
@@ -271,6 +273,7 @@ private fun TaskTerminal(
     onFocus: (String) -> Unit,
     onToggleDashboard: () -> Unit,
     onActiveTaskBrightnessChange: (Float) -> Unit,
+    onIdleBrightnessChange: (Float) -> Unit,
     onExitTerminal: () -> Unit,
 ) {
     val projection = state.taskProjection
@@ -444,6 +447,7 @@ private fun TaskTerminal(
                 state = state,
                 soundEnabled = soundEnabled,
                 onActiveTaskBrightnessChange = onActiveTaskBrightnessChange,
+                onIdleBrightnessChange = onIdleBrightnessChange,
                 onSoundEnabledChange = { enabled ->
                     sound.setEnabled(enabled)
                     soundEnabled = enabled
@@ -1040,6 +1044,7 @@ private fun SettingsPanel(
     state: AgentGridUiState,
     soundEnabled: Boolean,
     onActiveTaskBrightnessChange: (Float) -> Unit,
+    onIdleBrightnessChange: (Float) -> Unit,
     onSoundEnabledChange: (Boolean) -> Unit,
     onUnpair: () -> Unit,
     onExitTerminal: () -> Unit,
@@ -1047,7 +1052,9 @@ private fun SettingsPanel(
     Column(
         modifier = Modifier
             .width(206.dp)
+            .fillMaxHeight()
             .background(AgentGridColors.Surface)
+            .verticalScroll(rememberScrollState())
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1058,37 +1065,18 @@ private fun SettingsPanel(
             if (state.linkState == LinkState.CONNECTED) AgentGridColors.Green else AgentGridColors.Red,
         )
         DetailLine("TASK", "${state.taskProjection.orderedTasks.size}", AgentGridColors.Cyan)
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("任务亮度", color = AgentGridColors.Text, fontSize = 10.sp)
-                Text(
-                    "${(state.activeTaskBrightness * 100).roundToInt()}%",
-                    color = AgentGridColors.Cyan,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            Slider(
-                value = state.activeTaskBrightness,
-                onValueChange = onActiveTaskBrightnessChange,
-                valueRange = ScreenBrightnessPolicy.MIN_ACTIVE_BRIGHTNESS..
-                    ScreenBrightnessPolicy.MAX_ACTIVE_BRIGHTNESS,
-                colors = SliderDefaults.colors(
-                    thumbColor = AgentGridColors.Cyan,
-                    activeTrackColor = AgentGridColors.Cyan,
-                    inactiveTrackColor = AgentGridColors.Dimmed,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = "有任务时的屏幕亮度"
-                    },
-            )
-        }
+        BrightnessSlider(
+            label = "任务亮度",
+            value = state.activeTaskBrightness,
+            onValueChange = onActiveTaskBrightnessChange,
+            semanticDescription = "有任务时的屏幕亮度",
+        )
+        BrightnessSlider(
+            label = "空闲亮度",
+            value = state.idleBrightness,
+            onValueChange = onIdleBrightnessChange,
+            semanticDescription = "空闲和任务结束时的屏幕亮度",
+        )
         PixelButton(
             if (soundEnabled) "提示音：开" else "提示音：关",
             if (soundEnabled) AgentGridColors.Green else AgentGridColors.Muted,
@@ -1097,6 +1085,46 @@ private fun SettingsPanel(
         }
         PixelButton("解除配对", AgentGridColors.Red, onUnpair)
         PixelButton("退出专用模式", AgentGridColors.Muted, onExitTerminal)
+    }
+}
+
+@Composable
+private fun BrightnessSlider(
+    label: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    semanticDescription: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = AgentGridColors.Text, fontSize = 10.sp)
+            Text(
+                "${(value * 100).roundToInt()}%",
+                color = AgentGridColors.Cyan,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = ScreenBrightnessPolicy.MIN_BRIGHTNESS..
+                ScreenBrightnessPolicy.MAX_BRIGHTNESS,
+            colors = SliderDefaults.colors(
+                thumbColor = AgentGridColors.Cyan,
+                activeTrackColor = AgentGridColors.Cyan,
+                inactiveTrackColor = AgentGridColors.Dimmed,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = semanticDescription
+                },
+        )
     }
 }
 

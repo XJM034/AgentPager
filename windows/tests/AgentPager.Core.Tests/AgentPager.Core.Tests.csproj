@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>AgentPager.Core.Tests</AssemblyName>
+    <RootNamespace>AgentPager.Core.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentPager.Core\AgentPager.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -15,7 +15,7 @@ func usageLoaderParsesWindows() throws {
     """
     try Data(contents.utf8).write(to: file)
 
-    let snapshot = try #require(CodexUsageLoader.load(fromRootURL: root))
+    let snapshot = try #require(CodexUsageLoader().load(fromRootURL: root))
     #expect(snapshot.planType == "pro")
     #expect(snapshot.windows.map(\.label) == ["5h", "7d"])
     #expect(snapshot.windows[0].remainingPercentage == 75)
@@ -36,7 +36,7 @@ func usageLoaderKeepsGeneralAndSparkQuotaGroups() throws {
     {"timestamp":"2026-08-27T05:50:13.774Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex","primary":{"used_percent":9,"window_minutes":10080,"resets_at":1788304521}}}}
     """.utf8).write(to: file)
 
-    let snapshot = try #require(CodexUsageLoader.load(fromRootURL: root))
+    let snapshot = try #require(CodexUsageLoader().load(fromRootURL: root))
 
     #expect(snapshot.limitID == "codex")
     #expect(snapshot.windows.map(\.remainingPercentage) == [91])
@@ -44,6 +44,102 @@ func usageLoaderKeepsGeneralAndSparkQuotaGroups() throws {
     #expect(snapshot.quotaGroups[0].windows.map(\.label) == ["7d"])
     #expect(snapshot.quotaGroups[1].name == "GPT-5.3-Codex-Spark")
     #expect(snapshot.quotaGroups[1].windows.map(\.label) == ["5h", "7d"])
+}
+
+@Test("跨文件额度乱序时保留 capturedAt 更新的 Spark")
+func usageLoaderKeepsNewestSparkAcrossFiles() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let newerFile = root.appendingPathComponent("rollout-newer-file.jsonl")
+    try Data("""
+    {"timestamp":"2026-08-27T12:00:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex","primary":{"used_percent":8,"window_minutes":10080}}}}
+    {"timestamp":"2026-08-25T08:00:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex_bengalfox","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":80,"window_minutes":300}}}}
+    """.utf8).write(to: newerFile)
+
+    let olderFile = root.appendingPathComponent("rollout-older-file.jsonl")
+    try Data("""
+    {"timestamp":"2026-08-27T11:00:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex_bengalfox","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":20,"window_minutes":300}}}}
+    """.utf8).write(to: olderFile)
+
+    let newerModificationDate = try #require(
+        ISO8601DateFormatter().date(from: "2026-08-27T13:00:00Z")
+    )
+    let olderModificationDate = try #require(
+        ISO8601DateFormatter().date(from: "2026-08-27T12:30:00Z")
+    )
+    try FileManager.default.setAttributes(
+        [.modificationDate: newerModificationDate],
+        ofItemAtPath: newerFile.path
+    )
+    try FileManager.default.setAttributes(
+        [.modificationDate: olderModificationDate],
+        ofItemAtPath: olderFile.path
+    )
+
+    let now = try #require(
+        ISO8601DateFormatter().date(from: "2026-08-27T14:00:00Z")
+    )
+    let snapshot = try #require(
+        CodexUsageLoader().load(fromRootURL: root, now: now)
+    )
+    let spark = try #require(
+        snapshot.quotaGroups.first(where: { $0.id == "codex_bengalfox" })
+    )
+
+    #expect(spark.capturedAt == ISO8601DateFormatter().date(from: "2026-08-27T11:00:00Z"))
+    #expect(spark.windows.map(\.remainingPercentage) == [80])
+}
+
+@Test("额度文件未变化时复用缓存，变化后重新解析")
+func usageLoaderCachesQuotaFilesByMetadata() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let file = root.appendingPathComponent("rollout-cache.jsonl")
+    let firstContents = """
+    {"timestamp":"2026-08-27T12:00:00.000Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex","primary":{"used_percent":8,"window_minutes":10080}}}}
+    """
+    let changedContents = firstContents.replacingOccurrences(
+        of: "\"used_percent\":8",
+        with: "\"used_percent\":9"
+    )
+    #expect(firstContents.utf8.count == changedContents.utf8.count)
+    try Data(firstContents.utf8).write(to: file)
+
+    let originalModificationDate = try #require(
+        ISO8601DateFormatter().date(from: "2026-08-27T12:30:00Z")
+    )
+    try FileManager.default.setAttributes(
+        [.modificationDate: originalModificationDate],
+        ofItemAtPath: file.path
+    )
+    let now = try #require(
+        ISO8601DateFormatter().date(from: "2026-08-27T14:00:00Z")
+    )
+    let loader = CodexUsageLoader()
+
+    let first = try #require(loader.load(fromRootURL: root, now: now))
+    #expect(first.windows.map(\.remainingPercentage) == [92])
+
+    try Data(changedContents.utf8).write(to: file)
+    try FileManager.default.setAttributes(
+        [.modificationDate: originalModificationDate],
+        ofItemAtPath: file.path
+    )
+    let cached = try #require(loader.load(fromRootURL: root, now: now))
+    #expect(cached.windows.map(\.remainingPercentage) == [92])
+
+    try FileManager.default.setAttributes(
+        [.modificationDate: originalModificationDate.addingTimeInterval(60)],
+        ofItemAtPath: file.path
+    )
+    let refreshed = try #require(loader.load(fromRootURL: root, now: now))
+    #expect(refreshed.windows.map(\.remainingPercentage) == [91])
 }
 
 @Test("近期用量优先读取单次增量并用累计差值兼容旧日志")
@@ -67,7 +163,7 @@ func usageLoaderAggregatesDailyTokenDeltas() throws {
         ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
     )
     let snapshot = try #require(
-        CodexUsageLoader.load(
+        CodexUsageLoader().load(
             fromRootURL: root,
             now: now,
             calendar: calendar
@@ -106,7 +202,7 @@ func usageLoaderReturnsHistoryWithoutQuotaWindows() throws {
         ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
     )
     let snapshot = try #require(
-        CodexUsageLoader.load(
+        CodexUsageLoader().load(
             fromRootURL: root,
             now: now,
             calendar: calendar
@@ -141,7 +237,7 @@ func usageLoaderReadsLargeSessionTail() throws {
         ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
     )
     let snapshot = try #require(
-        CodexUsageLoader.load(
+        CodexUsageLoader().load(
             fromRootURL: root,
             now: now,
             calendar: calendar

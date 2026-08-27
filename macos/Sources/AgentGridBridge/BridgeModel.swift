@@ -21,6 +21,7 @@ final class BridgeModel {
     private var pairingSecret = Data()
     private let hookConfiguration = CodexHookConfiguration()
     private let claudeHookConfiguration = ClaudeHookConfiguration()
+    private let usageLoader = CodexUsageLoader()
     private var rolloutObservation = CodexRolloutObservation()
     private var hookServer: HookBridgeServer?
     private var webSocketServer: WebSocketServer?
@@ -303,9 +304,10 @@ final class BridgeModel {
 
     private func refreshUsage() {
         guard usageLoadTask == nil else { return }
+        let usageLoader = usageLoader
         usageLoadTask = Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
-                CodexUsageLoader.load()
+                usageLoader.load()
             }.value
             guard let self else { return }
             self.usage = snapshot

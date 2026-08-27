@@ -10,6 +10,13 @@ public sealed class CodexUsageLoader
     private const int TailSize = 256 * 1024;
     private static readonly TimeSpan QuotaFreshness = TimeSpan.FromDays(8);
     private sealed record Candidate(string Path, DateTimeOffset ModifiedAt, long Size);
+    private sealed record QuotaCacheEntry(
+        DateTimeOffset ModifiedAt,
+        long Size,
+        List<UsageSnapshot> Snapshots);
+    private readonly object _quotaCacheLock = new();
+    private readonly Dictionary<string, QuotaCacheEntry> _quotaCache =
+        new(StringComparer.OrdinalIgnoreCase);
     private sealed record Raw(long Input, long Cached, long Output, long Reasoning, long Total)
     {
         public static Raw Zero { get; } = new(0, 0, 0, 0, 0);
@@ -31,6 +38,14 @@ public sealed class CodexUsageLoader
             Path.Combine(CodexPaths.Home, "sessions"),
             Path.Combine(CodexPaths.Home, "archived_sessions"),
         };
+        return LoadFromRoots(roots, current);
+    }
+
+    public UsageSnapshot? LoadFromRoot(string root, DateTimeOffset? now = null) =>
+        LoadFromRoots([root], now ?? DateTimeOffset.Now);
+
+    private UsageSnapshot? LoadFromRoots(IEnumerable<string> roots, DateTimeOffset current)
+    {
         var candidates = roots.Where(Directory.Exists).SelectMany(root =>
         {
             try { return Directory.EnumerateFiles(root, "rollout-*.jsonl", SearchOption.AllDirectories); }
@@ -67,11 +82,29 @@ public sealed class CodexUsageLoader
             quota?.LimitName, quota?.Windows ?? [], quotaGroups, daily);
     }
 
-    private static List<UsageSnapshot> LatestQuotas(Candidate candidate)
+    private List<UsageSnapshot> LatestQuotas(Candidate candidate)
+    {
+        var path = Path.GetFullPath(candidate.Path);
+        lock (_quotaCacheLock)
+        {
+            if (_quotaCache.TryGetValue(path, out var entry) &&
+                entry.ModifiedAt == candidate.ModifiedAt &&
+                entry.Size == candidate.Size)
+                return entry.Snapshots;
+        }
+
+        var snapshots = ReadLatestQuotas(candidate);
+        lock (_quotaCacheLock)
+            _quotaCache[path] = new(candidate.ModifiedAt, candidate.Size, snapshots);
+        return snapshots;
+    }
+
+    private static List<UsageSnapshot> ReadLatestQuotas(Candidate candidate)
     {
         var latestByID = new Dictionary<string, UsageSnapshot>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in TailLines(candidate.Path, 512 * 1024).Reverse())
         {
+            if (!line.Contains("\"token_count\"", StringComparison.Ordinal)) continue;
             try
             {
                 using var document = JsonDocument.Parse(line);
@@ -110,28 +143,28 @@ public sealed class CodexUsageLoader
         return latestByID.Values.ToList();
     }
 
-    private static List<UsageSnapshot> LatestQuotaSnapshots(
+    private List<UsageSnapshot> LatestQuotaSnapshots(
         List<Candidate> candidates,
         DateTimeOffset now)
     {
         var snapshots = new List<UsageSnapshot>();
-        var foundGeneral = false;
-        var foundSpark = false;
         var cutoff = now - QuotaFreshness;
-
-        foreach (var candidate in candidates
-                     .Where(value => value.ModifiedAt >= cutoff)
-                     .OrderByDescending(value => value.ModifiedAt))
+        var recentCandidates = candidates
+            .Where(value => value.ModifiedAt >= cutoff)
+            .OrderByDescending(value => value.ModifiedAt)
+            .ToList();
+        var activePaths = recentCandidates
+            .Select(value => Path.GetFullPath(value.Path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        lock (_quotaCacheLock)
         {
-            foreach (var snapshot in LatestQuotas(candidate))
-            {
-                snapshots.Add(snapshot);
-                var rank = QuotaRank(snapshot);
-                foundGeneral |= rank == 0;
-                foundSpark |= rank == 1;
-            }
-            if (foundGeneral && foundSpark) break;
+            foreach (var path in _quotaCache.Keys.Where(path => !activePaths.Contains(path)).ToList())
+                _quotaCache.Remove(path);
         }
+
+        foreach (var candidate in recentCandidates)
+            foreach (var snapshot in LatestQuotas(candidate))
+                snapshots.Add(snapshot);
         return snapshots;
     }
 

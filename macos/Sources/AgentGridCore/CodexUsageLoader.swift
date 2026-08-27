@@ -1,11 +1,22 @@
 import Foundation
 
 /// 读取 Codex 本地日志中的额度窗口与近期 Token 用量。
-public enum CodexUsageLoader {
+public final class CodexUsageLoader: @unchecked Sendable {
     public static let historyDayCount = 90
     private static let historyTailSize = 256 * 1_024
     private static let exactHistoryFileSizeLimit = historyTailSize
     private static let quotaFreshnessInterval: TimeInterval = 8 * 24 * 60 * 60
+
+    private struct QuotaCacheEntry {
+        var modifiedAt: Date
+        var fileSize: Int
+        var snapshots: [UsageSnapshot]
+    }
+
+    private let quotaCacheLock = NSLock()
+    private var quotaCache: [String: QuotaCacheEntry] = [:]
+
+    public init() {}
 
     public static var defaultRootURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -71,24 +82,24 @@ public enum CodexUsageLoader {
         }
     }
 
-    public static func load(
+    public func load(
         fileManager: FileManager = .default,
         now: Date = .now,
         calendar: Calendar = .current
     ) -> UsageSnapshot? {
         let nativeSnapshot = load(
-            fromRootURLs: defaultRootURLs,
+            fromRootURLs: Self.defaultRootURLs,
             fileManager: fileManager,
             now: now,
             calendar: calendar
         )
         guard let codexBarUsage = CodexBarCostLoader.load(
-            historyDays: historyDayCount,
+            historyDays: Self.historyDayCount,
             fileManager: fileManager
         ) else {
             return nativeSnapshot
         }
-        return mergedSnapshot(
+        return Self.mergedSnapshot(
             nativeSnapshot,
             codexBarUsage: codexBarUsage,
             now: now,
@@ -96,7 +107,7 @@ public enum CodexUsageLoader {
         )
     }
 
-    public static func load(
+    public func load(
         fromRootURL rootURL: URL,
         fileManager: FileManager = .default,
         now: Date = .now,
@@ -110,13 +121,13 @@ public enum CodexUsageLoader {
         )
     }
 
-    private static func load(
+    private func load(
         fromRootURLs rootURLs: [URL],
         fileManager: FileManager,
         now: Date,
         calendar: Calendar
     ) -> UsageSnapshot? {
-        let candidates = candidates(
+        let candidates = Self.candidates(
             fromRootURLs: rootURLs,
             fileManager: fileManager
         )
@@ -128,9 +139,9 @@ public enum CodexUsageLoader {
             from: candidates,
             now: now
         )
-        let quotaGroups = latestQuotaGroups(from: quotaSnapshots)
-        let quotaSnapshot = preferredLegacySnapshot(from: quotaSnapshots)
-        let dailyUsage = dailyUsage(
+        let quotaGroups = Self.latestQuotaGroups(from: quotaSnapshots)
+        let quotaSnapshot = Self.preferredLegacySnapshot(from: quotaSnapshots)
+        let dailyUsage = Self.dailyUsage(
             from: candidates,
             now: now,
             calendar: calendar
@@ -198,7 +209,35 @@ public enum CodexUsageLoader {
         return result
     }
 
-    private static func latestSnapshots(from fileURL: URL, modifiedAt: Date) -> [UsageSnapshot] {
+    private func latestSnapshots(from candidate: Candidate) -> [UsageSnapshot] {
+        let path = candidate.fileURL.standardizedFileURL.path
+        quotaCacheLock.lock()
+        if let entry = quotaCache[path],
+           entry.modifiedAt == candidate.modifiedAt,
+           entry.fileSize == candidate.fileSize {
+            quotaCacheLock.unlock()
+            return entry.snapshots
+        }
+        quotaCacheLock.unlock()
+
+        let snapshots = Self.readLatestSnapshots(
+            from: candidate.fileURL,
+            modifiedAt: candidate.modifiedAt
+        )
+        quotaCacheLock.lock()
+        quotaCache[path] = QuotaCacheEntry(
+            modifiedAt: candidate.modifiedAt,
+            fileSize: candidate.fileSize,
+            snapshots: snapshots
+        )
+        quotaCacheLock.unlock()
+        return snapshots
+    }
+
+    private static func readLatestSnapshots(
+        from fileURL: URL,
+        modifiedAt: Date
+    ) -> [UsageSnapshot] {
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
             return []
         }
@@ -214,6 +253,7 @@ public enum CodexUsageLoader {
 
         var latestByID: [String: UsageSnapshot] = [:]
         contents.enumerateLines { line, _ in
+            guard line.contains("\"token_count\"") else { return }
             if let snapshot = snapshot(
                 from: line,
                 fallbackTimestamp: modifiedAt
@@ -224,29 +264,24 @@ public enum CodexUsageLoader {
         return Array(latestByID.values)
     }
 
-    private static func latestQuotaSnapshots(
+    private func latestQuotaSnapshots(
         from candidates: [Candidate],
         now: Date
     ) -> [UsageSnapshot] {
-        let cutoff = now.addingTimeInterval(-quotaFreshnessInterval)
-        var snapshots: [UsageSnapshot] = []
-        var foundGeneral = false
-        var foundSpark = false
-
-        for candidate in candidates
+        let cutoff = now.addingTimeInterval(-Self.quotaFreshnessInterval)
+        let recentCandidates = candidates
             .filter({ $0.modifiedAt >= cutoff })
-            .sorted(by: { $0.modifiedAt > $1.modifiedAt }) {
-            let candidateSnapshots = latestSnapshots(
-                from: candidate.fileURL,
-                modifiedAt: candidate.modifiedAt
-            )
-            for snapshot in candidateSnapshots {
-                snapshots.append(snapshot)
-                let rank = quotaGroupRank(snapshot)
-                foundGeneral = foundGeneral || rank == 0
-                foundSpark = foundSpark || rank == 1
-            }
-            if foundGeneral && foundSpark { break }
+            .sorted(by: { $0.modifiedAt > $1.modifiedAt })
+        let activePaths = Set(
+            recentCandidates.map { $0.fileURL.standardizedFileURL.path }
+        )
+        quotaCacheLock.lock()
+        quotaCache = quotaCache.filter { activePaths.contains($0.key) }
+        quotaCacheLock.unlock()
+
+        var snapshots: [UsageSnapshot] = []
+        for candidate in recentCandidates {
+            snapshots.append(contentsOf: latestSnapshots(from: candidate))
         }
         return snapshots
     }

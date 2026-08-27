@@ -185,74 +185,75 @@ struct BridgeSettingsView: View {
         case diagnostics = "诊断"
     }
 
+    private enum Layout {
+        static let tabBarHeight: CGFloat = 64
+        static let tabBarTopInset: CGFloat = 10
+    }
+
     let model: BridgeModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: Tab = .pairing
     @State private var pairingTextCopied = false
-    @Namespace private var tabSelection
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(Tab.allCases, id: \.self) { tab in
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-                            selection = tab
-                        }
-                    } label: {
-                        VStack(spacing: 8) {
-                            Text(tab.rawValue.uppercased())
-                                .font(.pixel(12, weight: .bold))
-                                .foregroundStyle(
-                                    selection == tab ? PixelTheme.text : PixelTheme.muted
-                                )
-                            ZStack {
-                                Rectangle()
-                                    .fill(.clear)
+                    Button(action: { select(tab) }) {
+                        Text(tab.rawValue.uppercased())
+                            .font(.pixel(12, weight: .bold))
+                            .foregroundStyle(
+                                selection == tab ? PixelTheme.text : PixelTheme.muted
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.top, Layout.tabBarTopInset)
+                            .overlay(alignment: .bottom) {
                                 if selection == tab {
                                     Rectangle()
                                         .fill(PixelTheme.cyan)
-                                        .matchedGeometryEffect(
-                                            id: "TAB_SELECTION",
-                                            in: tabSelection
-                                        )
+                                        .frame(height: 2)
                                 }
                             }
-                            .frame(height: 2)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 14)
+                        // PlainButtonStyle 不会自动把透明留白算进命中区域。
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(selection == tab ? .isSelected : [])
                 }
             }
-            // Hook 页内容较高时，不允许内容区压缩顶部 Tab 栏。
-            .fixedSize(horizontal: false, vertical: true)
+            // 固定标签栏总高度，避免不同页面的固有高度牵动顶部间距。
+            .frame(height: Layout.tabBarHeight)
             .background(PixelTheme.surface)
 
             ZStack {
                 switch selection {
                 case .pairing:
-                    pairingView.transition(tabContentTransition)
+                    pairingView
                 case .hook:
-                    hookView.transition(tabContentTransition)
+                    hookView
                 case .simulator:
-                    simulatorView.transition(tabContentTransition)
+                    simulatorView
                 case .diagnostics:
-                    diagnosticsView.transition(tabContentTransition)
+                    diagnosticsView
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 650, minHeight: 480)
+        // 内容较矮时，最小高度产生的额外空间必须留在底部；否则默认居中
+        // 会让不同标签页把整个标签栏推到不同的纵向位置。
+        .frame(minWidth: 650, minHeight: 480, alignment: .top)
         .background(PixelTheme.background)
         .foregroundStyle(PixelTheme.text)
         .font(.pixel(12))
         .preferredColorScheme(.dark)
     }
 
-    private var tabContentTransition: AnyTransition {
-        .scale(scale: 0.985).combined(with: .opacity)
+    private func select(_ tab: Tab) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            selection = tab
+        }
     }
 
     private var hookStatusTransition: AnyTransition {

@@ -39,11 +39,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.agentgrid.mobile.domain.AgentLifecycle
 import com.agentgrid.mobile.domain.DailyUsagePoint
+import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.UsageSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
 import com.agentgrid.mobile.render.PixelCoreSurfaceView
@@ -53,6 +55,42 @@ import kotlin.math.roundToInt
 
 private val UsageBar = Color(0xFF326B73)
 private val UsageBarDimmed = Color(0xFF1C3940)
+
+@Preview(
+    name = "General 与 Spark 分组更新时间",
+    widthDp = 226,
+    heightDp = 48,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun QuotaFreshnessTextPreview() {
+    val now = System.currentTimeMillis()
+    AgentGridTheme {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(AgentGridColors.Background)
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            QuotaFreshnessText(
+                usage = UsageSnapshot(
+                    capturedAt = now,
+                    quotaGroups = listOf(
+                        QuotaGroup(id = "codex", capturedAt = now),
+                        QuotaGroup(
+                            id = "codex_bengalfox",
+                            name = "GPT-5.3-Codex-Spark",
+                            capturedAt = now - 2 * 60 * 60_000,
+                        ),
+                    ),
+                ),
+                connected = true,
+            )
+        }
+    }
+}
 
 @Composable
 internal fun UsageDashboard(
@@ -179,16 +217,26 @@ private fun QuotaPanel(
             SecondaryQuota(window = secondary)
         }
 
-        Text(
-            buildString {
-                append(UsagePresentation.freshnessText(usage?.capturedAt))
-                if (!connected) append(" · Bridge 离线")
-            },
-            color = if (connected) AgentGridColors.Dimmed else AgentGridColors.Red,
-            fontSize = 9.sp,
-            maxLines = 1,
-        )
+        QuotaFreshnessText(usage = usage, connected = connected)
     }
+}
+
+@Composable
+private fun QuotaFreshnessText(
+    usage: UsageSnapshot?,
+    connected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        buildString {
+            append(UsagePresentation.quotaFreshnessText(usage))
+            if (!connected) append(" · Bridge 离线")
+        },
+        modifier = modifier,
+        color = if (connected) AgentGridColors.Dimmed else AgentGridColors.Red,
+        fontSize = 9.sp,
+        maxLines = 1,
+    )
 }
 
 @Composable

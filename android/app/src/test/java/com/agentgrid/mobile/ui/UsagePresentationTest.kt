@@ -40,6 +40,44 @@ class UsagePresentationTest {
     }
 
     @Test
+    fun `额度更新时间分别反映 General 和 Spark 新旧程度`() {
+        val now = Instant.parse("2026-08-27T14:00:00Z").toEpochMilli()
+        val general = QuotaGroup(
+            id = "codex",
+            capturedAt = now - 30_000,
+            windows = listOf(window("7d", 10_080)),
+        )
+        val spark = QuotaGroup(
+            id = "codex_bengalfox",
+            name = "GPT-5.3-Codex-Spark",
+            capturedAt = now - 2 * 60 * 60_000,
+            windows = listOf(window("5h", 300), window("7d", 10_080)),
+        )
+
+        assertEquals(
+            "GENERAL 刚刚 · SPARK 2 小时前",
+            UsagePresentation.quotaFreshnessText(
+                UsageSnapshot(
+                    capturedAt = now - 30_000,
+                    quotaGroups = listOf(general, spark),
+                ),
+                now = now,
+            ),
+        )
+        assertEquals(
+            "刚刚更新",
+            UsagePresentation.quotaFreshnessText(
+                UsageSnapshot(
+                    capturedAt = now - 30_000,
+                    limitID = "codex",
+                    windows = listOf(window("7d", 10_080)),
+                ),
+                now = now,
+            ),
+        )
+    }
+
+    @Test
     fun `时间段切换只保留所选天数`() {
         val points = (1..90).map { index ->
             DailyUsagePoint(

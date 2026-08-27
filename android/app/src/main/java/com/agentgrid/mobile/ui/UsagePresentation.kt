@@ -129,14 +129,34 @@ internal object UsagePresentation {
     fun freshnessText(
         capturedAt: Long?,
         now: Long = System.currentTimeMillis(),
+    ): String = capturedAt?.let { freshnessAgeText(it, now) + "更新" }
+        ?: "等待用量数据"
+
+    fun quotaFreshnessText(
+        usage: UsageSnapshot?,
+        now: Long = System.currentTimeMillis(),
     ): String {
-        capturedAt ?: return "等待用量数据"
+        usage ?: return freshnessText(null, now)
+        if (usage.quotaGroups.isEmpty()) {
+            return freshnessText(usage.capturedAt, now)
+        }
+        return topQuotaGroups(usage).joinToString(separator = " · ") { group ->
+            val age = group.capturedAt?.let { freshnessAgeText(it, now) }
+                ?: "时间未知"
+            "${quotaTitle(group)} $age"
+        }
+    }
+
+    private fun freshnessAgeText(
+        capturedAt: Long,
+        now: Long,
+    ): String {
         val elapsedMinutes = ((now - capturedAt).coerceAtLeast(0) / 60_000)
         return when {
-            elapsedMinutes < 1 -> "刚刚更新"
-            elapsedMinutes < 60 -> "${elapsedMinutes} 分钟前更新"
-            elapsedMinutes < 24 * 60 -> "${elapsedMinutes / 60} 小时前更新"
-            else -> "${elapsedMinutes / (24 * 60)} 天前更新"
+            elapsedMinutes < 1 -> "刚刚"
+            elapsedMinutes < 60 -> "${elapsedMinutes} 分钟前"
+            elapsedMinutes < 24 * 60 -> "${elapsedMinutes / 60} 小时前"
+            else -> "${elapsedMinutes / (24 * 60)} 天前"
         }
     }
 

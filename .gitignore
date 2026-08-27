@@ -17,3 +17,9 @@ windows/**/obj/
 *.keystore
 dist/
 artifacts/link.gif
+
+# 技能目录只保留 android-cli 项目副本；其余条目是指向本机受管源的符号链接，不入库。
+.agents/skills/*
+!.agents/skills/android-cli/
+.claude/skills/*
+!.claude/skills/android-cli/

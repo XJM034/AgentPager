@@ -2,15 +2,13 @@
 
 ## Visual truth
 
-- 初始选定设计：`/var/folders/4b/3nv411qn6ps7_w91p1ykfkh00000gn/T/codex-clipboard-0e6b3d06-4d55-4701-b835-2fbc641b8576.png`（1846 × 852）。
-- 最新用户反馈：`/var/folders/4b/3nv411qn6ps7_w91p1ykfkh00000gn/T/codex-clipboard-eedbe1f0-830e-4aea-86c2-13760ddf03d4.png`（1328 × 588）；明确要求 General、Spark 5h、Spark 7d 三个额度与右侧用量、设置按钮同高。
-- 最新实现首页：`/tmp/agentpager-spark-option1-v6-task.png`（模拟器，2400 × 1080，General + Spark 模拟数据）。
-- 最新实现额度页：`/tmp/agentpager-spark-option1-v6-dashboard.png`（模拟器，2400 × 1080，General + Spark 模拟数据）。
-- 真机首页：`/tmp/agentpager-spark-redmi-v6-current.png`（Redmi Note 7，2340 × 1080，旧 Bridge 真实 General 数据）。
-- 真机完整首页：`/tmp/agentpager-spark-redmi-build8-live.png`（Redmi Note 7，2340 × 1080，build 8 真实 General + Spark 数据）。
-- 真机额度页：`/tmp/agentpager-spark-redmi-build8-dashboard.png`（Redmi Note 7，2340 × 1080，build 8 真实 General + Spark 数据）。
-- 聚焦对照：`/tmp/agentpager-spark-option1-v6-compare-focus.png`；上方为用户反馈版本，下方为最新实现。
-- 全屏对照：`/tmp/agentpager-spark-option1-v6-compare-full.png`。
+- [完整布局对照](docs/assets/2026-08-27-general-spark/compare-full.png)：3692 × 852，SHA-256 `a8c17d4228c17f3d57c06486109997ffb9a5af59a53e342d7f775de5c28d4b6b`；保留额度条与任务列表的整体高度对照。
+- [Redmi 真机首页](docs/assets/2026-08-27-general-spark/redmi-home-live.png)：2340 × 1080，SHA-256 `9687a8f76be9a6cd0eb4d31831dbe8f65981d2b0724aae9fefc13ccd1fcd812c`；build 8 真实 General + Spark 数据。
+- [Redmi 真机额度页](docs/assets/2026-08-27-general-spark/redmi-dashboard-live.png)：2340 × 1080，SHA-256 `6dd29d003338fc15d09f0ef036f63c02b9be8ab84387742b6f826b8af433dcdc`；build 8 真实 General + Spark 数据。
+- [分组更新时间窄栏 Preview](docs/assets/2026-08-27-general-spark/freshness-preview.png)：593 × 126，SHA-256 `c241a26d5de684fb40ae41732176422205335d20f17988cccc205b1c8313a7cb`；226dp 额度栏内完整显示 General 与 Spark 各自的新旧程度。
+- 用户确认的关键要求：General、Spark 5h、Spark 7d 三个额度与右侧用量、设置按钮同高。
+
+以上四张关键证据保存在仓库文档资源目录，不再依赖 `/tmp` 或 `/var/folders`。重新验证时，在指定模拟器或 Redmi 安装当前 Debug APK，进入首页与额度页后使用 `android layout --device="$ANDROID_SERIAL" --pretty` 检查布局，再用 `android screen capture --device="$ANDROID_SERIAL" -o <输出路径>` 保存截图；真机截图必须注明 App Build 与 Bridge Build。分组更新时间可用 Android Studio 的 `QuotaFreshnessTextPreview` 在 226dp 宽度下复核。
 
 ## States and data
 
@@ -38,7 +36,7 @@
 
 ### Images and assets
 
-- 没有新增图片资源；继续复用现有像素图标与 Compose 绘制的进度线。
+- App 运行时没有新增图片资源；继续复用现有像素图标与 Compose 绘制的进度线。`docs/assets/` 中的 PNG 仅用于保留 QA 证据，不会打入 APK。
 
 ### Copy and content
 

@@ -75,6 +75,76 @@ struct CodexRolloutReaderTests {
     }
 
     @Test
+    func 分段追加时保留未完成行直到下一次轮询() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rollout = directory.appendingPathComponent("rollout-partial.jsonl")
+        try Data().write(to: rollout)
+
+        var reader = CodexRolloutReader()
+        reader.track(
+            filePath: rollout.path,
+            sessionID: "session-partial",
+            cwd: "/tmp/AgentGrid"
+        )
+
+        let firstHalf = """
+        {"type":"event_msg","payload":{"type":"user_message","message":"分段
+        """
+        let secondHalf = "消息\"}}\n"
+        let handle = try FileHandle(forWritingTo: rollout)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(firstHalf.utf8))
+
+        #expect(reader.poll().isEmpty)
+
+        try handle.write(contentsOf: Data(secondHalf.utf8))
+        try handle.close()
+
+        #expect(reader.poll().map(\.userPrompt) == ["分段消息"])
+    }
+
+    @Test
+    func 单次轮询最多读取两兆字节并在后续继续() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rollout = directory.appendingPathComponent("rollout-large-append.jsonl")
+        try Data().write(to: rollout)
+
+        var reader = CodexRolloutReader()
+        reader.track(
+            filePath: rollout.path,
+            sessionID: "session-large-append",
+            cwd: "/tmp/AgentGrid"
+        )
+
+        var appended = Data(
+            repeating: UInt8(ascii: "x"),
+            count: 2 * 1_024 * 1_024 + 64 * 1_024
+        )
+        appended.append(UInt8(ascii: "\n"))
+        appended.append(Data(
+            "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"读取完成\"}}\n".utf8
+        ))
+        try appended.write(to: rollout)
+
+        #expect(reader.poll().isEmpty)
+        #expect(reader.poll().map(\.userPrompt) == ["读取完成"])
+    }
+
+    @Test
     func parsesQuestionWithoutRetainingConversation() throws {
         let line = """
         {"timestamp":"2026-07-26T06:00:00Z","type":"event_msg","payload":{"type":"request_user_input","prompt":"选择继续方式"}}
@@ -272,6 +342,56 @@ struct CodexRolloutReaderTests {
         #expect(childSignals.allSatisfy { $0.subagentID == childID })
         #expect(childSignals.contains { $0.latestStep == "swift test" })
         #expect(childSignals.contains { $0.lifecycle == .succeeded })
+    }
+
+    @Test
+    func 子代理历史回放限制在最近两兆字节() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+
+        let childID = "019f-large-child"
+        let parentURL = directory.appendingPathComponent("rollout-parent.jsonl")
+        let childURL = directory.appendingPathComponent("rollout-\(childID).jsonl")
+        try Data().write(to: parentURL)
+
+        var childData = Data(
+            "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"过旧消息\"}}\n".utf8
+        )
+        childData.append(Data(
+            repeating: UInt8(ascii: "x"),
+            count: 2 * 1_024 * 1_024 + 64 * 1_024
+        ))
+        childData.append(UInt8(ascii: "\n"))
+        childData.append(Data(
+            "{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"recent command\\\"}\"}}\n".utf8
+        ))
+        try childData.write(to: childURL)
+
+        var reader = CodexRolloutReader()
+        reader.track(
+            filePath: parentURL.path,
+            sessionID: "parent-session",
+            cwd: "/tmp/AgentGrid"
+        )
+        let parentEvent = """
+        {"type":"event_msg","payload":{"type":"sub_agent_activity","kind":"started","agent_thread_id":"\(childID)","agent_path":"/root/large_child"}}
+
+        """
+        let handle = try FileHandle(forWritingTo: parentURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(parentEvent.utf8))
+        try handle.close()
+
+        _ = reader.poll()
+        let childSignals = reader.poll()
+
+        #expect(childSignals.contains { $0.latestStep == "recent command" })
+        #expect(!childSignals.contains { $0.userPrompt == "过旧消息" })
     }
 
     @Test

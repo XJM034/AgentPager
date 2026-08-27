@@ -44,6 +44,9 @@ public struct CodexRolloutSignal: Equatable, Sendable {
 }
 
 public struct CodexRolloutReader: Sendable {
+    private static let maximumPollReadBytes = 2 * 1_024 * 1_024
+    private static let maximumSubagentReplayBytes: UInt64 = 2 * 1_024 * 1_024
+
     private struct PendingSubagent: Sendable {
         var id: String
         var path: String
@@ -177,15 +180,20 @@ public struct CodexRolloutReader: Sendable {
 
             do {
                 try handle.seek(toOffset: tracked.offset)
-                let appended = try handle.readToEnd() ?? Data()
-                tracked.offset = size
+                let unreadBytes = size - tracked.offset
+                let readCount = Int(min(
+                    unreadBytes,
+                    UInt64(Self.maximumPollReadBytes)
+                ))
+                let appended = try handle.read(upToCount: readCount) ?? Data()
+                tracked.offset += UInt64(appended.count)
                 tracked.partialLine.append(appended)
 
-                while let newline = tracked.partialLine.firstIndex(of: UInt8(ascii: "\n")) {
-                    let line = tracked.partialLine[..<newline]
-                    tracked.partialLine.removeSubrange(
-                        tracked.partialLine.startIndex...newline
-                    )
+                var lineStart = tracked.partialLine.startIndex
+                while let newline = tracked.partialLine[lineStart...]
+                    .firstIndex(of: UInt8(ascii: "\n")) {
+                    let line = tracked.partialLine[lineStart..<newline]
+                    lineStart = tracked.partialLine.index(after: newline)
                     if let signal = Self.signal(
                         from: Data(line),
                         sessionID: tracked.sessionID,
@@ -204,6 +212,11 @@ public struct CodexRolloutReader: Sendable {
                             )
                         }
                     }
+                }
+                if lineStart > tracked.partialLine.startIndex {
+                    tracked.partialLine.removeSubrange(
+                        tracked.partialLine.startIndex..<lineStart
+                    )
                 }
             } catch {
                 tracked.offset = size
@@ -251,7 +264,8 @@ public struct CodexRolloutReader: Sendable {
             cwd: parent.cwd,
             subagentID: id,
             subagentPath: path,
-            readExisting: true
+            readExisting: true,
+            maximumReplayBytes: Self.maximumSubagentReplayBytes
         )
         pendingSubagents.removeValue(forKey: id)
     }
@@ -271,7 +285,8 @@ public struct CodexRolloutReader: Sendable {
                 cwd: pending.parentCWD,
                 subagentID: pending.id,
                 subagentPath: pending.path,
-                readExisting: true
+                readExisting: true,
+                maximumReplayBytes: Self.maximumSubagentReplayBytes
             )
             pendingSubagents.removeValue(forKey: pending.id)
         }

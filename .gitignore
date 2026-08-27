@@ -1,9 +1,12 @@
 .DS_Store
+.idea/
+.kotlin/
 .codebase-memory/
 .build/
 DerivedData/
 macos/.swiftpm/
 android/.gradle/
+android/.kotlin/
 android/local.properties
 android/**/build/
 windows/**/bin/

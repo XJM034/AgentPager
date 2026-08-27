@@ -70,6 +70,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1146,6 +1147,27 @@ private fun BrightnessSlider(
                 .semantics {
                     contentDescription = semanticDescription
                 },
+        )
+    }
+}
+
+@Preview(
+    name = "亮度设置",
+    widthDp = 240,
+    heightDp = 360,
+    showBackground = true,
+)
+@Composable
+private fun BrightnessSettingsPreview() {
+    AgentGridTheme {
+        SettingsPanel(
+            state = AgentGridUiState(linkState = LinkState.CONNECTED),
+            soundEnabled = true,
+            onActiveTaskBrightnessChange = {},
+            onIdleBrightnessChange = {},
+            onSoundEnabledChange = {},
+            onUnpair = {},
+            onExitTerminal = {},
         )
     }
 }

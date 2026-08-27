@@ -186,8 +186,7 @@ struct BridgeSettingsView: View {
     }
 
     private enum Layout {
-        static let tabBarHeight: CGFloat = 64
-        static let tabBarTopInset: CGFloat = 10
+        static let tabBarHeight: CGFloat = 52
     }
 
     let model: BridgeModel
@@ -206,7 +205,6 @@ struct BridgeSettingsView: View {
                                 selection == tab ? PixelTheme.text : PixelTheme.muted
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, Layout.tabBarTopInset)
                             .overlay(alignment: .bottom) {
                                 if selection == tab {
                                     Rectangle()
@@ -221,7 +219,7 @@ struct BridgeSettingsView: View {
                     .accessibilityAddTraits(selection == tab ? .isSelected : [])
                 }
             }
-            // 固定标签栏总高度，避免不同页面的固有高度牵动顶部间距。
+            // 固定且收紧标签栏，让标签贴近标题栏，同时避免页面高度牵动其位置。
             .frame(height: Layout.tabBarHeight)
             .background(PixelTheme.surface)
 

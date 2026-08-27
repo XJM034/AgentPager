@@ -84,6 +84,12 @@ public sealed record UsageWindow(
     int WindowMinutes,
     DateTimeOffset? ResetsAt);
 
+public sealed record QuotaGroup(
+    string Id,
+    string? Name,
+    DateTimeOffset? CapturedAt,
+    List<UsageWindow> Windows);
+
 public sealed record DailyUsagePoint(
     string Date,
     long InputTokens = 0,
@@ -97,7 +103,9 @@ public sealed record UsageSnapshot(
     DateTimeOffset? CapturedAt,
     string? PlanType,
     string? LimitID,
+    string? LimitName,
     List<UsageWindow> Windows,
+    List<QuotaGroup> QuotaGroups,
     List<DailyUsagePoint> DailyUsage);
 
 public sealed record PendingRequest(

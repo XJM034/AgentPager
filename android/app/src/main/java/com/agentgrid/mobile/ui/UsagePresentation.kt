@@ -1,6 +1,8 @@
 package com.agentgrid.mobile.ui
 
 import com.agentgrid.mobile.domain.DailyUsagePoint
+import com.agentgrid.mobile.domain.QuotaGroup
+import com.agentgrid.mobile.domain.UsageSnapshot
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -16,6 +18,43 @@ internal enum class UsageRange(
 }
 
 internal object UsagePresentation {
+    fun topQuotaGroups(usage: UsageSnapshot?): List<QuotaGroup> {
+        usage ?: return emptyList()
+        val groups = usage.quotaGroups.ifEmpty {
+            if (usage.windows.isEmpty()) {
+                emptyList()
+            } else {
+                listOf(
+                    QuotaGroup(
+                        id = usage.limitID ?: "default",
+                        name = usage.limitName,
+                        capturedAt = usage.capturedAt,
+                        windows = usage.windows,
+                    ),
+                )
+            }
+        }
+        val general = groups.firstOrNull(::isGeneralQuota)
+        val spark = groups.firstOrNull(::isSparkQuota)
+        return listOfNotNull(general, spark).ifEmpty { groups.take(2) }
+    }
+
+    fun quotaTitle(group: QuotaGroup): String = when {
+        isSparkQuota(group) -> "SPARK"
+        isGeneralQuota(group) -> "GENERAL"
+        !group.name.isNullOrBlank() -> group.name.uppercase()
+        else -> group.id.uppercase()
+    }
+
+    private fun isGeneralQuota(group: QuotaGroup): Boolean =
+        group.id.equals("codex", ignoreCase = true)
+
+    private fun isSparkQuota(group: QuotaGroup): Boolean =
+        listOf(group.id, group.name.orEmpty()).any { value ->
+            value.contains("spark", ignoreCase = true) ||
+                value.contains("bengalfox", ignoreCase = true)
+        }
+
     fun pointsForRange(
         points: List<DailyUsagePoint>,
         range: UsageRange,

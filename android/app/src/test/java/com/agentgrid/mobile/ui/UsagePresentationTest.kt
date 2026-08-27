@@ -1,12 +1,44 @@
 package com.agentgrid.mobile.ui
 
 import com.agentgrid.mobile.domain.DailyUsagePoint
+import com.agentgrid.mobile.domain.QuotaGroup
+import com.agentgrid.mobile.domain.UsageSnapshot
+import com.agentgrid.mobile.domain.UsageWindow
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class UsagePresentationTest {
+    @Test
+    fun `顶部额度固定按通用和 Spark 分组且兼容旧快照`() {
+        val general = QuotaGroup(
+            id = "codex",
+            windows = listOf(window("7d", 10_080)),
+        )
+        val spark = QuotaGroup(
+            id = "codex_bengalfox",
+            name = "GPT-5.3-Codex-Spark",
+            windows = listOf(window("5h", 300), window("7d", 10_080)),
+        )
+
+        val groups = UsagePresentation.topQuotaGroups(
+            UsageSnapshot(quotaGroups = listOf(spark, general)),
+        )
+
+        assertEquals(listOf("GENERAL", "SPARK"), groups.map(UsagePresentation::quotaTitle))
+        assertEquals(listOf("7d"), groups[0].windows.map { it.label })
+        assertEquals(listOf("5h", "7d"), groups[1].windows.map { it.label })
+
+        val legacy = UsagePresentation.topQuotaGroups(
+            UsageSnapshot(
+                limitID = "codex",
+                windows = listOf(window("7d", 10_080)),
+            ),
+        )
+        assertEquals(listOf("GENERAL"), legacy.map(UsagePresentation::quotaTitle))
+    }
+
     @Test
     fun `时间段切换只保留所选天数`() {
         val points = (1..90).map { index ->
@@ -91,4 +123,12 @@ class UsagePresentationTest {
             ),
         )
     }
+
+    private fun window(label: String, minutes: Int) = UsageWindow(
+        key = "primary",
+        label = label,
+        usedPercentage = 8.0,
+        remainingPercentage = 92.0,
+        windowMinutes = minutes,
+    )
 }

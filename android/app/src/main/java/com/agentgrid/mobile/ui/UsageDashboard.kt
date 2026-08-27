@@ -109,9 +109,15 @@ private fun QuotaPanel(
     connected: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val windows = usage?.windows.orEmpty()
-    val primary = windows.firstOrNull { it.key == "primary" } ?: windows.firstOrNull()
-    val secondary = windows.firstOrNull { it.key == "secondary" }
+    val groups = UsagePresentation.topQuotaGroups(usage)
+    val general = groups.firstOrNull { UsagePresentation.quotaTitle(it) == "GENERAL" }
+    val spark = groups.firstOrNull { UsagePresentation.quotaTitle(it) == "SPARK" }
+    val primaryGroup = general ?: groups.firstOrNull()
+    val primary = primaryGroup?.windows
+        ?.maxByOrNull { it.windowMinutes }
+    val secondary = primaryGroup?.windows
+        ?.filterNot { it === primary }
+        ?.maxByOrNull { it.windowMinutes }
 
     Column(
         modifier = modifier,
@@ -159,9 +165,19 @@ private fun QuotaPanel(
             }
         }
 
-        PrimaryQuota(window = primary)
+        PrimaryQuota(
+            window = primary,
+            groupLabel = primaryGroup?.let(UsagePresentation::quotaTitle),
+        )
 
-        SecondaryQuota(window = secondary)
+        if (spark != null && spark !== primaryGroup) {
+            CompactQuotaGroup(
+                title = UsagePresentation.quotaTitle(spark),
+                windows = spark.windows,
+            )
+        } else if (secondary != null) {
+            SecondaryQuota(window = secondary)
+        }
 
         Text(
             buildString {
@@ -176,7 +192,10 @@ private fun QuotaPanel(
 }
 
 @Composable
-private fun PrimaryQuota(window: UsageWindow?) {
+private fun PrimaryQuota(
+    window: UsageWindow?,
+    groupLabel: String?,
+) {
     val remaining = window?.remainingPercentage?.roundToInt()?.coerceIn(0, 100)
     val color = quotaColor(remaining)
 
@@ -193,7 +212,10 @@ private fun PrimaryQuota(window: UsageWindow?) {
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "${window?.label?.uppercase() ?: "5H"} 剩余",
+                buildString {
+                    if (!groupLabel.isNullOrBlank()) append("$groupLabel · ")
+                    append("${window?.label?.uppercase() ?: "--"} 剩余")
+                },
                 color = AgentGridColors.Muted,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(bottom = 5.dp),
@@ -216,6 +238,77 @@ private fun PrimaryQuota(window: UsageWindow?) {
             UsagePresentation.resetText(window?.resetsAt),
             color = AgentGridColors.Muted,
             fontSize = 10.sp,
+        )
+    }
+}
+
+@Composable
+private fun CompactQuotaGroup(
+    title: String,
+    windows: List<UsageWindow>,
+) {
+    val visibleWindows = windows.sortedBy { it.windowMinutes }.take(2)
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            title,
+            color = if (title == "SPARK") AgentGridColors.Violet else AgentGridColors.Muted,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            visibleWindows.forEach { window ->
+                CompactQuota(
+                    window = window,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactQuota(
+    window: UsageWindow,
+    modifier: Modifier = Modifier,
+) {
+    val remaining = window.remainingPercentage.roundToInt().coerceIn(0, 100)
+    val color = quotaColor(remaining)
+    Column(
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "${window.label} 剩余 $remaining%"
+        },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                window.label.uppercase(),
+                color = AgentGridColors.Muted,
+                fontSize = 9.sp,
+            )
+            Text(
+                "$remaining%",
+                color = color,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        LinearProgressIndicator(
+            progress = { remaining / 100f },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp),
+            color = color,
+            trackColor = AgentGridColors.Divider,
+            gapSize = 0.dp,
+            drawStopIndicator = {},
         )
     }
 }

@@ -22,6 +22,30 @@ func usageLoaderParsesWindows() throws {
     #expect(snapshot.windows[1].remainingPercentage == 9)
 }
 
+@Test("用量解析器同时保留通用额度和 Spark 双窗口")
+func usageLoaderKeepsGeneralAndSparkQuotaGroups() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let file = root.appendingPathComponent("rollout-switching-limits.jsonl")
+    try Data("""
+    {"timestamp":"2026-08-27T05:33:04.510Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex","primary":{"used_percent":8,"window_minutes":10080,"resets_at":1788304521}}}}
+    {"timestamp":"2026-08-27T05:30:21.040Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex_bengalfox","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":0,"window_minutes":300,"resets_at":1787826616},"secondary":{"used_percent":0,"window_minutes":10080,"resets_at":1788413416}}}}
+    {"timestamp":"2026-08-27T05:50:13.774Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"plan_type":"pro","limit_id":"codex","primary":{"used_percent":9,"window_minutes":10080,"resets_at":1788304521}}}}
+    """.utf8).write(to: file)
+
+    let snapshot = try #require(CodexUsageLoader.load(fromRootURL: root))
+
+    #expect(snapshot.limitID == "codex")
+    #expect(snapshot.windows.map(\.remainingPercentage) == [91])
+    #expect(snapshot.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"])
+    #expect(snapshot.quotaGroups[0].windows.map(\.label) == ["7d"])
+    #expect(snapshot.quotaGroups[1].name == "GPT-5.3-Codex-Spark")
+    #expect(snapshot.quotaGroups[1].windows.map(\.label) == ["5h", "7d"])
+}
+
 @Test("近期用量优先读取单次增量并用累计差值兼容旧日志")
 func usageLoaderAggregatesDailyTokenDeltas() throws {
     let root = FileManager.default.temporaryDirectory

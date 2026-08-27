@@ -5,6 +5,7 @@ public enum CodexUsageLoader {
     public static let historyDayCount = 90
     private static let historyTailSize = 256 * 1_024
     private static let exactHistoryFileSizeLimit = historyTailSize
+    private static let quotaFreshnessInterval: TimeInterval = 8 * 24 * 60 * 60
 
     public static var defaultRootURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -123,13 +124,12 @@ public enum CodexUsageLoader {
             return nil
         }
 
-        let quotaSnapshot = candidates
-            .sorted { $0.modifiedAt > $1.modifiedAt }
-            .lazy
-            .compactMap {
-                latestSnapshot(from: $0.fileURL, modifiedAt: $0.modifiedAt)
-            }
-            .first
+        let quotaSnapshots = latestQuotaSnapshots(
+            from: candidates,
+            now: now
+        )
+        let quotaGroups = latestQuotaGroups(from: quotaSnapshots)
+        let quotaSnapshot = preferredLegacySnapshot(from: quotaSnapshots)
         let dailyUsage = dailyUsage(
             from: candidates,
             now: now,
@@ -144,7 +144,9 @@ public enum CodexUsageLoader {
                 candidates.max(by: { $0.modifiedAt < $1.modifiedAt })?.modifiedAt,
             planType: quotaSnapshot?.planType,
             limitID: quotaSnapshot?.limitID,
+            limitName: quotaSnapshot?.limitName,
             windows: quotaSnapshot?.windows ?? [],
+            quotaGroups: quotaGroups,
             dailyUsage: dailyUsage
         )
     }
@@ -196,9 +198,9 @@ public enum CodexUsageLoader {
         return result
     }
 
-    private static func latestSnapshot(from fileURL: URL, modifiedAt: Date) -> UsageSnapshot? {
+    private static func latestSnapshots(from fileURL: URL, modifiedAt: Date) -> [UsageSnapshot] {
         guard let handle = try? FileHandle(forReadingFrom: fileURL) else {
-            return nil
+            return []
         }
         defer { try? handle.close() }
 
@@ -207,19 +209,46 @@ public enum CodexUsageLoader {
         try? handle.seek(toOffset: size - tailSize)
         guard let data = try? handle.readToEnd(),
               let contents = String(data: data, encoding: .utf8) else {
-            return nil
+            return []
         }
 
-        var latest: UsageSnapshot?
+        var latestByID: [String: UsageSnapshot] = [:]
         contents.enumerateLines { line, _ in
             if let snapshot = snapshot(
                 from: line,
                 fallbackTimestamp: modifiedAt
             ) {
-                latest = snapshot
+                latestByID[snapshot.limitID ?? "default"] = snapshot
             }
         }
-        return latest
+        return Array(latestByID.values)
+    }
+
+    private static func latestQuotaSnapshots(
+        from candidates: [Candidate],
+        now: Date
+    ) -> [UsageSnapshot] {
+        let cutoff = now.addingTimeInterval(-quotaFreshnessInterval)
+        var snapshots: [UsageSnapshot] = []
+        var foundGeneral = false
+        var foundSpark = false
+
+        for candidate in candidates
+            .filter({ $0.modifiedAt >= cutoff })
+            .sorted(by: { $0.modifiedAt > $1.modifiedAt }) {
+            let candidateSnapshots = latestSnapshots(
+                from: candidate.fileURL,
+                modifiedAt: candidate.modifiedAt
+            )
+            for snapshot in candidateSnapshots {
+                snapshots.append(snapshot)
+                let rank = quotaGroupRank(snapshot)
+                foundGeneral = foundGeneral || rank == 0
+                foundSpark = foundSpark || rank == 1
+            }
+            if foundGeneral && foundSpark { break }
+        }
+        return snapshots
     }
 
     private static func snapshot(from line: String, fallbackTimestamp: Date) -> UsageSnapshot? {
@@ -245,8 +274,61 @@ public enum CodexUsageLoader {
             capturedAt: parseTimestamp(object["timestamp"]) ?? fallbackTimestamp,
             planType: scalarString(rateLimits["plan_type"]),
             limitID: scalarString(rateLimits["limit_id"]),
+            limitName: scalarString(rateLimits["limit_name"]),
             windows: windows
         )
+    }
+
+    private static func latestQuotaGroups(
+        from snapshots: [UsageSnapshot]
+    ) -> [QuotaGroup] {
+        var latestByID: [String: UsageSnapshot] = [:]
+        for snapshot in snapshots {
+            let id = snapshot.limitID ?? "default"
+            let current = latestByID[id]
+            if current == nil ||
+                (snapshot.capturedAt ?? .distantPast) > (current?.capturedAt ?? .distantPast) {
+                latestByID[id] = snapshot
+            }
+        }
+
+        return latestByID.values
+            .sorted { lhs, rhs in
+                let lhsRank = quotaGroupRank(lhs)
+                let rhsRank = quotaGroupRank(rhs)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return (lhs.capturedAt ?? .distantPast) > (rhs.capturedAt ?? .distantPast)
+            }
+            .map { snapshot in
+                QuotaGroup(
+                    id: snapshot.limitID ?? "default",
+                    name: snapshot.limitName,
+                    capturedAt: snapshot.capturedAt,
+                    windows: snapshot.windows
+                )
+            }
+    }
+
+    private static func preferredLegacySnapshot(
+        from snapshots: [UsageSnapshot]
+    ) -> UsageSnapshot? {
+        snapshots
+            .sorted { lhs, rhs in
+                let lhsRank = quotaGroupRank(lhs)
+                let rhsRank = quotaGroupRank(rhs)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return (lhs.capturedAt ?? .distantPast) > (rhs.capturedAt ?? .distantPast)
+            }
+            .first
+    }
+
+    private static func quotaGroupRank(_ snapshot: UsageSnapshot) -> Int {
+        if snapshot.limitID?.lowercased() == "codex" { return 0 }
+        let searchable = [snapshot.limitID, snapshot.limitName]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: " ")
+        if searchable.contains("spark") || searchable.contains("bengalfox") { return 1 }
+        return 2
     }
 
     private static func usageWindow(
@@ -367,7 +449,9 @@ public enum CodexUsageLoader {
             capturedAt: nativeSnapshot?.capturedAt ?? now,
             planType: nativeSnapshot?.planType,
             limitID: nativeSnapshot?.limitID,
+            limitName: nativeSnapshot?.limitName,
             windows: nativeSnapshot?.windows ?? [],
+            quotaGroups: nativeSnapshot?.quotaGroups ?? [],
             dailyUsage: dailyUsage
         )
     }

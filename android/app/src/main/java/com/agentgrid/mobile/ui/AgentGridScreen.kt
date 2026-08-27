@@ -85,9 +85,11 @@ import com.agentgrid.mobile.domain.AgentSource
 import com.agentgrid.mobile.domain.ControlAction
 import com.agentgrid.mobile.domain.PendingRequest
 import com.agentgrid.mobile.domain.PendingRequestKind
+import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.SubagentSnapshot
 import com.agentgrid.mobile.domain.TaskCapability
 import com.agentgrid.mobile.domain.TaskSnapshot
+import com.agentgrid.mobile.domain.UsageSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
 import com.agentgrid.mobile.network.LinkState
 import com.agentgrid.mobile.render.PixelCoreSurfaceView
@@ -324,10 +326,10 @@ private fun TaskTerminal(
             .background(AgentGridColors.Background),
     ) {
         TopControls(
-            windows = if (showDashboard) {
-                emptyList()
+            usage = if (showDashboard) {
+                null
             } else {
-                state.usage?.windows.orEmpty()
+                state.usage
             },
             settingsVisible = settingsVisible,
             dashboardVisible = showDashboard,
@@ -480,7 +482,7 @@ private fun TaskTerminal(
 
 @Composable
 private fun TopControls(
-    windows: List<UsageWindow>,
+    usage: UsageSnapshot?,
     settingsVisible: Boolean,
     dashboardVisible: Boolean,
     onToggleDashboard: () -> Unit,
@@ -492,8 +494,8 @@ private fun TopControls(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        windows.take(2).forEach { window ->
-            UsagePill(window)
+        UsagePresentation.topQuotaGroups(usage).forEach { group ->
+            UsageBank(group)
         }
         Box(
             modifier = Modifier
@@ -558,7 +560,59 @@ private fun ViewSwitchIcon(showTaskIcon: Boolean) {
 }
 
 @Composable
-private fun UsagePill(window: UsageWindow) {
+private fun UsageBank(group: QuotaGroup) {
+    val windows = group.windows.sortedBy { it.windowMinutes }.take(2)
+    if (windows.isEmpty()) return
+    val title = UsagePresentation.quotaTitle(group)
+    Row(
+        modifier = Modifier
+            .width(if (windows.size > 1) 174.dp else 92.dp)
+            .height(28.dp)
+            .background(AgentGridColors.Surface)
+            .semantics(mergeDescendants = true) {
+                contentDescription = buildString {
+                    append(title)
+                    windows.forEach { window ->
+                        append("，${window.label} 剩余 ")
+                        append(window.remainingPercentage.roundToInt().coerceIn(0, 100))
+                        append('%')
+                    }
+                }
+            }
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            title,
+            color = if (title == "SPARK") AgentGridColors.Violet else AgentGridColors.Muted,
+            fontSize = 8.sp,
+            lineHeight = 8.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.25.sp,
+        )
+        windows.forEachIndexed { index, window ->
+            if (index > 0) {
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(16.dp)
+                        .background(AgentGridColors.Divider),
+                )
+            }
+            UsageGauge(
+                window = window,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun UsageGauge(
+    window: UsageWindow,
+    modifier: Modifier = Modifier,
+) {
     val remaining = window.remainingPercentage.roundToInt().coerceIn(0, 100)
     val color = when {
         remaining < 10 -> AgentGridColors.Red
@@ -566,14 +620,8 @@ private fun UsagePill(window: UsageWindow) {
         else -> AgentGridColors.Cyan
     }
     Column(
-        modifier = Modifier
-            .width(112.dp)
-            .background(AgentGridColors.Surface)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "${window.label} 剩余 $remaining%"
-            }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -583,23 +631,25 @@ private fun UsagePill(window: UsageWindow) {
             Text(
                 window.label,
                 color = AgentGridColors.Muted,
-                fontSize = 10.sp,
+                fontSize = 8.sp,
+                lineHeight = 10.sp,
                 fontWeight = FontWeight.Medium,
-                letterSpacing = 0.5.sp,
+                letterSpacing = 0.25.sp,
             )
             Text(
                 "$remaining%",
                 color = color,
-                fontSize = 15.sp,
+                fontSize = 11.sp,
+                lineHeight = 11.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp,
+                letterSpacing = 0.25.sp,
             )
         }
         LinearProgressIndicator(
             progress = { remaining / 100f },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.dp),
+                .height(2.dp),
             color = color,
             trackColor = AgentGridColors.Divider,
             gapSize = 0.dp,

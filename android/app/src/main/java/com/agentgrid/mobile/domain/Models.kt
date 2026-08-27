@@ -179,6 +179,14 @@ data class UsageWindow(
 )
 
 @Serializable
+data class QuotaGroup(
+    val id: String,
+    val name: String? = null,
+    val capturedAt: Long? = null,
+    val windows: List<UsageWindow> = emptyList(),
+)
+
+@Serializable
 data class DailyUsagePoint(
     val date: String,
     val inputTokens: Long = 0,
@@ -194,7 +202,9 @@ data class UsageSnapshot(
     val capturedAt: Long? = null,
     val planType: String? = null,
     val limitID: String? = null,
+    val limitName: String? = null,
     val windows: List<UsageWindow> = emptyList(),
+    val quotaGroups: List<QuotaGroup> = emptyList(),
     val dailyUsage: List<DailyUsagePoint> = emptyList(),
 )
 

@@ -8,6 +8,7 @@ public sealed class CodexUsageLoader
 {
     private const int HistoryDays = 90;
     private const int TailSize = 256 * 1024;
+    private static readonly TimeSpan QuotaFreshness = TimeSpan.FromDays(8);
     private sealed record Candidate(string Path, DateTimeOffset ModifiedAt, long Size);
     private sealed record Raw(long Input, long Cached, long Output, long Reasoning, long Total)
     {
@@ -41,12 +42,9 @@ public sealed class CodexUsageLoader
         }).ToList();
         if (candidates.Count == 0) return null;
 
-        UsageSnapshot? quota = null;
-        foreach (var candidate in candidates.OrderByDescending(value => value.ModifiedAt))
-        {
-            quota = LatestQuota(candidate);
-            if (quota is not null) break;
-        }
+        var quotaSnapshots = LatestQuotaSnapshots(candidates, current);
+        var quotaGroups = LatestQuotaGroups(quotaSnapshots);
+        var quota = PreferredLegacyQuota(quotaSnapshots);
 
         var start = current.Date.AddDays(-(HistoryDays - 1));
         var buckets = new Dictionary<string, Raw>();
@@ -66,11 +64,12 @@ public sealed class CodexUsageLoader
             return new DailyUsagePoint(date, usage.Input, usage.Cached, usage.Output, usage.Reasoning, usage.Total);
         }).ToList();
         return new(quota?.CapturedAt ?? candidates.Max(value => value.ModifiedAt), quota?.PlanType, quota?.LimitID,
-            quota?.Windows ?? [], daily);
+            quota?.LimitName, quota?.Windows ?? [], quotaGroups, daily);
     }
 
-    private static UsageSnapshot? LatestQuota(Candidate candidate)
+    private static List<UsageSnapshot> LatestQuotas(Candidate candidate)
     {
+        var latestByID = new Dictionary<string, UsageSnapshot>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in TailLines(candidate.Path, 512 * 1024).Reverse())
         {
             try
@@ -101,11 +100,67 @@ public sealed class CodexUsageLoader
                 if (windows.Count == 0) continue;
                 var captured = DateTimeOffset.TryParse(root.GetStringOrNull("timestamp"), out var parsed)
                     ? parsed : candidate.ModifiedAt;
-                return new(captured, Scalar(limits, "plan_type"), Scalar(limits, "limit_id"), windows, []);
+                var limitID = Scalar(limits, "limit_id") ?? "default";
+                if (!latestByID.ContainsKey(limitID))
+                    latestByID[limitID] = new(captured, Scalar(limits, "plan_type"), limitID,
+                        Scalar(limits, "limit_name"), windows, [], []);
             }
             catch (JsonException) { }
         }
-        return null;
+        return latestByID.Values.ToList();
+    }
+
+    private static List<UsageSnapshot> LatestQuotaSnapshots(
+        List<Candidate> candidates,
+        DateTimeOffset now)
+    {
+        var snapshots = new List<UsageSnapshot>();
+        var foundGeneral = false;
+        var foundSpark = false;
+        var cutoff = now - QuotaFreshness;
+
+        foreach (var candidate in candidates
+                     .Where(value => value.ModifiedAt >= cutoff)
+                     .OrderByDescending(value => value.ModifiedAt))
+        {
+            foreach (var snapshot in LatestQuotas(candidate))
+            {
+                snapshots.Add(snapshot);
+                var rank = QuotaRank(snapshot);
+                foundGeneral |= rank == 0;
+                foundSpark |= rank == 1;
+            }
+            if (foundGeneral && foundSpark) break;
+        }
+        return snapshots;
+    }
+
+    private static List<QuotaGroup> LatestQuotaGroups(List<UsageSnapshot> snapshots) =>
+        snapshots
+            .GroupBy(value => value.LimitID ?? "default", StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.MaxBy(value => value.CapturedAt ?? DateTimeOffset.MinValue)!)
+            .OrderBy(QuotaRank)
+            .ThenByDescending(value => value.CapturedAt)
+            .Select(value => new QuotaGroup(
+                value.LimitID ?? "default",
+                value.LimitName,
+                value.CapturedAt,
+                value.Windows))
+            .ToList();
+
+    private static UsageSnapshot? PreferredLegacyQuota(List<UsageSnapshot> snapshots) =>
+        snapshots
+            .OrderBy(QuotaRank)
+            .ThenByDescending(value => value.CapturedAt)
+            .FirstOrDefault();
+
+    private static int QuotaRank(UsageSnapshot snapshot)
+    {
+        if (string.Equals(snapshot.LimitID, "codex", StringComparison.OrdinalIgnoreCase)) return 0;
+        var searchable = $"{snapshot.LimitID} {snapshot.LimitName}";
+        if (searchable.Contains("spark", StringComparison.OrdinalIgnoreCase) ||
+            searchable.Contains("bengalfox", StringComparison.OrdinalIgnoreCase)) return 1;
+        return 2;
     }
 
     private static void AggregateFile(string path, DateTimeOffset start, Dictionary<string, Raw> buckets)

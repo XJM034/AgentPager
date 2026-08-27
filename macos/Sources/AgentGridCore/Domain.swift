@@ -228,6 +228,25 @@ public struct UsageWindow: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public struct QuotaGroup: Identifiable, Codable, Equatable, Sendable {
+    public var id: String
+    public var name: String?
+    public var capturedAt: Date?
+    public var windows: [UsageWindow]
+
+    public init(
+        id: String,
+        name: String?,
+        capturedAt: Date?,
+        windows: [UsageWindow]
+    ) {
+        self.id = id
+        self.name = name
+        self.capturedAt = capturedAt
+        self.windows = windows
+    }
+}
+
 public struct DailyUsagePoint: Identifiable, Codable, Equatable, Sendable {
     public var id: String { date }
     public var date: String
@@ -261,20 +280,26 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     public var capturedAt: Date?
     public var planType: String?
     public var limitID: String?
+    public var limitName: String?
     public var windows: [UsageWindow]
+    public var quotaGroups: [QuotaGroup]
     public var dailyUsage: [DailyUsagePoint]
 
     public init(
         capturedAt: Date?,
         planType: String?,
         limitID: String?,
+        limitName: String? = nil,
         windows: [UsageWindow],
+        quotaGroups: [QuotaGroup] = [],
         dailyUsage: [DailyUsagePoint] = []
     ) {
         self.capturedAt = capturedAt
         self.planType = planType
         self.limitID = limitID
+        self.limitName = limitName
         self.windows = windows
+        self.quotaGroups = quotaGroups
         self.dailyUsage = dailyUsage
     }
 }

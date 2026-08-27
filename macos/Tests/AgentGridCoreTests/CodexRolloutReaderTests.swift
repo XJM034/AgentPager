@@ -145,6 +145,48 @@ struct CodexRolloutReaderTests {
     }
 
     @Test
+    func 单行超过缓冲上限时丢弃该行并继续解析后续行() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let rollout = root.appendingPathComponent("rollout-huge-line.jsonl")
+        try Data().write(to: rollout)
+
+        var reader = CodexRolloutReader()
+        reader.track(
+            filePath: rollout.path,
+            sessionID: "session-huge-line",
+            cwd: "/tmp/AgentGrid"
+        )
+
+        // 9 MB 的超长 user_message 行，后跟一条正常消息。
+        var giant = Data(
+            "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"".utf8
+        )
+        giant.append(Data(
+            repeating: UInt8(ascii: "x"),
+            count: 9 * 1_024 * 1_024
+        ))
+        giant.append(Data("\"}}\n".utf8))
+        giant.append(Data(
+            "{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"小消息\"}}\n".utf8
+        ))
+        try giant.write(to: rollout)
+
+        var signals: [CodexRolloutSignal] = []
+        for _ in 0..<6 {
+            signals += reader.poll()
+        }
+
+        #expect(signals.map(\.userPrompt) == ["小消息"])
+    }
+
+    @Test
     func parsesQuestionWithoutRetainingConversation() throws {
         let line = """
         {"timestamp":"2026-07-26T06:00:00Z","type":"event_msg","payload":{"type":"request_user_input","prompt":"选择继续方式"}}

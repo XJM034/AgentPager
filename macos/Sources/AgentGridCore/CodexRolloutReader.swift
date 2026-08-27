@@ -46,6 +46,7 @@ public struct CodexRolloutSignal: Equatable, Sendable {
 public struct CodexRolloutReader: Sendable {
     private static let maximumPollReadBytes = 2 * 1_024 * 1_024
     private static let maximumSubagentReplayBytes: UInt64 = 2 * 1_024 * 1_024
+    private static let maximumPartialLineBytes = 8 * 1_024 * 1_024
 
     private struct PendingSubagent: Sendable {
         var id: String
@@ -188,6 +189,13 @@ public struct CodexRolloutReader: Sendable {
                 let appended = try handle.read(upToCount: readCount) ?? Data()
                 tracked.offset += UInt64(appended.count)
                 tracked.partialLine.append(appended)
+                // 未完成行超过上限时丢弃开头：被截断的行 JSON 解析失败会被
+                // signal(from:) 跳过，保证超长行既不驻留内存也不会被整体解析。
+                if tracked.partialLine.count > Self.maximumPartialLineBytes {
+                    tracked.partialLine.removeFirst(
+                        tracked.partialLine.count - Self.maximumPartialLineBytes
+                    )
+                }
 
                 var lineStart = tracked.partialLine.startIndex
                 while let newline = tracked.partialLine[lineStart...]

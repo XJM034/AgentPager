@@ -1,0 +1,366 @@
+{
+  "schema": "manage-skills/profile-v1",
+  "name": "agentpager-mattpocock-project-skills",
+  "bindings": [
+    {
+      "id": "mattpocock/ask-matt",
+      "runtimeName": "ask-matt",
+      "entryName": "ask-matt",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/ask-matt"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/ask-matt"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/diagnosing-bugs",
+      "runtimeName": "diagnosing-bugs",
+      "entryName": "diagnosing-bugs",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/diagnosing-bugs"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/diagnosing-bugs"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/grill-with-docs",
+      "runtimeName": "grill-with-docs",
+      "entryName": "grill-with-docs",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/grill-with-docs"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/grill-with-docs"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/triage",
+      "runtimeName": "triage",
+      "entryName": "triage",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/triage"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/triage"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/improve-codebase-architecture",
+      "runtimeName": "improve-codebase-architecture",
+      "entryName": "improve-codebase-architecture",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/improve-codebase-architecture"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/improve-codebase-architecture"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/setup-matt-pocock-skills",
+      "runtimeName": "setup-matt-pocock-skills",
+      "entryName": "setup-matt-pocock-skills",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/setup-matt-pocock-skills"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/setup-matt-pocock-skills"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/tdd",
+      "runtimeName": "tdd",
+      "entryName": "tdd",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/tdd"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/tdd"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/to-spec",
+      "runtimeName": "to-spec",
+      "entryName": "to-spec",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/to-spec"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/to-spec"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/to-tickets",
+      "runtimeName": "to-tickets",
+      "entryName": "to-tickets",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/to-tickets"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/to-tickets"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/wayfinder",
+      "runtimeName": "wayfinder",
+      "entryName": "wayfinder",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/wayfinder"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/wayfinder"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/implement",
+      "runtimeName": "implement",
+      "entryName": "implement",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/implement"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/implement"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/prototype",
+      "runtimeName": "prototype",
+      "entryName": "prototype",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/prototype"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/prototype"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/research",
+      "runtimeName": "research",
+      "entryName": "research",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/research"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/research"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/domain-modeling",
+      "runtimeName": "domain-modeling",
+      "entryName": "domain-modeling",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/domain-modeling"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/domain-modeling"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/codebase-design",
+      "runtimeName": "codebase-design",
+      "entryName": "codebase-design",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/codebase-design"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/codebase-design"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/code-review",
+      "runtimeName": "code-review",
+      "entryName": "code-review",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/code-review"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/code-review"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/resolving-merge-conflicts",
+      "runtimeName": "resolving-merge-conflicts",
+      "entryName": "resolving-merge-conflicts",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/resolving-merge-conflicts"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/resolving-merge-conflicts"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/wizard",
+      "runtimeName": "wizard",
+      "entryName": "wizard",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/wizard"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/engineering/wizard"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/grill-me",
+      "runtimeName": "grill-me",
+      "entryName": "grill-me",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/grill-me"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/grill-me"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/grilling",
+      "runtimeName": "grilling",
+      "entryName": "grilling",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/grilling"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/grilling"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/teach",
+      "runtimeName": "teach",
+      "entryName": "teach",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/teach"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/teach"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/to-questionnaire",
+      "runtimeName": "to-questionnaire",
+      "entryName": "to-questionnaire",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/to-questionnaire"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/to-questionnaire"
+        }
+      }
+    },
+    {
+      "id": "mattpocock/wait-what",
+      "runtimeName": "wait-what",
+      "entryName": "wait-what",
+      "targets": {
+        "codex": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/wait-what"
+        },
+        "claude": {
+          "source": "mattpocock-skills",
+          "relative": "skills/productivity/wait-what"
+        }
+      }
+    },
+    {
+      "id": "entireio/entire-review",
+      "runtimeName": "entire-review",
+      "entryName": "entire-review",
+      "targets": {
+        "codex": {
+          "source": "entireio-entire-review-adapter",
+          "relative": "."
+        },
+        "claude": {
+          "source": "entireio-entire-review-adapter",
+          "relative": "."
+        }
+      }
+    }
+  ]
+}

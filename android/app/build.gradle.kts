@@ -31,6 +31,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 定制共存标识仅覆盖 debug；release 会产出与官方版同包名的 APK，构建前必须先调整。
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".custom"

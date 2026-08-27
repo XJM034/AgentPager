@@ -4,6 +4,7 @@ set -euo pipefail
 项目根目录="${0:A:h:h}"
 安卓目录="$项目根目录/android"
 APK路径="$安卓目录/app/build/outputs/apk/debug/app-debug.apk"
+# 与 android/app/build.gradle.kts 中 debug 的 applicationIdSuffix ".custom" 保持同步。
 自定义包名="com.agentgrid.mobile.custom"
 启动页面="com.agentgrid.mobile.MainActivity"
 

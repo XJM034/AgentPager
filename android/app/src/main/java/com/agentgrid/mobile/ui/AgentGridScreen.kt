@@ -558,25 +558,47 @@ private fun ViewSwitchIcon(showTaskIcon: Boolean) {
 
 @Composable
 private fun UsagePill(window: UsageWindow) {
+    val remaining = window.remainingPercentage.roundToInt().coerceIn(0, 100)
     val color = when {
-        window.remainingPercentage < 10 -> AgentGridColors.Red
-        window.remainingPercentage < 20 -> AgentGridColors.Orange
+        remaining < 10 -> AgentGridColors.Red
+        remaining < 20 -> AgentGridColors.Orange
         else -> AgentGridColors.Cyan
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    Column(
+        modifier = Modifier
+            .width(112.dp)
+            .background(AgentGridColors.Surface)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "${window.label} 剩余 $remaining%"
+            }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(
-            "${window.label} ${window.remainingPercentage.toInt()}%",
-            color = AgentGridColors.Muted,
-            fontSize = 9.sp,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                window.label,
+                color = AgentGridColors.Muted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.5.sp,
+            )
+            Text(
+                "$remaining%",
+                color = color,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp,
+            )
+        }
         LinearProgressIndicator(
-            progress = { (window.remainingPercentage / 100).toFloat() },
+            progress = { remaining / 100f },
             modifier = Modifier
-                .width(56.dp)
-                .height(3.dp),
+                .fillMaxWidth()
+                .height(4.dp),
             color = color,
             trackColor = AgentGridColors.Divider,
             gapSize = 0.dp,

@@ -47,7 +47,7 @@ struct AgentPagerHooksCommand {
             let payload = try? JSONDecoder().decode(CodexHookPayload.self, from: input)
             isPermission = payload?.hookEventName == .permissionRequest
         case .zcode:
-            // ZCode 权限回传属于 Issue #6；#4 的 Hook 永远快速放行。
+            // ZCode 权限回传属于 Issue #6；#5 的 Hook 永远快速放行。
             isPermission = false
         }
 
@@ -83,7 +83,7 @@ struct AgentPagerHooksCommand {
         }
         connection.start(queue: queue)
 
-        // Codex/Claude 权限请求可能等手机操作；其余事件（包括 #4 ZCode）
+        // Codex/Claude 权限请求可能等手机操作；其余事件（包括 #5 ZCode）
         // 最多等待 5 秒后放行。
         let timeout: DispatchTime = isPermission
             ? .now() + (source == .claude ? 86_400 : 3_600)

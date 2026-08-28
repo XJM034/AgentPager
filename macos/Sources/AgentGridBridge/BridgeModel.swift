@@ -13,6 +13,8 @@ final class BridgeModel {
     private(set) var hookInstalled = false
     private(set) var claudeHookInstalled = false
     private(set) var zcodeHookInstalled = false
+    private(set) var zcodeHookManaged = false
+    private(set) var pendingZCodeRestorePlan: ZCodeHookRestorePlan?
     private(set) var lastError: String?
     private(set) var pairingText = ""
     private(set) var recentEvents: [String] = []
@@ -173,13 +175,83 @@ final class BridgeModel {
             let change = try zcodeHookConfiguration.install(
                 command: hookExecutableURL.path
             )
-            if change.changed {
-                addEvent("ZCode 核心会话 Hook 已安装")
+            switch change.status {
+            case .installed:
+                addEvent("ZCode Hook 已安装 · 备份已创建")
+            case .repaired:
+                addEvent("ZCode Hook 已修复 · 备份已创建")
+            case .unchanged:
+                addEvent("ZCode Hook 已是最新配置 · 无需备份")
+            case .uninstalled, .alreadyUninstalled,
+                 .restoreConfirmationRequired, .restored, .noBackup:
+                break
             }
+            pendingZCodeRestorePlan = nil
+            lastError = nil
             refreshZCodeHookStatus()
         } catch {
             lastError = "安装 ZCode Hook 失败：\(error.localizedDescription)"
         }
+    }
+
+    func uninstallZCodeHooks() {
+        do {
+            let change = try zcodeHookConfiguration.uninstall()
+            switch change.status {
+            case .uninstalled:
+                addEvent("ZCode Hook 已卸载 · 备份已创建")
+            case .alreadyUninstalled:
+                addEvent("ZCode Hook 已处于卸载状态 · 无需备份")
+            case .installed, .repaired, .unchanged,
+                 .restoreConfirmationRequired, .restored, .noBackup:
+                break
+            }
+            pendingZCodeRestorePlan = nil
+            lastError = nil
+            refreshZCodeHookStatus()
+        } catch {
+            lastError = "卸载 ZCode Hook 失败：\(error.localizedDescription)"
+        }
+    }
+
+    func prepareZCodeHookRestore() {
+        do {
+            let change = try zcodeHookConfiguration.prepareRestoreLatestBackup()
+            pendingZCodeRestorePlan = change.restorePlan
+            if change.status == .restoreConfirmationRequired {
+                addEvent("ZCode Hook 恢复待确认 · 当前配置尚未改动")
+            } else {
+                addEvent("ZCode Hook 没有可恢复备份")
+            }
+            lastError = nil
+        } catch {
+            lastError = "检查 ZCode Hook 备份失败：\(error.localizedDescription)"
+        }
+    }
+
+    func confirmZCodeHookRestore() {
+        guard let pendingZCodeRestorePlan else { return }
+        do {
+            let change = try zcodeHookConfiguration.restoreLatestBackup(
+                using: pendingZCodeRestorePlan
+            )
+            if change.status == .restored {
+                addEvent("ZCode Hook 最近备份已恢复 · 恢复前配置已另行备份")
+            } else {
+                addEvent("ZCode Hook 当前配置与备份一致 · 无需恢复")
+            }
+            self.pendingZCodeRestorePlan = nil
+            lastError = nil
+            refreshZCodeHookStatus()
+        } catch {
+            self.pendingZCodeRestorePlan = nil
+            lastError = "恢复 ZCode Hook 失败：\(error.localizedDescription)"
+        }
+    }
+
+    func cancelZCodeHookRestore() {
+        pendingZCodeRestorePlan = nil
+        addEvent("ZCode Hook 恢复已取消 · 配置未改动")
     }
 
     func simulate(_ lifecycle: AgentLifecycle) {
@@ -238,27 +310,34 @@ final class BridgeModel {
 
     private func handle(_ envelope: HookEnvelope) {
         let commit: TaskCatalogCommit?
-        let projectSummary: String
+        let diagnosticSummary: String
         let lifecycleSummary: String
         switch envelope {
         case let .codex(hook):
             rolloutObservation.include(hook)
             commit = catalog.accept(.hook(hook))
             let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
-            projectSummary = task?.projectName ?? "Codex"
+            diagnosticSummary = task?.projectName ?? "Codex"
             lifecycleSummary = task?.lifecycle.rawValue ?? ""
         case let .claude(hook):
             commit = catalog.accept(.claudeHook(hook))
             let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
-            projectSummary = task?.projectName ?? "Claude Code"
+            diagnosticSummary = task?.projectName ?? "Claude Code"
             lifecycleSummary = task?.lifecycle.rawValue ?? ""
         case let .zcode(hook):
             commit = catalog.accept(.zcodeHook(hook))
             let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
-            projectSummary = task?.projectName ?? "ZCode"
-            lifecycleSummary = task?.lifecycle.rawValue ?? ""
+            let lifecycle = task?.lifecycle ?? .idle
+            diagnosticSummary = ZCodeDiagnosticEvent(
+                hook: hook,
+                lifecycle: lifecycle
+            ).summary
+            lifecycleSummary = ""
         }
-        addEvent("\(projectSummary) · \(lifecycleSummary)")
+        let eventSummary = lifecycleSummary.isEmpty
+            ? diagnosticSummary
+            : "\(diagnosticSummary) · \(lifecycleSummary)"
+        addEvent(eventSummary)
         if let commit {
             applyCatalogCommit(commit)
         }
@@ -363,6 +442,7 @@ final class BridgeModel {
         zcodeHookInstalled = zcodeHookConfiguration.isInstalled(
             command: hookExecutableURL.path
         )
+        zcodeHookManaged = zcodeHookConfiguration.containsManagedHooks()
     }
 
     private func publishCatalog(focusedTaskIDOverride: String? = nil) {

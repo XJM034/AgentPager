@@ -409,21 +409,42 @@ struct BridgeSettingsView: View {
                         ZStack(alignment: .leading) {
                             InfoRow(
                                 label: "STATUS",
-                                value: model.zcodeHookInstalled ? "已安装" : "未安装",
+                                value: model.zcodeHookInstalled
+                                    ? "已安装"
+                                    : (model.zcodeHookManaged ? "需修复" : "未安装"),
                                 accent: model.zcodeHookInstalled ? PixelTheme.green : PixelTheme.amber
                             )
                             .id(model.zcodeHookInstalled)
                             .transition(hookStatusTransition)
                         }
                         .animation(hookStatusAnimation, value: model.zcodeHookInstalled)
-                        Text("向 ~/.zcode/cli/config.json 添加五个核心会话监控 Hook；保留第三方配置并在改写前备份。Stop 只显示空闲，不误报完成；不需要 GLM Key。")
+                        Text("向 ~/.zcode/cli/config.json 添加七类会话 Hook；完整 prompt、命令、响应和错误正文不会进入手机或普通诊断。每次实际改写前创建权限受限备份，无变化不制造备份。")
                             .foregroundStyle(PixelTheme.muted)
                             .lineSpacing(4)
-                        Button("安装或修复") { model.installZCodeHooks() }
-                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                        HStack(spacing: 10) {
+                            Button("安装或修复") { model.installZCodeHooks() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                            Button("卸载") { model.uninstallZCodeHooks() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                                .disabled(!model.zcodeHookManaged)
+                        }
+                        if model.pendingZCodeRestorePlan == nil {
+                            Button("检查最近备份") { model.prepareZCodeHookRestore() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+                        } else {
+                            Text("恢复会覆盖当前 ZCode 配置；若确认后文件再次变化，Bridge 会拒绝写入。")
+                                .foregroundStyle(PixelTheme.amber)
+                                .lineSpacing(4)
+                            HStack(spacing: 10) {
+                                Button("确认恢复最近备份") { model.confirmZCodeHookRestore() }
+                                    .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                                Button("取消") { model.cancelZCodeHookRestore() }
+                                    .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+                            }
+                        }
                     }
                 }
-                Text("Bridge 不在线时 Hook 自动放行，不会阻塞 Agent。ZCode 卸载与完整恢复留到后续 Ticket。")
+                Text("PermissionRequest 只观察本地等待状态；Bridge 不裁决、不长等待，ZCode 自身的本地权限流程保持可用。Stop 只显示空闲，不误报完成。")
                     .font(.pixel(10))
                     .foregroundStyle(PixelTheme.muted)
                 Spacer(minLength: 0)

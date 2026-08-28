@@ -100,6 +100,101 @@ func zcodeCoreEventsReduceToConservativeLifecycle() {
     #expect(task.title == firstTitle)
 }
 
+@Test("ZCode PermissionRequest 只投影等待批准和脱敏摘要")
+func zcodePermissionRequestWaitsWithoutPhoneDecisionCapability() throws {
+    var catalog = TaskCatalog()
+    _ = catalog.accept(.zcodeHook(ZCodeHookPayload(
+        sessionID: "zcode-session-1",
+        hookEventName: "UserPromptSubmit",
+        cwd: "/private/work/AgentPager",
+        prompt: "safe synthetic prompt"
+    )))
+    _ = catalog.accept(.zcodeHook(ZCodeHookPayload(
+        sessionID: "zcode-session-1",
+        hookEventName: "PermissionRequest",
+        cwd: "/private/work/AgentPager",
+        toolName: "Bash",
+        toolInput: .object([
+            "command": .string("printenv SECRET && cat /Users/example/private.txt"),
+        ]),
+        toolUseID: "tool-1",
+        requestID: "request-1"
+    )))
+
+    let projection = catalog.projection()
+    let task = try #require(projection.tasks.single)
+    let request = try #require(projection.pendingRequests.single)
+
+    #expect(task.lifecycle == .waitingApproval)
+    #expect(task.activity == .executing)
+    #expect(task.latestStep == "执行工具 · 等待本地批准")
+    #expect(task.completedAt == nil)
+    #expect(task.capabilities.isEmpty)
+    #expect(request.kind == .approval)
+    #expect(request.requestID == "zcode:zcode-session-1:request-1")
+    #expect(request.summary == "执行工具 · 等待本地批准")
+    #expect(!request.summary.orEmpty.contains("printenv"))
+    #expect(!request.summary.orEmpty.contains("/Users/example"))
+}
+
+@Test("ZCode PostToolUseFailure 保持运行并只显示脱敏错误步骤")
+func zcodeToolFailureRemainsRunningWithSafeStep() {
+    let running = ZCodeEventReducer.task(
+        from: ZCodeHookPayload(
+            sessionID: "zcode-session-1",
+            hookEventName: "UserPromptSubmit",
+            cwd: "/private/work/AgentPager"
+        ),
+        existing: nil
+    )
+    let failed = ZCodeEventReducer.task(
+        from: ZCodeHookPayload(
+            sessionID: "zcode-session-1",
+            hookEventName: "PostToolUseFailure",
+            cwd: "/private/work/AgentPager",
+            toolName: "Read",
+            toolUseID: "tool-1",
+            errorCategory: .permissionDenied
+        ),
+        existing: running
+    )
+
+    #expect(failed.lifecycle == .running)
+    #expect(failed.activity == .reading)
+    #expect(failed.latestStep == "读取失败 · 权限拒绝")
+    #expect(failed.completedAt == nil)
+    #expect(!failed.isUnread)
+    #expect(failed.capabilities.isEmpty)
+}
+
+@Test("ZCode 诊断只包含事件、生命周期、工具与错误类别")
+func zcodeDiagnosticExcludesRawUserContent() {
+    let hook = ZCodeHookPayload(
+        sessionID: "private-session",
+        hookEventName: "PostToolUseFailure",
+        cwd: "/Users/example/SecretProject",
+        prompt: "private prompt",
+        toolName: "Read",
+        toolInput: .object([
+            "file_path": .string("/Users/example/SecretProject/App.swift"),
+        ]),
+        toolUseID: "private-tool",
+        errorCategory: .permissionDenied
+    )
+    let task = ZCodeEventReducer.task(from: hook, existing: nil)
+    let diagnostic = ZCodeDiagnosticEvent(hook: hook, lifecycle: task.lifecycle)
+
+    #expect(diagnostic.source == .zcode)
+    #expect(diagnostic.eventCategory == "PostToolUseFailure")
+    #expect(diagnostic.lifecycle == .running)
+    #expect(diagnostic.toolCategory == .reading)
+    #expect(diagnostic.outcome == .failure)
+    #expect(diagnostic.errorCategory == .permissionDenied)
+    #expect(!diagnostic.summary.contains("private"))
+    #expect(!diagnostic.summary.contains("/Users/example"))
+    #expect(!diagnostic.summary.contains("SecretProject"))
+}
+
 @Test("ZCode 核心工具复用现有活动语言且 Agent Task 只显示协作")
 func zcodeToolsMapToExistingActivities() {
     let cases: [(String, AgentActivity, String)] = [
@@ -111,6 +206,7 @@ func zcodeToolsMapToExistingActivities() {
         ("WebSearch", .browsing, "浏览内容"),
         ("Agent", .delegating, "协作任务"),
         ("Task", .delegating, "协作任务"),
+        ("FutureUnknownTool", .executing, "执行工具"),
     ]
 
     for (toolName, expectedActivity, expectedStep) in cases {
@@ -143,16 +239,36 @@ func unknownZCodeEventPreservesLifecycle() {
     #expect(after.activity == .thinking)
 }
 
-@Test("ZCode 临时标题脱敏并限制长度")
-func zcodeTitleIsSanitizedAndClipped() {
+@Test("ZCode 标题只映射固定安全类别且不复制 prompt 原文")
+func zcodeTitleUsesFixedCategoryWithoutCopyingPrompt() {
     let title = ZCodeEventReducer.safeTitle(
         projectName: "AgentPager",
-        prompt: "token=sk-synthetic-value 请检查 /Users/example/private/Secret.swift 后继续补充一段很长的说明文字"
+        prompt: "token=sk-synthetic-value 请修复 /Users/example/private/Secret.swift 后继续补充一段很长的说明文字"
     )
 
-    #expect(title.contains("[敏感信息]"))
-    #expect(title.contains("[路径]"))
+    #expect(title == "AgentPager · 变更请求")
     #expect(!title.contains("sk-synthetic-value"))
     #expect(!title.contains("/Users/example"))
-    #expect(title.count <= "AgentPager · ".count + 34)
+}
+
+@Test("ZCode 标题拒绝未标注格式的常见凭据")
+func zcodeTitleExcludesUnlabelledCredentialFormats() {
+    let cases = [
+        "ghp_1234567890abcdefghijklmnopqrstuvwxyz",
+        "eyJhbGciOiJIUzI1NiJ9.payload.signature",
+        "AKIAIOSFODNN7EXAMPLE",
+        "plain-unlabelled-secret-value",
+    ]
+
+    for secret in cases {
+        let title = ZCodeEventReducer.safeTitle(
+            projectName: "AgentPager",
+            prompt: "请处理 \(secret)"
+        )
+        #expect(!title.contains(secret))
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var orEmpty: String { self ?? "" }
 }

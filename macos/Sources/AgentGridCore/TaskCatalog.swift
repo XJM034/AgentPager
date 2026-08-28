@@ -355,11 +355,29 @@ public struct TaskCatalog: Sendable {
         receivedAt: Date
     ) {
         let existing = store.tasks.first { $0.id == hook.sessionID }
+        guard hook.event != nil || existing != nil else {
+            return
+        }
         let task = ZCodeEventReducer.task(
             from: hook,
             existing: existing,
             now: receivedAt
         )
+
+        switch hook.event {
+        case .permissionRequest:
+            requestsByTaskID[hook.sessionID] = PendingRequest(
+                taskID: hook.sessionID,
+                requestID: ZCodeEventReducer.safeRequestID(from: hook),
+                kind: .approval,
+                summary: task.latestStep
+            )
+        case .userPromptSubmit, .preToolUse, .postToolUse,
+             .postToolUseFailure, .stop:
+            requestsByTaskID.removeValue(forKey: hook.sessionID)
+        case .sessionStart, nil:
+            break
+        }
         store.upsert(task)
     }
 

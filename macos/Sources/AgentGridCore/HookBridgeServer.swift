@@ -51,7 +51,7 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
             let claudeDecision: ClaudePermissionDecision = decision == .allow ? .allow : .deny
             response = try? ClaudeHookOutput.permission(claudeDecision)
         case .zcode:
-            // ZCode 手机权限回传属于 Issue #6；#4 不会登记此类等待连接。
+            // ZCode 手机权限回传属于 Issue #6；#5 不登记此类等待连接。
             response = nil
         }
         guard let response else {
@@ -126,7 +126,7 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
             }
         case let .zcode(payload):
             eventHandler(.zcode(payload))
-            // #4 只监控会话。即使收到尚未注册的权限事件也立即放行，
+            // #5 只观察本地权限状态。即使收到权限事件也立即放行，
             // 让 ZCode 使用本地权限体验，不能由 Bridge 无限阻塞。
             acknowledge(connection)
         case nil:

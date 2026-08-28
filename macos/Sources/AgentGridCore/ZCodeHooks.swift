@@ -1,7 +1,7 @@
 import Foundation
 
-/// ZCode 当前公开的 Hook 事件名。Issue #4 只归约核心监控事件；权限与失败事件
-/// 先保留可解码能力，具体产品行为分别留给后续 Ticket。
+/// ZCode 当前公开的七类 Hook 事件名。Issue #5 只观察本地权限等待；
+/// 手机裁决与 stdout 决策仍由 Issue #6 负责。
 public enum ZCodeHookEvent: String, Sendable {
     case sessionStart = "SessionStart"
     case userPromptSubmit = "UserPromptSubmit"
@@ -10,6 +10,16 @@ public enum ZCodeHookEvent: String, Sendable {
     case postToolUse = "PostToolUse"
     case postToolUseFailure = "PostToolUseFailure"
     case stop = "Stop"
+}
+
+/// 只保留可安全诊断的错误类别，不保存 ZCode 的错误正文或响应内容。
+public enum ZCodeErrorCategory: String, Equatable, Sendable {
+    case notFound
+    case permissionDenied
+    case timeout
+    case cancelled
+    case invalidInput
+    case toolFailure
 }
 
 /// ZCode 通过 stdin 发送的 Hook 载荷。
@@ -25,6 +35,8 @@ public struct ZCodeHookPayload: Decodable, Equatable, Sendable {
     public var toolName: String?
     public var toolInput: HookJSONValue?
     public var toolUseID: String?
+    public var requestID: String?
+    public var errorCategory: ZCodeErrorCategory?
 
     public init(
         sessionID: String,
@@ -33,7 +45,9 @@ public struct ZCodeHookPayload: Decodable, Equatable, Sendable {
         prompt: String? = nil,
         toolName: String? = nil,
         toolInput: HookJSONValue? = nil,
-        toolUseID: String? = nil
+        toolUseID: String? = nil,
+        requestID: String? = nil,
+        errorCategory: ZCodeErrorCategory? = nil
     ) {
         self.sessionID = sessionID
         self.hookEventName = hookEventName
@@ -42,6 +56,8 @@ public struct ZCodeHookPayload: Decodable, Equatable, Sendable {
         self.toolName = toolName
         self.toolInput = toolInput
         self.toolUseID = toolUseID
+        self.requestID = requestID
+        self.errorCategory = errorCategory
     }
 
     public init(from decoder: any Decoder) throws {
@@ -68,11 +84,28 @@ public struct ZCodeHookPayload: Decodable, Equatable, Sendable {
             primary: "tool_input",
             fallback: "toolInput"
         )
-        toolUseID = try container.decodeAliasIfPresent(
+        toolUseID = try container.decodeFirstIfPresent(
             String.self,
-            primary: "tool_use_id",
-            fallback: "toolUseId"
+            keys: ["tool_use_id", "toolUseId", "toolUseID", "tool_call_id", "toolCallId"]
         )
+        requestID = try container.decodeFirstIfPresent(
+            String.self,
+            keys: ["request_id", "requestId"]
+        )
+
+        let error = try container.decodeFirstIfPresent(
+            HookJSONValue.self,
+            keys: ["error"]
+        )
+        let errorDetails = try container.decodeFirstIfPresent(
+            HookJSONValue.self,
+            keys: ["error_details", "errorDetails"]
+        )
+        if hookEventName == ZCodeHookEvent.postToolUseFailure.rawValue {
+            errorCategory = Self.classifyError(error, details: errorDetails)
+        } else {
+            errorCategory = nil
+        }
     }
 
     public var event: ZCodeHookEvent? {
@@ -80,9 +113,57 @@ public struct ZCodeHookPayload: Decodable, Equatable, Sendable {
     }
 
     public var projectName: String {
-        let name = URL(fileURLWithPath: cwd).lastPathComponent
+        let url = URL(fileURLWithPath: cwd).standardizedFileURL
+        let components = url.pathComponents
+        if components.count == 3, components[1] == "Users" {
+            return "ZCode"
+        }
+        let name = url.lastPathComponent
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? "ZCode" : String(name.prefix(48))
+    }
+
+    private static func classifyError(
+        _ error: HookJSONValue?,
+        details: HookJSONValue?
+    ) -> ZCodeErrorCategory {
+        let text = [error, details]
+            .compactMap { $0 }
+            .flatMap(\.diagnosticStrings)
+            .joined(separator: " ")
+            .lowercased()
+
+        if text.contains("no such file") || text.contains("not found") {
+            return .notFound
+        }
+        if text.contains("permission denied") || text.contains("not permitted") {
+            return .permissionDenied
+        }
+        if text.contains("timed out") || text.contains("timeout") {
+            return .timeout
+        }
+        if text.contains("cancelled") || text.contains("canceled") {
+            return .cancelled
+        }
+        if text.contains("invalid") || text.contains("malformed") {
+            return .invalidInput
+        }
+        return .toolFailure
+    }
+}
+
+private extension HookJSONValue {
+    var diagnosticStrings: [String] {
+        switch self {
+        case let .string(value):
+            [value]
+        case let .object(value):
+            value.values.flatMap(\.diagnosticStrings)
+        case let .array(value):
+            value.flatMap(\.diagnosticStrings)
+        case .number, .boolean, .null:
+            []
+        }
     }
 }
 
@@ -123,20 +204,33 @@ private extension KeyedDecodingContainer where Key == Field {
         try decodeIfPresent(type, forKey: Field(primary))
             ?? decodeIfPresent(type, forKey: Field(fallback))
     }
+
+    func decodeFirstIfPresent<T: Decodable>(
+        _ type: T.Type,
+        keys: [String]
+    ) throws -> T? {
+        for key in keys {
+            if let value = try decodeIfPresent(type, forKey: Field(key)) {
+                return value
+            }
+        }
+        return nil
+    }
 }
 
-/// 写入 ZCode 用户配置 `hooks.events` 的最小 Issue #4 安装变换。
-///
-/// 这里只管理五个会话监控事件；权限、失败处理、卸载与完整恢复留给后续 Ticket。
+/// 写入 ZCode 用户配置 `hooks.events` 的 AgentPager 管理变换。
 public enum ZCodeHookInstaller {
     public static let managedStatusMessage = "Managed by AgentPager (ZCode)"
-    public static let coreEventNames = [
+    private static let orderedEventNames = [
         "SessionStart",
         "UserPromptSubmit",
         "PreToolUse",
+        "PermissionRequest",
         "PostToolUse",
+        "PostToolUseFailure",
         "Stop",
     ]
+    public static let managedEventNames = Set(orderedEventNames)
 
     public static func install(
         existingData: Data?,
@@ -146,7 +240,7 @@ public enum ZCodeHookInstaller {
         var hooks = try dictionary(root["hooks"], field: "hooks")
         var events = try dictionary(hooks["events"], field: "hooks.events")
 
-        for eventName in coreEventNames {
+        for eventName in orderedEventNames {
             let existingGroups = try groups(events[eventName], eventName: eventName)
             let userGroups = preservingThirdPartyHooks(in: existingGroups)
             events[eventName] = userGroups + [managedGroup(command: command)]
@@ -173,12 +267,66 @@ public enum ZCodeHookInstaller {
               let events = hooks["events"] as? [String: Any] else {
             return false
         }
-        return coreEventNames.allSatisfy { eventName in
+        return orderedEventNames.allSatisfy { eventName in
             guard let eventGroups = events[eventName] as? [[String: Any]] else {
                 return false
             }
             return eventGroups.contains { isCurrentManaged($0, command: command) }
         }
+    }
+
+    public static func containsManagedHooks(data: Data?) -> Bool {
+        guard let root = try? rootObject(data),
+              let hooks = root["hooks"] as? [String: Any],
+              let events = hooks["events"] as? [String: Any] else {
+            return false
+        }
+        return orderedEventNames.contains { eventName in
+            guard let groups = events[eventName] as? [[String: Any]] else {
+                return false
+            }
+            return groups.contains(where: groupContainsManagedHook)
+        }
+    }
+
+    public static func uninstall(existingData: Data?) throws -> HookFileMutation {
+        var root = try rootObject(existingData)
+        var hooks = try dictionary(root["hooks"], field: "hooks")
+        var events = try dictionary(hooks["events"], field: "hooks.events")
+        var removedManagedHook = false
+
+        for eventName in orderedEventNames {
+            let existingGroups = try groups(events[eventName], eventName: eventName)
+            if existingGroups.contains(where: groupContainsManagedHook) {
+                removedManagedHook = true
+            }
+            let remainingGroups = preservingThirdPartyHooks(in: existingGroups)
+            if remainingGroups.isEmpty {
+                events.removeValue(forKey: eventName)
+            } else {
+                events[eventName] = remainingGroups
+            }
+        }
+
+        guard removedManagedHook else {
+            return HookFileMutation(
+                contents: existingData,
+                changed: false,
+                hasRemainingHooks: containsAnyHook(events)
+            )
+        }
+
+        hooks["events"] = events
+        root["hooks"] = hooks
+        let data = try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        )
+        return HookFileMutation(
+            contents: data,
+            changed: true,
+            hasRemainingHooks: containsAnyHook(events)
+        )
     }
 
     private static func managedGroup(command: String) -> [String: Any] {
@@ -214,6 +362,25 @@ public enum ZCodeHookInstaller {
         hook["statusMessage"] as? String == managedStatusMessage
     }
 
+    private static func groupContainsManagedHook(_ group: [String: Any]) -> Bool {
+        guard let hooks = group["hooks"] as? [[String: Any]] else {
+            return false
+        }
+        return hooks.contains(where: isManagedHook)
+    }
+
+    private static func containsAnyHook(_ events: [String: Any]) -> Bool {
+        events.values.contains { value in
+            guard let groups = value as? [[String: Any]] else { return false }
+            return groups.contains { group in
+                guard let hooks = group["hooks"] as? [[String: Any]] else {
+                    return false
+                }
+                return !hooks.isEmpty
+            }
+        }
+    }
+
     private static func isCurrentManaged(
         _ group: [String: Any],
         command: String
@@ -227,6 +394,7 @@ public enum ZCodeHookInstaller {
                 && hook["command"] as? String == command
                 && hook["args"] as? [String] == ["--source", "zcode"]
                 && hook["enabled"] as? Bool == true
+                && hook["timeoutMs"] as? Int == 10_000
         }
     }
 
@@ -256,6 +424,9 @@ public enum ZCodeHookInstaller {
     ) throws -> [[String: Any]] {
         guard let value else { return [] }
         guard let groups = value as? [[String: Any]] else {
+            throw ZCodeHookConfigurationError.invalidEvent(eventName)
+        }
+        guard groups.allSatisfy({ $0["hooks"] is [[String: Any]] }) else {
             throw ZCodeHookConfigurationError.invalidEvent(eventName)
         }
         return groups

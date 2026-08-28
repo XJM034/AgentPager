@@ -60,6 +60,20 @@
 - Skill 是否被新会话加载，需要用新会话实际验证；文件存在不等于当前会话已经重新加载。
 - `$claude-agents-bootstrap` 的规范来源是本项目之外受管理的 `xjm034-skill` Skill 源仓库，本仓库不保存它的项目副本；调用时使用当前会话实际加载的运行时副本，不要把源文件存在误当成已经加载。
 
+## Agent skills
+
+### Issue tracker
+
+需求、规格和开发票据记录在 `XJM034/AgentPager` 的 GitHub Issues。参见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用 Matt Pocock Skills 默认的五类 Triage 标签。参见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+本仓库采用 single-context 领域文档结构：根目录 `CONTEXT.md` 与 `docs/adr/`。参见 `docs/agents/domain.md`。
+
 ## 文档、交接与更新
 
 - 新的稳定 Android/macOS 开发规则分别写入 `docs/android-development.md` 与 `docs/macos-development.md`；单次环境或功能变更写入 `docs/updates/YYYY-MM-DD-*.md`。

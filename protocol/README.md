@@ -45,3 +45,4 @@ Windows 在本阶段只解析、序列化和转发这些字段，不安装 ZCode
 - `fixtures/task-snapshot.json`：扩展前的 Codex 状态快照。
 - `fixtures/task-snapshot-v2.json`：同时包含旧 `usage`、ZCode、多提供方额度和待审批请求标识的新快照。
 - `fixtures/task-snapshot-unknown.json`：未知来源、未知提供方、未知额度组和缺失可选字段的降级样本。
+- `fixtures/zcode-session-monitoring.json`：Issue #4 核心 Hook 事件归约后的 ZCode 非终态空闲快照；不含 prompt、命令、工具输入输出或真实本地路径。

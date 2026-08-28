@@ -191,6 +191,31 @@ class TaskDashboardProjectionTest {
         assertFalse(projection.dashboardVisible)
     }
 
+    @Test
+    fun `ZCode 任务复用现有排序焦点和非终态空闲策略`() {
+        val running = TaskSnapshot(
+            id = "zcode-running",
+            source = AgentSource.ZCODE,
+            projectName = "AgentPager",
+            title = "AgentPager · 监控 ZCode",
+            lifecycle = AgentLifecycle.RUNNING,
+            startedAt = 1,
+            updatedAt = 10,
+        )
+        val idle = running.copy(
+            id = "zcode-idle",
+            lifecycle = AgentLifecycle.IDLE,
+            updatedAt = 20,
+        )
+
+        val projection = project(listOf(idle, running))
+
+        assertEquals(listOf("zcode-running", "zcode-idle"), projection.orderedTasks.map { it.id })
+        assertEquals("zcode-running", projection.focusedTaskID)
+        assertFalse(projection.dashboardVisible)
+        assertNull(projection.nextDashboardAt)
+    }
+
     private fun project(
         tasks: List<TaskSnapshot>,
         previous: com.agentgrid.mobile.domain.TaskDashboardProjection? = null,

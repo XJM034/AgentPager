@@ -5,6 +5,7 @@ import Network
 public enum HookEnvelope: Sendable {
     case codex(CodexHookPayload)
     case claude(ClaudeHookPayload)
+    case zcode(ZCodeHookPayload)
 }
 
 public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendable {
@@ -49,6 +50,9 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
         case .claude:
             let claudeDecision: ClaudePermissionDecision = decision == .allow ? .allow : .deny
             response = try? ClaudeHookOutput.permission(claudeDecision)
+        case .zcode:
+            // ZCode 手机权限回传属于 Issue #6；#4 不会登记此类等待连接。
+            response = nil
         }
         guard let response else {
             entry.connection.cancel()
@@ -120,6 +124,11 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
             } else {
                 acknowledge(connection)
             }
+        case let .zcode(payload):
+            eventHandler(.zcode(payload))
+            // #4 只监控会话。即使收到尚未注册的权限事件也立即放行，
+            // 让 ZCode 使用本地权限体验，不能由 Bridge 无限阻塞。
+            acknowledge(connection)
         case nil:
             // 无法识别来源时按 Codex 兼容旧 CLI；解析失败则放行不阻塞。
             if let payload = try? JSONDecoder().decode(CodexHookPayload.self, from: data) {
@@ -176,6 +185,12 @@ public final class HookBridgeServer: CodexPermissionResolving, @unchecked Sendab
             if let payloadData,
                let payload = try? JSONDecoder().decode(ClaudeHookPayload.self, from: payloadData) {
                 return .claude(payload)
+            }
+            return nil
+        case .zcode:
+            if let payloadData,
+               let payload = try? JSONDecoder().decode(ZCodeHookPayload.self, from: payloadData) {
+                return .zcode(payload)
             }
             return nil
         }

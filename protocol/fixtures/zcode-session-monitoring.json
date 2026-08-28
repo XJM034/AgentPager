@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "messageId": "51faea66-f4b0-4865-a64f-48155ef3fe65",
+  "type": "state.snapshot",
+  "sentAt": 1787900400000,
+  "payload": {
+    "tasks": [
+      {
+        "id": "zcode-monitoring-session-1",
+        "source": "zcode",
+        "projectName": "AgentPager",
+        "title": "AgentPager · 检查 Hook 会话监控",
+        "subagents": [],
+        "lifecycle": "idle",
+        "startedAt": 1787900390000,
+        "updatedAt": 1787900400000,
+        "isUnread": false,
+        "isPinned": false,
+        "isMuted": false,
+        "capabilities": []
+      }
+    ],
+    "focusedTaskID": "zcode-monitoring-session-1",
+    "pendingRequests": []
+  }
+}

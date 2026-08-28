@@ -278,6 +278,28 @@ class PhoneSessionTest {
     }
 
     @Test
+    fun `ZCode 会话监控快照显示脱敏标题并保持非终态空闲`() = runTest {
+        val fixture = connectedFixture()
+
+        fixture.transport.emit(
+            TransportEvent.TextReceived(
+                protocolFixture("zcode-session-monitoring.json"),
+            ),
+        )
+        runCurrent()
+
+        val task = fixture.session.state.value.snapshot.tasks.single()
+        assertEquals(AgentSource.ZCODE, task.source)
+        assertEquals(AgentLifecycle.IDLE, task.lifecycle)
+        assertEquals("AgentPager", task.projectName)
+        assertEquals("AgentPager · 检查 Hook 会话监控", task.title)
+        assertEquals(null, task.userPrompt)
+        assertEquals(null, task.completedAt)
+        assertTrue(!task.isTerminal)
+        fixture.close()
+    }
+
+    @Test
     fun `旧 Codex 快照缺少扩展字段时仍可接收`() = runTest {
         val fixture = connectedFixture()
 

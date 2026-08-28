@@ -1,19 +1,20 @@
 import Foundation
 
-/// 标记 Hook 载荷来源，用于在桥接服务器与权限裁决间区分 Codex / Claude。
+/// 标记 Hook 载荷来源，让桥接服务器选择对应载荷解码器。
 public enum HookSource: String, Codable, Sendable, Equatable {
     case codex
     case claude
+    case zcode
 }
 
 /// Hook CLI 与 `HookBridgeServer` 之间的传输信封。
 ///
-/// 同一个 `AgentPagerHooks` 二进制同时服务 Codex 与 Claude Code，通过
+/// 同一个 `AgentPagerHooks` 二进制同时服务 Codex、Claude Code 与 ZCode，通过
 /// `--source` 区分，再把原始载荷包进信封送给桥接服务器，使服务器能选择
 /// 正确的解码器与响应格式。
 public struct HookEnvelopePayload: Codable, Equatable, Sendable {
     public var hookSource: HookSource
-    /// 原始 Hook 载荷（Codex 或 Claude），以未类型化 JSON 携带，由服务器按来源解码。
+    /// 原始 Hook 载荷，以未类型化 JSON 携带，由服务器按来源解码。
     public var payload: [String: AnyCodable]
 
     public init(hookSource: HookSource, payload: [String: AnyCodable]) {

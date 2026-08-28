@@ -168,6 +168,26 @@ func unknownStateSnapshotUsesConservativeFallbacks() throws {
     #expect(group.windows.first?.quotaType == "FUTURE_LIMIT")
 }
 
+@Test("ZCode 会话监控样本保持非终态空闲且不携带原始内容")
+func zcodeMonitoringFixtureUsesIdleWithoutSensitiveContent() throws {
+    let data = try protocolFixture(named: "zcode-session-monitoring.json")
+    let text = try #require(String(data: data, encoding: .utf8))
+    let envelope = try ProtocolCodec.decode(
+        MessageEnvelope<StateSnapshotPayload>.self,
+        from: data
+    )
+    let task = try #require(envelope.payload.tasks.first)
+
+    #expect(task.source == .zcode)
+    #expect(task.lifecycle == .idle)
+    #expect(!task.isTerminal)
+    #expect(task.completedAt == nil)
+    #expect(task.userPrompt == nil)
+    #expect(task.latestStep == nil)
+    #expect(!text.contains("/Users/"))
+    #expect(!text.lowercased().contains("token="))
+}
+
 @Test("旧 Codex 状态快照缺少扩展字段时仍可解码")
 func legacyStateSnapshotStillDecodes() throws {
     let envelope = try ProtocolCodec.decode(

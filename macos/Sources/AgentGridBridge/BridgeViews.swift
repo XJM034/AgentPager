@@ -93,6 +93,20 @@ struct BridgeMenuView: View {
             )
 
             Button {
+                model.installZCodeHooks()
+            } label: {
+                Text(model.zcodeHookInstalled ? "修复 ZCODE HOOK" : "安装 ZCODE HOOK")
+                    .contentTransition(.interpolate)
+            }
+            .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+            .animation(statusAnimation, value: model.zcodeHookInstalled)
+            .popoverOptionEntrance(
+                isPresented: menuAppeared,
+                reduceMotion: reduceMotion,
+                order: 2
+            )
+
+            Button {
                 openSettings()
                 NSApplication.shared.activate()
             } label: {
@@ -102,7 +116,7 @@ struct BridgeMenuView: View {
             .popoverOptionEntrance(
                 isPresented: menuAppeared,
                 reduceMotion: reduceMotion,
-                order: 2
+                order: 3
             )
 
             PixelDivider()
@@ -114,7 +128,7 @@ struct BridgeMenuView: View {
             .popoverOptionEntrance(
                 isPresented: menuAppeared,
                 reduceMotion: reduceMotion,
-                order: 3
+                order: 4
             )
         }
         .padding(17)
@@ -330,68 +344,92 @@ struct BridgeSettingsView: View {
     }
 
     private var hookView: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsTitle("Agent 生命周期 Hook")
-            PixelPanel {
-                VStack(alignment: .leading, spacing: 13) {
-                    Text("Codex")
-                        .font(.pixel(13, weight: .bold))
-                        .foregroundStyle(PixelTheme.cyan)
-                    ZStack(alignment: .leading) {
-                        InfoRow(
-                            label: "STATUS",
-                            value: model.hookInstalled ? "已安装" : "未安装",
-                            accent: model.hookInstalled ? PixelTheme.green : PixelTheme.amber
-                        )
-                        .id(model.hookInstalled)
-                        .transition(hookStatusTransition)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                SettingsTitle("Agent 生命周期 Hook")
+                PixelPanel {
+                    VStack(alignment: .leading, spacing: 13) {
+                        Text("Codex")
+                            .font(.pixel(13, weight: .bold))
+                            .foregroundStyle(PixelTheme.cyan)
+                        ZStack(alignment: .leading) {
+                            InfoRow(
+                                label: "STATUS",
+                                value: model.hookInstalled ? "已安装" : "未安装",
+                                accent: model.hookInstalled ? PixelTheme.green : PixelTheme.amber
+                            )
+                            .id(model.hookInstalled)
+                            .transition(hookStatusTransition)
+                        }
+                        .animation(hookStatusAnimation, value: model.hookInstalled)
+                        Text("实时采集开始、工具、批准、完成和 Token；安装会保留现有 Hook，并在改写前备份。")
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                        HStack(spacing: 10) {
+                            Button("安装或修复") { model.installHooks() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                            Button("卸载") { model.uninstallHooks() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                                .disabled(!model.hookInstalled)
+                        }
                     }
-                    .animation(hookStatusAnimation, value: model.hookInstalled)
-                    Text("实时采集开始、工具、批准、完成和 Token；安装会保留现有 Hook，并在改写前备份。")
-                        .foregroundStyle(PixelTheme.muted)
-                        .lineSpacing(4)
-                    HStack(spacing: 10) {
-                        Button("安装或修复") { model.installHooks() }
+                }
+                PixelPanel {
+                    VStack(alignment: .leading, spacing: 13) {
+                        Text("Claude Code")
+                            .font(.pixel(13, weight: .bold))
+                            .foregroundStyle(PixelTheme.violet)
+                        ZStack(alignment: .leading) {
+                            InfoRow(
+                                label: "STATUS",
+                                value: model.claudeHookInstalled ? "已安装" : "未安装",
+                                accent: model.claudeHookInstalled ? PixelTheme.green : PixelTheme.amber
+                            )
+                            .id(model.claudeHookInstalled)
+                            .transition(hookStatusTransition)
+                        }
+                        .animation(hookStatusAnimation, value: model.claudeHookInstalled)
+                        Text("向 ~/.claude/settings.json 写入生命周期 Hook，覆盖开始、工具、权限、完成等事件；保留现有 Hook 并自动备份。")
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                        HStack(spacing: 10) {
+                            Button("安装或修复") { model.installClaudeHooks() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+                            Button("卸载") { model.uninstallClaudeHooks() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                                .disabled(!model.claudeHookInstalled)
+                        }
+                    }
+                }
+                PixelPanel {
+                    VStack(alignment: .leading, spacing: 13) {
+                        Text("ZCode")
+                            .font(.pixel(13, weight: .bold))
+                            .foregroundStyle(PixelTheme.cyan)
+                        ZStack(alignment: .leading) {
+                            InfoRow(
+                                label: "STATUS",
+                                value: model.zcodeHookInstalled ? "已安装" : "未安装",
+                                accent: model.zcodeHookInstalled ? PixelTheme.green : PixelTheme.amber
+                            )
+                            .id(model.zcodeHookInstalled)
+                            .transition(hookStatusTransition)
+                        }
+                        .animation(hookStatusAnimation, value: model.zcodeHookInstalled)
+                        Text("向 ~/.zcode/cli/config.json 添加五个核心会话监控 Hook；保留第三方配置并在改写前备份。Stop 只显示空闲，不误报完成；不需要 GLM Key。")
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                        Button("安装或修复") { model.installZCodeHooks() }
                             .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
-                        Button("卸载") { model.uninstallHooks() }
-                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
-                            .disabled(!model.hookInstalled)
                     }
                 }
+                Text("Bridge 不在线时 Hook 自动放行，不会阻塞 Agent。ZCode 卸载与完整恢复留到后续 Ticket。")
+                    .font(.pixel(10))
+                    .foregroundStyle(PixelTheme.muted)
+                Spacer(minLength: 0)
             }
-            PixelPanel {
-                VStack(alignment: .leading, spacing: 13) {
-                    Text("Claude Code")
-                        .font(.pixel(13, weight: .bold))
-                        .foregroundStyle(PixelTheme.violet)
-                    ZStack(alignment: .leading) {
-                        InfoRow(
-                            label: "STATUS",
-                            value: model.claudeHookInstalled ? "已安装" : "未安装",
-                            accent: model.claudeHookInstalled ? PixelTheme.green : PixelTheme.amber
-                        )
-                        .id(model.claudeHookInstalled)
-                        .transition(hookStatusTransition)
-                    }
-                    .animation(hookStatusAnimation, value: model.claudeHookInstalled)
-                    Text("向 ~/.claude/settings.json 写入生命周期 Hook，覆盖开始、工具、权限、完成等事件；保留现有 Hook 并自动备份。")
-                        .foregroundStyle(PixelTheme.muted)
-                        .lineSpacing(4)
-                    HStack(spacing: 10) {
-                        Button("安装或修复") { model.installClaudeHooks() }
-                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
-                        Button("卸载") { model.uninstallClaudeHooks() }
-                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
-                            .disabled(!model.claudeHookInstalled)
-                    }
-                }
-            }
-            Text("Bridge 不在线时 Hook 自动放行，不会阻塞 Agent。")
-                .font(.pixel(10))
-                .foregroundStyle(PixelTheme.muted)
-            Spacer()
+            .padding(28)
         }
-        .padding(28)
     }
 
     private var simulatorView: some View {

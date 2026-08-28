@@ -741,7 +741,7 @@ private fun TaskRow(
                             overflow = TextOverflow.Ellipsis,
                         )
                         CommandTicker(
-                            text = task.latestStep ?: statusText(task.lifecycle),
+                            text = taskActivitySummary(task),
                             color = statusColor(task).copy(alpha = rowAlpha),
                         )
                     }
@@ -1246,7 +1246,62 @@ private fun AgentSourceCompatibilityPreview() {
     }
 }
 
-private fun statusText(lifecycle: AgentLifecycle): String = when (lifecycle) {
+@Preview(
+    name = "ZCode 核心会话活动",
+    widthDp = 360,
+    heightDp = 320,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun ZCodeCoreSessionActivityPreview() {
+    val base = TaskSnapshot(
+        id = "zcode-preview",
+        source = AgentSource.ZCODE,
+        projectName = "AgentPager",
+        title = "AgentPager · 检查 Hook 会话监控",
+        lifecycle = AgentLifecycle.STARTING,
+        activity = AgentActivity.THINKING,
+        startedAt = 1,
+        updatedAt = 2,
+    )
+    val tasks = listOf(
+        base,
+        base.copy(
+            id = "zcode-thinking",
+            lifecycle = AgentLifecycle.RUNNING,
+        ),
+        base.copy(
+            id = "zcode-tool",
+            lifecycle = AgentLifecycle.RUNNING,
+            activity = AgentActivity.READING,
+            latestStep = "读取文件",
+        ),
+        base.copy(
+            id = "zcode-idle",
+            lifecycle = AgentLifecycle.IDLE,
+            activity = null,
+        ),
+    )
+
+    AgentGridTheme {
+        Column(modifier = Modifier.background(AgentGridColors.Background)) {
+            tasks.forEachIndexed { index, task ->
+                TaskRow(
+                    task = task,
+                    pending = null,
+                    expanded = false,
+                    dimmed = false,
+                    showDivider = index < tasks.lastIndex,
+                    onClick = {},
+                    onControl = { _, _, _ -> },
+                )
+            }
+        }
+    }
+}
+
+internal fun statusText(lifecycle: AgentLifecycle): String = when (lifecycle) {
     AgentLifecycle.OFFLINE -> "离线"
     AgentLifecycle.IDLE -> "空闲"
     AgentLifecycle.STARTING -> "正在启动"
@@ -1280,7 +1335,7 @@ private fun lifecycleColor(
     }
 }
 
-private fun agentBadge(source: AgentSource): String = when (source) {
+internal fun agentBadge(source: AgentSource): String = when (source) {
     AgentSource.CODEX_DESKTOP, AgentSource.CODEX_CLI -> "Codex"
     AgentSource.CLAUDE_CODE -> "Claude"
     AgentSource.ZCODE -> "ZCode"
@@ -1293,7 +1348,7 @@ private fun agentBadgeColor(source: AgentSource): Color = when (source) {
     else -> AgentGridColors.Blue
 }
 
-private fun agentOriginLabel(source: AgentSource): String = when (source) {
+internal fun agentOriginLabel(source: AgentSource): String = when (source) {
     AgentSource.CODEX_DESKTOP -> "ChatGPT.app"
     AgentSource.CODEX_CLI -> "Terminal"
     AgentSource.CLAUDE_CODE -> "Claude Code"
@@ -1301,7 +1356,7 @@ private fun agentOriginLabel(source: AgentSource): String = when (source) {
     AgentSource.UNKNOWN -> "未知来源"
 }
 
-private fun activityText(activity: AgentActivity?): String = when (activity) {
+internal fun activityText(activity: AgentActivity?): String = when (activity) {
     AgentActivity.THINKING -> "正在思考"
     AgentActivity.READING -> "正在读取"
     AgentActivity.SEARCHING -> "正在搜索"
@@ -1311,6 +1366,14 @@ private fun activityText(activity: AgentActivity?): String = when (activity) {
     AgentActivity.BROWSING -> "正在浏览"
     AgentActivity.DELEGATING -> "正在协作"
     null -> "等待新步骤"
+}
+
+internal fun taskActivitySummary(task: TaskSnapshot): String {
+    task.latestStep?.let { return it }
+    if (task.lifecycle == AgentLifecycle.STARTING) {
+        return statusText(task.lifecycle)
+    }
+    return task.activity?.let(::activityText) ?: statusText(task.lifecycle)
 }
 
 private fun formatElapsed(milliseconds: Long): String {

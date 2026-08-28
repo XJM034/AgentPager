@@ -67,6 +67,7 @@ public protocol CodexPermissionResolving: Sendable {
 public enum TaskCatalogInput: Sendable {
     case hook(CodexHookPayload, receivedAt: Date = .now)
     case claudeHook(ClaudeHookPayload, receivedAt: Date = .now)
+    case zcodeHook(ZCodeHookPayload, receivedAt: Date = .now)
     case rollout([CodexRolloutSignal])
     case synthetic(TaskSnapshot)
 }
@@ -117,6 +118,8 @@ public struct TaskCatalog: Sendable {
         case let .hook(hook, receivedAt):
             apply(hook, receivedAt: receivedAt)
         case let .claudeHook(hook, receivedAt):
+            apply(hook, receivedAt: receivedAt)
+        case let .zcodeHook(hook, receivedAt):
             apply(hook, receivedAt: receivedAt)
         case let .rollout(signals):
             for signal in signals.sorted(by: Self.signalOrder) {
@@ -344,6 +347,19 @@ public struct TaskCatalog: Sendable {
         case nil:
             break
         }
+        store.upsert(task)
+    }
+
+    private mutating func apply(
+        _ hook: ZCodeHookPayload,
+        receivedAt: Date
+    ) {
+        let existing = store.tasks.first { $0.id == hook.sessionID }
+        let task = ZCodeEventReducer.task(
+            from: hook,
+            existing: existing,
+            now: receivedAt
+        )
         store.upsert(task)
     }
 

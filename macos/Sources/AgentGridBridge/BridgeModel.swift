@@ -12,6 +12,7 @@ final class BridgeModel {
     private(set) var serviceStatus = "正在启动"
     private(set) var hookInstalled = false
     private(set) var claudeHookInstalled = false
+    private(set) var zcodeHookInstalled = false
     private(set) var lastError: String?
     private(set) var pairingText = ""
     private(set) var recentEvents: [String] = []
@@ -21,6 +22,7 @@ final class BridgeModel {
     private var pairingSecret = Data()
     private let hookConfiguration = CodexHookConfiguration()
     private let claudeHookConfiguration = ClaudeHookConfiguration()
+    private let zcodeHookConfiguration = ZCodeHookConfiguration()
     private let usageLoader = CodexUsageLoader()
     private var rolloutObservation = CodexRolloutObservation()
     private var hookServer: HookBridgeServer?
@@ -90,6 +92,7 @@ final class BridgeModel {
 
         refreshHookStatus()
         refreshClaudeHookStatus()
+        refreshZCodeHookStatus()
         refreshUsage()
         handleRolloutObservation()
         refreshTask = Task { [weak self] in
@@ -165,6 +168,20 @@ final class BridgeModel {
         }
     }
 
+    func installZCodeHooks() {
+        do {
+            let change = try zcodeHookConfiguration.install(
+                command: hookExecutableURL.path
+            )
+            if change.changed {
+                addEvent("ZCode 核心会话 Hook 已安装")
+            }
+            refreshZCodeHookStatus()
+        } catch {
+            lastError = "安装 ZCode Hook 失败：\(error.localizedDescription)"
+        }
+    }
+
     func simulate(_ lifecycle: AgentLifecycle) {
         let now = Date()
         let task = TaskSnapshot(
@@ -234,6 +251,11 @@ final class BridgeModel {
             commit = catalog.accept(.claudeHook(hook))
             let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
             projectSummary = task?.projectName ?? "Claude Code"
+            lifecycleSummary = task?.lifecycle.rawValue ?? ""
+        case let .zcode(hook):
+            commit = catalog.accept(.zcodeHook(hook))
+            let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
+            projectSummary = task?.projectName ?? "ZCode"
             lifecycleSummary = task?.lifecycle.rawValue ?? ""
         }
         addEvent("\(projectSummary) · \(lifecycleSummary)")
@@ -335,6 +357,12 @@ final class BridgeModel {
 
     private func refreshClaudeHookStatus() {
         claudeHookInstalled = claudeHookConfiguration.isInstalled()
+    }
+
+    private func refreshZCodeHookStatus() {
+        zcodeHookInstalled = zcodeHookConfiguration.isInstalled(
+            command: hookExecutableURL.path
+        )
     }
 
     private func publishCatalog(focusedTaskIDOverride: String? = nil) {

@@ -27,10 +27,16 @@
 - `protocol/fixtures/task-snapshot-unknown.json`：未知来源、未知提供方/额度组和缺失可选字段。
 - macOS：`swift test` 通过，共 105 项 Swift Testing 测试。
 - Android：`testDebugUnitTest lintDebug assembleDebug` 通过；协议测试经过真实 `PhoneSession` 接收与签名路径。
-- Windows：已增加 6 项 Core 回归入口中的协议测试，但当前 macOS 开发机没有 `dotnet` 或其他 C# 编译器，因此本次未实际运行 Windows 测试。
+- Windows：已增加 6 项 Core 回归入口中的协议测试；实际运行状态和验收边界见“用户批准的 Windows 运行验证豁免”。
 - `jq empty` 与 `git diff --check` 通过。
 
 ## 未验证项
 
-- 未在 Windows/.NET 环境编译或运行新增测试。
 - 未安装或替换 Bridge/APK，未运行真实 ZCode Hook、GLM 请求、模拟器或 Redmi 产品验收；这些均不属于 Issue #3 的协议模型范围。
+
+## 用户批准的 Windows 运行验证豁免
+
+- Windows 协议实现和 6 项 Core 协议测试已经编写，并已完成代码复审；这不代表 Windows 已实际验证通过。
+- 当前开发机没有 .NET 工具链或 Windows 运行环境，因此 Windows 项目没有实际编译，6 项测试也没有实际运行。用户明确批准本次不安装临时 .NET SDK，也不新增或触发 Windows CI。
+- AgentPager 当前个人定制和使用范围是 macOS 与 Android；在这两个平台的检查已经通过的前提下，上述 Windows 验证缺口不阻塞 Issue #3 的本次验收收尾。
+- 如果未来需要构建、安装或发布 Windows 版本，必须在受支持的 Windows/.NET 环境重新执行 Windows 编译、全部测试和实际运行验收；本次豁免不能沿用为未来 Windows 发布依据。

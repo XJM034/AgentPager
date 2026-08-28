@@ -1,5 +1,7 @@
 using AgentPager.Core;
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 
 namespace AgentPager.Core.Tests;
 
@@ -10,10 +12,14 @@ internal static class Program
         var failures = new List<string>();
         Run("跨文件额度乱序时保留 capturedAt 更新的 Spark", KeepsNewestSparkAcrossFiles, failures);
         Run("额度文件未变化时复用缓存，变化后重新解析", CachesQuotaFilesByMetadata, failures);
+        Run("新快照保留 ZCode、多提供方额度和待审批请求标识", DecodesExtendedProtocolFixture, failures);
+        Run("未知来源和额度组可解析并兼容转发", ForwardsUnknownProtocolFixture, failures);
+        Run("旧 Codex 快照缺少扩展字段时仍可解析", DecodesLegacyProtocolFixture, failures);
+        Run("控制载荷兼容可选待审批请求标识", SupportsOptionalPendingRequestID, failures);
 
         if (failures.Count == 0)
         {
-            Console.WriteLine("AgentPager.Core regression tests passed (2/2).");
+            Console.WriteLine("AgentPager.Core regression tests passed (6/6).");
             return 0;
         }
 
@@ -94,11 +100,116 @@ internal static class Program
         });
     }
 
+    private static void DecodesExtendedProtocolFixture()
+    {
+        var envelope = Require(
+            JsonSerializer.Deserialize<MessageEnvelope<StateSnapshotPayload>>(
+                File.ReadAllText(ProtocolFixture("task-snapshot-v2.json")),
+                WireJson.Options),
+            "新协议样本解码失败");
+
+        Equal(AgentSource.ZCode, envelope.Payload.Tasks.Single().Source, "ZCode 来源");
+        Equal("codex", Require(envelope.Payload.Usage, "缺少旧 Codex usage").LimitID!, "旧 usage");
+        var glm = Require(envelope.Payload.UsageProviders, "缺少多提供方额度")
+            .Single(provider => provider.Id == "glm");
+        Equal("GLM Coding Plan", glm.PlanName!, "GLM 套餐回退名");
+        Equal("lite", glm.PlanLevel!, "GLM 不透明 level");
+        var fiveHour = glm.QuotaGroups.Single().Windows.First();
+        Equal("CREDIT_LIMIT", fiveHour.QuotaType!, "额度类型");
+        Equal(5d, fiveHour.UsedPercentage, "已使用百分比");
+        Equal(1_897d, fiveHour.RemainingAmount!.Value, "服务端 remaining");
+        Equal(
+            "zcode:session-1:tool-1",
+            envelope.Payload.PendingRequests.Single().RequestID!,
+            "待审批请求标识");
+    }
+
+    private static void ForwardsUnknownProtocolFixture()
+    {
+        var envelope = Require(
+            JsonSerializer.Deserialize<MessageEnvelope<StateSnapshotPayload>>(
+                File.ReadAllText(ProtocolFixture("task-snapshot-unknown.json")),
+                WireJson.Options),
+            "未知协议样本解码失败");
+
+        Equal(AgentSource.Unknown, envelope.Payload.Tasks.Single().Source, "未知来源回退");
+        var provider = Require(envelope.Payload.UsageProviders, "未知提供方被丢弃").Single();
+        Equal("futureProvider", provider.Id, "未知提供方 ID");
+        Equal("futureQuotaGroup", provider.QuotaGroups.Single().Id, "未知额度组 ID");
+
+        var forwarded = Require(
+            JsonSerializer.Deserialize<MessageEnvelope<StateSnapshotPayload>>(
+                JsonSerializer.Serialize(envelope, WireJson.Options),
+                WireJson.Options),
+            "未知协议样本转发后解码失败");
+        Equal(
+            "futureQuotaGroup",
+            Require(forwarded.Payload.UsageProviders, "转发后提供方丢失")
+                .Single().QuotaGroups.Single().Id,
+            "转发后的未知额度组");
+    }
+
+    private static void DecodesLegacyProtocolFixture()
+    {
+        var envelope = Require(
+            JsonSerializer.Deserialize<MessageEnvelope<StateSnapshotPayload>>(
+                File.ReadAllText(ProtocolFixture("task-snapshot.json")),
+                WireJson.Options),
+            "旧协议样本解码失败");
+
+        Equal(AgentSource.CodexCLI, envelope.Payload.Tasks.Single().Source, "旧 Codex 来源");
+        if (envelope.Payload.UsageProviders is not null)
+            throw new InvalidOperationException("旧快照不应伪造多提供方额度");
+    }
+
+    private static void SupportsOptionalPendingRequestID()
+    {
+        var envelope = new SignedControlEnvelope(
+            1,
+            Guid.Parse("6f539e96-6bce-4fdc-94d5-3cf4ea755622"),
+            "control.request",
+            1_785_067_200_000,
+            "android-test",
+            7,
+            "nonce-7",
+            new ControlPayload(
+                "zcode-session-1",
+                ControlAction.Approve,
+                null,
+                "zcode:session-1:tool-1"),
+            "");
+        var signingText = Encoding.UTF8.GetString(ControlSigner.SigningData(envelope));
+        Equal(
+            "{\"action\":\"approve\",\"pendingRequestID\":\"zcode:session-1:tool-1\",\"taskID\":\"zcode-session-1\"}",
+            signingText.Split('\n').Last(),
+            "扩展控制载荷规范 JSON");
+
+        var legacy = Require(
+            JsonSerializer.Deserialize<ControlPayload>(
+                "{\"taskID\":\"task-1\",\"action\":\"deny\"}",
+                WireJson.Options),
+            "旧控制载荷解码失败");
+        if (legacy.PendingRequestID is not null)
+            throw new InvalidOperationException("旧控制载荷不应伪造待审批请求标识");
+    }
+
     private static DateTimeOffset Utc(string value) =>
         DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
     private static T Require<T>(T? value, string message) where T : class =>
         value ?? throw new InvalidOperationException(message);
+
+    private static string ProtocolFixture(string name)
+    {
+        for (var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+             directory is not null;
+             directory = directory.Parent)
+        {
+            var candidate = Path.Combine(directory.FullName, "protocol", "fixtures", name);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException("找不到协议样本", name);
+    }
 
     private static void Equal<T>(T expected, T actual, string label) where T : notnull
     {

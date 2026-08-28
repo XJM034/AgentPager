@@ -9,6 +9,7 @@ import com.agentgrid.mobile.domain.SignedControlEnvelope
 import com.agentgrid.mobile.domain.StateEnvelope
 import com.agentgrid.mobile.domain.StateSnapshotPayload
 import com.agentgrid.mobile.domain.TaskSnapshot
+import java.io.File
 import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -139,6 +140,34 @@ class PhoneSessionTest {
     }
 
     @Test
+    fun `控制请求可携带唯一待审批请求标识`() = runTest {
+        val fixture = connectedFixture()
+
+        fixture.session.control(
+            taskID = "zcode-session-1",
+            action = ControlAction.APPROVE,
+            pendingRequestID = "zcode:session-1:tool-1",
+        )
+        val envelope = json.decodeFromString<SignedControlEnvelope>(
+            fixture.transport.sentTexts.single(),
+        )
+
+        assertEquals(
+            "zcode:session-1:tool-1",
+            envelope.payload.pendingRequestID,
+        )
+        assertEquals(
+            """{"action":"approve","pendingRequestID":"zcode:session-1:tool-1","taskID":"zcode-session-1"}""",
+            ControlSigner.signingText(envelope.copy(signature = "")).lineSequence().last(),
+        )
+        assertEquals(
+            ControlSigner.sign(envelope.copy(signature = ""), SECRET),
+            envelope.signature,
+        )
+        fixture.close()
+    }
+
+    @Test
     fun `发送失败仍烧掉序号且下次请求严格递增`() = runTest {
         val fixture = connectedFixture()
         fixture.transport.sendAccepted = false
@@ -197,6 +226,72 @@ class PhoneSessionTest {
             listOf("new-task"),
             fixture.session.state.value.snapshot.tasks.map { it.id },
         )
+        fixture.close()
+    }
+
+    @Test
+    fun `未知来源和额度组不会让整条状态快照失败`() = runTest {
+        val fixture = connectedFixture()
+
+        fixture.transport.emit(
+            TransportEvent.TextReceived(
+                protocolFixture("task-snapshot-unknown.json"),
+            ),
+        )
+        runCurrent()
+
+        assertEquals(null, fixture.session.state.value.problem)
+        val snapshot = fixture.session.state.value.snapshot
+        assertEquals(AgentSource.UNKNOWN, snapshot.tasks.single().source)
+        assertEquals("futureProvider", snapshot.usageProviders?.single()?.id)
+        assertEquals(
+            "futureQuotaGroup",
+            snapshot.usageProviders?.single()?.quotaGroups?.single()?.id,
+        )
+        fixture.close()
+    }
+
+    @Test
+    fun `新快照同时保留旧 Codex 额度和扩展协议字段`() = runTest {
+        val fixture = connectedFixture()
+
+        fixture.transport.emit(
+            TransportEvent.TextReceived(protocolFixture("task-snapshot-v2.json")),
+        )
+        runCurrent()
+
+        val snapshot = fixture.session.state.value.snapshot
+        assertEquals(AgentSource.ZCODE, snapshot.tasks.single().source)
+        assertEquals("codex", snapshot.usage?.limitID)
+        val glm = snapshot.usageProviders?.single { it.id == "glm" }
+        assertEquals("GLM Coding Plan", glm?.planName)
+        assertEquals("lite", glm?.planLevel)
+        val fiveHour = glm?.quotaGroups?.single()?.windows?.first()
+        assertEquals("CREDIT_LIMIT", fiveHour?.quotaType)
+        assertEquals(5.0, fiveHour?.usedPercentage)
+        assertEquals(1_897.0, fiveHour?.remainingAmount)
+        assertEquals(
+            "zcode:session-1:tool-1",
+            snapshot.pendingRequests.single().requestID,
+        )
+        fixture.close()
+    }
+
+    @Test
+    fun `旧 Codex 快照缺少扩展字段时仍可接收`() = runTest {
+        val fixture = connectedFixture()
+
+        fixture.transport.emit(
+            TransportEvent.TextReceived(protocolFixture("task-snapshot.json")),
+        )
+        runCurrent()
+
+        assertEquals(null, fixture.session.state.value.problem)
+        val snapshot = fixture.session.state.value.snapshot
+        assertEquals(AgentSource.CODEX_CLI, snapshot.tasks.single().source)
+        assertEquals("AgentPager", snapshot.tasks.single().title)
+        assertEquals(null, snapshot.usageProviders)
+        assertTrue(snapshot.pendingRequests.isEmpty())
         fixture.close()
     }
 
@@ -314,6 +409,15 @@ class PhoneSessionTest {
                 ),
             ),
         )
+
+    private fun protocolFixture(name: String): String {
+        val fixture = generateSequence(
+            File(requireNotNull(System.getProperty("user.dir"))).absoluteFile,
+        ) { it.parentFile }
+            .map { File(it, "protocol/fixtures/$name") }
+            .firstOrNull(File::isFile)
+        return requireNotNull(fixture) { "找不到协议样本：$name" }.readText()
+    }
 
     private data class Fixture(
         val session: DefaultPhoneSession,

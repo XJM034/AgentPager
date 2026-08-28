@@ -1,18 +1,38 @@
 package com.agentgrid.mobile.domain
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 
-@Serializable
-enum class AgentSource {
-    @SerialName("codexDesktop")
-    CODEX_DESKTOP,
+@Serializable(with = AgentSourceSerializer::class)
+enum class AgentSource(val wireName: String) {
+    CODEX_DESKTOP("codexDesktop"),
+    CODEX_CLI("codexCLI"),
+    CLAUDE_CODE("claudeCode"),
+    ZCODE("zcode"),
+    UNKNOWN("unknown"),
+}
 
-    @SerialName("codexCLI")
-    CODEX_CLI,
+object AgentSourceSerializer : KSerializer<AgentSource> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor(
+        "AgentSource",
+        PrimitiveKind.STRING,
+    )
 
-    @SerialName("claudeCode")
-    CLAUDE_CODE,
+    override fun deserialize(decoder: Decoder): AgentSource {
+        val value = decoder.decodeString()
+        return AgentSource.entries.firstOrNull { it.wireName == value }
+            ?: AgentSource.UNKNOWN
+    }
+
+    override fun serialize(encoder: Encoder, value: AgentSource) {
+        encoder.encodeString(value.wireName)
+    }
 }
 
 @Serializable
@@ -176,6 +196,10 @@ data class UsageWindow(
     val remainingPercentage: Double,
     val windowMinutes: Int,
     val resetsAt: Long? = null,
+    val quotaType: String? = null,
+    val limitAmount: Double? = null,
+    val usedAmount: Double? = null,
+    val remainingAmount: Double? = null,
 )
 
 @Serializable
@@ -184,6 +208,17 @@ data class QuotaGroup(
     val name: String? = null,
     val capturedAt: Long? = null,
     val windows: List<UsageWindow> = emptyList(),
+)
+
+@Serializable
+data class UsageProviderSnapshot(
+    val id: String,
+    val displayName: String? = null,
+    val planName: String? = null,
+    val planLevel: String? = null,
+    val capturedAt: Long? = null,
+    val status: String? = null,
+    val quotaGroups: List<QuotaGroup> = emptyList(),
 )
 
 @Serializable
@@ -212,6 +247,7 @@ data class UsageSnapshot(
 data class StateSnapshotPayload(
     val tasks: List<TaskSnapshot>,
     val usage: UsageSnapshot? = null,
+    val usageProviders: List<UsageProviderSnapshot>? = null,
     val focusedTaskID: String? = null,
     val pendingRequests: List<PendingRequest> = emptyList(),
 )
@@ -228,6 +264,7 @@ enum class PendingRequestKind {
 @Serializable
 data class PendingRequest(
     val taskID: String,
+    val requestID: String? = null,
     val kind: PendingRequestKind,
     val summary: String? = null,
     val options: List<String> = emptyList(),
@@ -296,6 +333,7 @@ data class ControlPayload(
     val taskID: String,
     val action: ControlAction,
     val value: String? = null,
+    val pendingRequestID: String? = null,
 )
 
 @Serializable

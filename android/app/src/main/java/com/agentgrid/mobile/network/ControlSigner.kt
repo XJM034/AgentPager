@@ -48,12 +48,23 @@ internal object ControlSigner {
             ControlAction.PIN -> "pin"
         }
         val escapedAction = json.encodeToString(action)
+        val escapedPendingRequestID = payload.pendingRequestID?.let(json::encodeToString)
         val escapedTask = json.encodeToString(payload.taskID)
-        return if (payload.value == null) {
-            """{"action":$escapedAction,"taskID":$escapedTask}"""
-        } else {
-            val escapedValue = json.encodeToString(payload.value)
-            """{"action":$escapedAction,"taskID":$escapedTask,"value":$escapedValue}"""
+        val escapedValue = payload.value?.let(json::encodeToString)
+        return buildString {
+            append("{\"action\":")
+            append(escapedAction)
+            if (escapedPendingRequestID != null) {
+                append(",\"pendingRequestID\":")
+                append(escapedPendingRequestID)
+            }
+            append(",\"taskID\":")
+            append(escapedTask)
+            if (escapedValue != null) {
+                append(",\"value\":")
+                append(escapedValue)
+            }
+            append('}')
         }
     }
 }

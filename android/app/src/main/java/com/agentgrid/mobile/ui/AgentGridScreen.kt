@@ -1222,6 +1222,30 @@ private fun BrightnessSettingsPreview() {
     }
 }
 
+@Preview(
+    name = "协议来源兼容",
+    widthDp = 240,
+    heightDp = 96,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun AgentSourceCompatibilityPreview() {
+    AgentGridTheme {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            listOf(AgentSource.ZCODE, AgentSource.UNKNOWN).forEach { source ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MetaTag(agentBadge(source), agentBadgeColor(source), 1f)
+                    MetaTag(agentOriginLabel(source), AgentGridColors.Muted, 1f)
+                }
+            }
+        }
+    }
+}
+
 private fun statusText(lifecycle: AgentLifecycle): String = when (lifecycle) {
     AgentLifecycle.OFFLINE -> "离线"
     AgentLifecycle.IDLE -> "空闲"
@@ -1259,10 +1283,13 @@ private fun lifecycleColor(
 private fun agentBadge(source: AgentSource): String = when (source) {
     AgentSource.CODEX_DESKTOP, AgentSource.CODEX_CLI -> "Codex"
     AgentSource.CLAUDE_CODE -> "Claude"
+    AgentSource.ZCODE -> "ZCode"
+    AgentSource.UNKNOWN -> "Agent"
 }
 
 private fun agentBadgeColor(source: AgentSource): Color = when (source) {
     AgentSource.CLAUDE_CODE -> AgentGridColors.Violet
+    AgentSource.ZCODE -> AgentGridColors.Cyan
     else -> AgentGridColors.Blue
 }
 
@@ -1270,6 +1297,8 @@ private fun agentOriginLabel(source: AgentSource): String = when (source) {
     AgentSource.CODEX_DESKTOP -> "ChatGPT.app"
     AgentSource.CODEX_CLI -> "Terminal"
     AgentSource.CLAUDE_CODE -> "Claude Code"
+    AgentSource.ZCODE -> "ZCode"
+    AgentSource.UNKNOWN -> "未知来源"
 }
 
 private fun activityText(activity: AgentActivity?): String = when (activity) {

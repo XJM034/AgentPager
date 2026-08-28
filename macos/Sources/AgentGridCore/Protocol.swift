@@ -153,12 +153,14 @@ public struct ReplayGuard: Sendable {
 public struct StateSnapshotPayload: Codable, Equatable, Sendable {
     public var tasks: [TaskSnapshot]
     public var usage: UsageSnapshot?
+    public var usageProviders: [UsageProviderSnapshot]?
     public var focusedTaskID: String?
     public var pendingRequests: [PendingRequest]
 
     public init(
         tasks: [TaskSnapshot],
         usage: UsageSnapshot?,
+        usageProviders: [UsageProviderSnapshot]? = nil,
         focusedTaskID: String?,
         pendingRequests: [PendingRequest] = []
     ) {
@@ -178,8 +180,32 @@ public struct StateSnapshotPayload: Codable, Equatable, Sendable {
             return sanitizedTask
         }
         self.usage = usage
+        self.usageProviders = usageProviders
         self.focusedTaskID = focusedTaskID
         self.pendingRequests = pendingRequests
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tasks
+        case usage
+        case usageProviders
+        case focusedTaskID
+        case pendingRequests
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tasks = try container.decode([TaskSnapshot].self, forKey: .tasks)
+        usage = try container.decodeIfPresent(UsageSnapshot.self, forKey: .usage)
+        usageProviders = try container.decodeIfPresent(
+            [UsageProviderSnapshot].self,
+            forKey: .usageProviders
+        )
+        focusedTaskID = try container.decodeIfPresent(String.self, forKey: .focusedTaskID)
+        pendingRequests = try container.decodeIfPresent(
+            [PendingRequest].self,
+            forKey: .pendingRequests
+        ) ?? []
     }
 }
 
@@ -190,17 +216,20 @@ public enum PendingRequestKind: String, Codable, Sendable {
 
 public struct PendingRequest: Codable, Equatable, Sendable {
     public var taskID: String
+    public var requestID: String?
     public var kind: PendingRequestKind
     public var summary: String?
     public var options: [String]
 
     public init(
         taskID: String,
+        requestID: String? = nil,
         kind: PendingRequestKind,
         summary: String?,
         options: [String] = []
     ) {
         self.taskID = taskID
+        self.requestID = requestID
         self.kind = kind
         self.summary = summary
         self.options = options
@@ -228,5 +257,15 @@ public enum ProtocolCodec {
             try container.encode(Int64(date.timeIntervalSince1970 * 1_000))
         }
         return try encoder.encode(value)
+    }
+
+    public static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let milliseconds = try container.decode(Int64.self)
+            return Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
+        }
+        return try decoder.decode(type, from: data)
     }
 }

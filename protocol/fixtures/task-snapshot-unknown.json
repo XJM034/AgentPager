@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "messageId": "0e811f6e-cce4-48ca-99ec-ab64a1b342b9",
+  "type": "state.snapshot",
+  "sentAt": 1787900200000,
+  "payload": {
+    "tasks": [
+      {
+        "id": "future-session-1",
+        "source": "futureAgent",
+        "projectName": "AgentPager",
+        "title": "未知来源兼容",
+        "subagents": [],
+        "lifecycle": "running",
+        "activity": "thinking",
+        "startedAt": 1787900190000,
+        "updatedAt": 1787900200000,
+        "isUnread": false,
+        "isPinned": false,
+        "isMuted": false,
+        "capabilities": []
+      }
+    ],
+    "usageProviders": [
+      {
+        "id": "futureProvider",
+        "quotaGroups": [
+          {
+            "id": "futureQuotaGroup",
+            "windows": [
+              {
+                "key": "future-window",
+                "label": "FUTURE",
+                "quotaType": "FUTURE_LIMIT",
+                "usedPercentage": 37,
+                "remainingPercentage": 63,
+                "windowMinutes": 60
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "messageId": "3c73b05a-8ec5-4bf8-a289-628452e75d14",
+  "type": "state.snapshot",
+  "sentAt": 1787900134000,
+  "payload": {
+    "tasks": [
+      {
+        "id": "zcode-session-1",
+        "source": "zcode",
+        "projectName": "AgentPager",
+        "title": "扩展跨平台协议",
+        "subagents": [],
+        "lifecycle": "waitingApproval",
+        "activity": "executing",
+        "startedAt": 1787900120000,
+        "updatedAt": 1787900134000,
+        "isUnread": false,
+        "isPinned": false,
+        "isMuted": false,
+        "capabilities": [
+          "approve",
+          "deny"
+        ]
+      }
+    ],
+    "usage": {
+      "capturedAt": 1787900134000,
+      "planType": "pro",
+      "limitID": "codex",
+      "windows": [
+        {
+          "key": "primary",
+          "label": "5H",
+          "usedPercentage": 8,
+          "remainingPercentage": 92,
+          "windowMinutes": 300,
+          "resetsAt": 1787904223581
+        }
+      ],
+      "quotaGroups": [],
+      "dailyUsage": []
+    },
+    "usageProviders": [
+      {
+        "id": "codex",
+        "displayName": "Codex",
+        "planName": "Pro",
+        "capturedAt": 1787900134000,
+        "status": "available",
+        "quotaGroups": [
+          {
+            "id": "codex",
+            "name": "General",
+            "capturedAt": 1787900134000,
+            "windows": [
+              {
+                "key": "primary",
+                "label": "5H",
+                "usedPercentage": 8,
+                "remainingPercentage": 92,
+                "windowMinutes": 300,
+                "resetsAt": 1787904223581
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "glm",
+        "displayName": "GLM",
+        "planName": "GLM Coding Plan",
+        "planLevel": "lite",
+        "capturedAt": 1787900134000,
+        "status": "available",
+        "quotaGroups": [
+          {
+            "id": "credit",
+            "name": "CREDIT_LIMIT",
+            "capturedAt": 1787900134000,
+            "windows": [
+              {
+                "key": "5-hour",
+                "label": "5H",
+                "quotaType": "CREDIT_LIMIT",
+                "usedPercentage": 5,
+                "remainingPercentage": 95,
+                "windowMinutes": 300,
+                "resetsAt": 1787904223581,
+                "limitAmount": 2000,
+                "usedAmount": 102,
+                "remainingAmount": 1897
+              },
+              {
+                "key": "weekly",
+                "label": "WEEK",
+                "quotaType": "CREDIT_LIMIT",
+                "usedPercentage": 1,
+                "remainingPercentage": 99,
+                "windowMinutes": 10080,
+                "resetsAt": 1788490685990,
+                "limitAmount": 10000,
+                "usedAmount": 102,
+                "remainingAmount": 9897
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "focusedTaskID": "zcode-session-1",
+    "pendingRequests": [
+      {
+        "taskID": "zcode-session-1",
+        "requestID": "zcode:session-1:tool-1",
+        "kind": "approval",
+        "summary": "运行已清洗的工具步骤",
+        "options": []
+      }
+    ]
+  }
+}

@@ -125,3 +125,110 @@ func stateSnapshotFiltersInternalToolWrappersBeforeSending() throws {
     #expect(tasks[0]["latestStep"] as? String == "swift test")
     #expect(tasks[1]["latestStep"] as? String == "/tmp/AgentGrid/App.swift")
 }
+
+@Test("扩展状态快照保留 ZCode、多提供方额度和待审批请求标识")
+func extendedStateSnapshotPreservesProtocolSemantics() throws {
+    let envelope = try ProtocolCodec.decode(
+        MessageEnvelope<StateSnapshotPayload>.self,
+        from: protocolFixture(named: "task-snapshot-v2.json")
+    )
+
+    #expect(envelope.payload.tasks.first?.source == .zcode)
+    #expect(envelope.payload.usage?.limitID == "codex")
+    let glm = try #require(
+        envelope.payload.usageProviders?.first { $0.id == "glm" }
+    )
+    #expect(glm.planName == "GLM Coding Plan")
+    #expect(glm.planLevel == "lite")
+    let fiveHour = try #require(glm.quotaGroups.first?.windows.first)
+    #expect(fiveHour.quotaType == "CREDIT_LIMIT")
+    #expect(fiveHour.usedPercentage == 5)
+    #expect(fiveHour.remainingAmount == 1_897)
+    #expect(
+        envelope.payload.pendingRequests.first?.requestID ==
+            "zcode:session-1:tool-1"
+    )
+}
+
+@Test("未知来源、提供方和额度组保守降级且缺失可选字段仍可解码")
+func unknownStateSnapshotUsesConservativeFallbacks() throws {
+    let envelope = try ProtocolCodec.decode(
+        MessageEnvelope<StateSnapshotPayload>.self,
+        from: protocolFixture(named: "task-snapshot-unknown.json")
+    )
+
+    #expect(envelope.payload.tasks.first?.source == .unknown)
+    #expect(envelope.payload.usage == nil)
+    #expect(envelope.payload.pendingRequests.isEmpty)
+    let provider = try #require(envelope.payload.usageProviders?.first)
+    #expect(provider.id == "futureProvider")
+    #expect(provider.displayName == nil)
+    let group = try #require(provider.quotaGroups.first)
+    #expect(group.id == "futureQuotaGroup")
+    #expect(group.windows.first?.quotaType == "FUTURE_LIMIT")
+}
+
+@Test("旧 Codex 状态快照缺少扩展字段时仍可解码")
+func legacyStateSnapshotStillDecodes() throws {
+    let envelope = try ProtocolCodec.decode(
+        MessageEnvelope<StateSnapshotPayload>.self,
+        from: protocolFixture(named: "task-snapshot.json")
+    )
+
+    let task = try #require(envelope.payload.tasks.first)
+    #expect(task.source == .codexCLI)
+    #expect(task.title == "AgentPager")
+    #expect(envelope.payload.usage == nil)
+    #expect(envelope.payload.usageProviders == nil)
+    #expect(envelope.payload.pendingRequests.isEmpty)
+}
+
+@Test("控制载荷可携带待审批请求标识且旧载荷仍可读取")
+func controlPayloadSupportsOptionalPendingRequestID() throws {
+    let current = ControlPayload(
+        taskID: "zcode-session-1",
+        action: .approve,
+        pendingRequestID: "zcode:session-1:tool-1"
+    )
+    let encoded = try ProtocolCodec.encode(current)
+    let object = try #require(
+        JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    #expect(object["pendingRequestID"] as? String == "zcode:session-1:tool-1")
+
+    let envelope = SignedControlEnvelope(
+        messageId: UUID(uuidString: "6f539e96-6bce-4fdc-94d5-3cf4ea755622")!,
+        sentAt: 1_785_067_200_000,
+        deviceId: "android-test",
+        sequence: 7,
+        nonce: "nonce-7",
+        payload: current
+    )
+    let signingText = try #require(
+        String(data: ControlSigner.signingData(for: envelope), encoding: .utf8)
+    )
+    #expect(
+        signingText.split(separator: "\n").last ==
+            #"{"action":"approve","pendingRequestID":"zcode:session-1:tool-1","taskID":"zcode-session-1"}"#
+    )
+
+    let legacy = try ProtocolCodec.decode(
+        ControlPayload.self,
+        from: Data(#"{"taskID":"task-1","action":"deny"}"#.utf8)
+    )
+    #expect(legacy.pendingRequestID == nil)
+}
+
+private func protocolFixture(named name: String) throws -> Data {
+    var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    while directory.path != "/" {
+        let candidate = directory
+            .appendingPathComponent("protocol/fixtures")
+            .appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return try Data(contentsOf: candidate)
+        }
+        directory.deleteLastPathComponent()
+    }
+    throw CocoaError(.fileNoSuchFile)
+}

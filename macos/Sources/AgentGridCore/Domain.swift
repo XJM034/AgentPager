@@ -4,6 +4,18 @@ public enum AgentSource: String, Codable, Sendable {
     case codexDesktop
     case codexCLI
     case claudeCode
+    case zcode
+    case unknown
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: value) ?? .unknown
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 public enum AgentLifecycle: String, Codable, CaseIterable, Sendable {
@@ -186,6 +198,53 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         self.capabilities = capabilities
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case source
+        case projectName
+        case title
+        case userPrompt
+        case latestStep
+        case tokenUsage
+        case subagents
+        case lifecycle
+        case activity
+        case startedAt
+        case updatedAt
+        case completedAt
+        case isUnread
+        case isPinned
+        case isMuted
+        case capabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        source = try container.decode(AgentSource.self, forKey: .source)
+        projectName = try container.decode(String.self, forKey: .projectName)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? projectName
+        userPrompt = try container.decodeIfPresent(String.self, forKey: .userPrompt)
+        latestStep = try container.decodeIfPresent(String.self, forKey: .latestStep)
+        tokenUsage = try container.decodeIfPresent(TokenUsage.self, forKey: .tokenUsage)
+        subagents = try container.decodeIfPresent(
+            [SubagentSnapshot].self,
+            forKey: .subagents
+        ) ?? []
+        lifecycle = try container.decode(AgentLifecycle.self, forKey: .lifecycle)
+        activity = try container.decodeIfPresent(AgentActivity.self, forKey: .activity)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        isUnread = try container.decodeIfPresent(Bool.self, forKey: .isUnread) ?? false
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        capabilities = try container.decodeIfPresent(
+            Set<TaskCapability>.self,
+            forKey: .capabilities
+        ) ?? []
+    }
+
     public var isTerminal: Bool {
         [.succeeded, .interrupted].contains(lifecycle)
     }
@@ -210,6 +269,10 @@ public struct UsageWindow: Identifiable, Codable, Equatable, Sendable {
     public var remainingPercentage: Double
     public var windowMinutes: Int
     public var resetsAt: Date?
+    public var quotaType: String?
+    public var limitAmount: Double?
+    public var usedAmount: Double?
+    public var remainingAmount: Double?
 
     public init(
         key: String,
@@ -217,7 +280,11 @@ public struct UsageWindow: Identifiable, Codable, Equatable, Sendable {
         usedPercentage: Double,
         remainingPercentage: Double,
         windowMinutes: Int,
-        resetsAt: Date?
+        resetsAt: Date?,
+        quotaType: String? = nil,
+        limitAmount: Double? = nil,
+        usedAmount: Double? = nil,
+        remainingAmount: Double? = nil
     ) {
         self.key = key
         self.label = label
@@ -225,6 +292,10 @@ public struct UsageWindow: Identifiable, Codable, Equatable, Sendable {
         self.remainingPercentage = remainingPercentage
         self.windowMinutes = windowMinutes
         self.resetsAt = resetsAt
+        self.quotaType = quotaType
+        self.limitAmount = limitAmount
+        self.usedAmount = usedAmount
+        self.remainingAmount = remainingAmount
     }
 }
 
@@ -244,6 +315,35 @@ public struct QuotaGroup: Identifiable, Codable, Equatable, Sendable {
         self.name = name
         self.capturedAt = capturedAt
         self.windows = windows
+    }
+}
+
+public struct UsageProviderSnapshot: Identifiable, Codable, Equatable, Sendable {
+    public var id: String
+    public var displayName: String?
+    public var planName: String?
+    /// 上游套餐等级只按原值转发，不能据此推断面向用户的套餐名称。
+    public var planLevel: String?
+    public var capturedAt: Date?
+    public var status: String?
+    public var quotaGroups: [QuotaGroup]
+
+    public init(
+        id: String,
+        displayName: String? = nil,
+        planName: String? = nil,
+        planLevel: String? = nil,
+        capturedAt: Date? = nil,
+        status: String? = nil,
+        quotaGroups: [QuotaGroup] = []
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.planName = planName
+        self.planLevel = planLevel
+        self.capturedAt = capturedAt
+        self.status = status
+        self.quotaGroups = quotaGroups
     }
 }
 
@@ -319,11 +419,18 @@ public struct ControlPayload: Codable, Equatable, Sendable {
     public var taskID: String
     public var action: ControlAction
     public var value: String?
+    public var pendingRequestID: String?
 
-    public init(taskID: String, action: ControlAction, value: String? = nil) {
+    public init(
+        taskID: String,
+        action: ControlAction,
+        value: String? = nil,
+        pendingRequestID: String? = nil
+    ) {
         self.taskID = taskID
         self.action = action
         self.value = value
+        self.pendingRequestID = pendingRequestID
     }
 }
 

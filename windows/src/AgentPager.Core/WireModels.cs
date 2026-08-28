@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace AgentPager.Core;
 
-public enum AgentSource { CodexDesktop, CodexCLI, ClaudeCode }
+public enum AgentSource { CodexDesktop, CodexCLI, ClaudeCode, ZCode, Unknown }
 public enum AgentLifecycle { Offline, Idle, Starting, Running, WaitingApproval, WaitingAnswer, Succeeded, Interrupted }
 public enum AgentActivity { Thinking, Reading, Searching, Editing, Executing, Testing, Browsing, Delegating }
 public enum TaskCapability { Approve, Deny, Answer, Interrupt, Retry }
@@ -82,13 +82,26 @@ public sealed record UsageWindow(
     double UsedPercentage,
     double RemainingPercentage,
     int WindowMinutes,
-    DateTimeOffset? ResetsAt);
+    DateTimeOffset? ResetsAt,
+    string? QuotaType = null,
+    double? LimitAmount = null,
+    double? UsedAmount = null,
+    double? RemainingAmount = null);
 
 public sealed record QuotaGroup(
     string Id,
     string? Name,
     DateTimeOffset? CapturedAt,
     List<UsageWindow> Windows);
+
+public sealed record UsageProviderSnapshot(
+    string Id,
+    string? DisplayName,
+    string? PlanName,
+    string? PlanLevel,
+    DateTimeOffset? CapturedAt,
+    string? Status,
+    List<QuotaGroup> QuotaGroups);
 
 public sealed record DailyUsagePoint(
     string Date,
@@ -112,13 +125,15 @@ public sealed record PendingRequest(
     string TaskID,
     PendingRequestKind Kind,
     string? Summary,
-    List<string> Options);
+    List<string> Options,
+    string? RequestID = null);
 
 public sealed record StateSnapshotPayload(
     List<TaskSnapshot> Tasks,
     UsageSnapshot? Usage,
     string? FocusedTaskID,
-    List<PendingRequest> PendingRequests);
+    List<PendingRequest> PendingRequests,
+    List<UsageProviderSnapshot>? UsageProviders = null);
 
 public sealed record PairingPayload(
     int Version,
@@ -130,7 +145,8 @@ public sealed record PairingPayload(
 public sealed record ControlPayload(
     string TaskID,
     ControlAction Action,
-    string? Value);
+    string? Value,
+    string? PendingRequestID = null);
 
 public sealed record SignedControlEnvelope(
     int Version,
@@ -170,11 +186,35 @@ public static class WireJson
             WriteIndented = false,
         };
         options.Converters.Add(new CodexHookEventNameConverter());
+        options.Converters.Add(new AgentSourceConverter());
         options.Converters.Add(new WireEnumConverterFactory());
         options.Converters.Add(new UnixMillisecondsConverter());
         options.Converters.Add(new NullableUnixMillisecondsConverter());
         return options;
     }
+}
+
+internal sealed class AgentSourceConverter : JsonConverter<AgentSource>
+{
+    public override AgentSource Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.GetString() switch
+        {
+            "codexDesktop" => AgentSource.CodexDesktop,
+            "codexCLI" => AgentSource.CodexCLI,
+            "claudeCode" => AgentSource.ClaudeCode,
+            "zcode" => AgentSource.ZCode,
+            _ => AgentSource.Unknown,
+        };
+
+    public override void Write(Utf8JsonWriter writer, AgentSource value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value switch
+        {
+            AgentSource.CodexDesktop => "codexDesktop",
+            AgentSource.CodexCLI => "codexCLI",
+            AgentSource.ClaudeCode => "claudeCode",
+            AgentSource.ZCode => "zcode",
+            _ => "unknown",
+        });
 }
 
 internal sealed class CodexHookEventNameConverter : JsonConverter<CodexHookEventName>
@@ -234,11 +274,6 @@ internal sealed class WireEnumConverter<T> : JsonConverter<T> where T : struct, 
     private static string WireName(T value)
     {
         var name = value.ToString();
-        if (typeof(T) == typeof(AgentSource))
-        {
-            if (name == nameof(AgentSource.CodexCLI)) return "codexCLI";
-            if (name == nameof(AgentSource.ClaudeCode)) return "claudeCode";
-        }
         return char.ToLowerInvariant(name[0]) + name[1..];
     }
 }

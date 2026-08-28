@@ -26,10 +26,17 @@ public static class ControlSigner
     public static byte[] SigningData(SignedControlEnvelope envelope)
     {
         var action = JsonSerializer.Serialize(WireAction(envelope.Payload.Action));
+        var pendingRequestID = envelope.Payload.PendingRequestID is null
+            ? null
+            : JsonSerializer.Serialize(envelope.Payload.PendingRequestID);
         var task = JsonSerializer.Serialize(envelope.Payload.TaskID);
-        var payload = envelope.Payload.Value is null
-            ? $"{{\"action\":{action},\"taskID\":{task}}}"
-            : $"{{\"action\":{action},\"taskID\":{task},\"value\":{JsonSerializer.Serialize(envelope.Payload.Value)}}}";
+        var payload = $"{{\"action\":{action}"
+            + (pendingRequestID is null ? "" : $",\"pendingRequestID\":{pendingRequestID}")
+            + $",\"taskID\":{task}"
+            + (envelope.Payload.Value is null
+                ? ""
+                : $",\"value\":{JsonSerializer.Serialize(envelope.Payload.Value)}")
+            + "}";
         var text = string.Join('\n',
             envelope.Version.ToString(),
             envelope.MessageId.ToString().ToLowerInvariant(),

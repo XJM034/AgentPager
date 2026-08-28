@@ -92,6 +92,24 @@ public struct PersistentTaskCatalog: Sendable {
         catalog.projection()
     }
 
+    public var restoredActiveTaskStartDates: [String: Date] {
+        catalog.restoredActiveTaskStartDates
+    }
+
+    @discardableResult
+    public mutating func reconcileRestoredActiveTasks(
+        verifiedActiveTaskIDs: Set<String>,
+        now: Date = .now
+    ) -> TaskCatalogCommit? {
+        guard catalog.reconcileRestoredActiveTasks(
+            verifiedActiveTaskIDs: verifiedActiveTaskIDs,
+            now: now
+        ) else {
+            return nil
+        }
+        return commit()
+    }
+
     private mutating func refreshTitles() -> Bool {
         let tasks = catalog.projection().tasks
         guard titleSynchronizer.needsRefresh(for: tasks) else {

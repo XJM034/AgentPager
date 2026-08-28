@@ -63,3 +63,17 @@ func synchronizedTitleStopsRefreshingUntilNewTaskAppears() {
 
     #expect(synchronizer.needsRefresh(for: catalog.projection().tasks))
 }
+
+@Test("终态任务缺少索引标题时不再持续刷新")
+func terminalTaskWithoutIndexedTitleDoesNotKeepRefreshing() {
+    let terminalTask = TaskSnapshot(
+        id: "session-missing-from-index",
+        source: .codexDesktop,
+        projectName: "AgentGrid",
+        title: "Memory Writing Agent",
+        lifecycle: .interrupted
+    )
+    let synchronizer = CodexSessionTitleSynchronizer()
+
+    #expect(!synchronizer.needsRefresh(for: [terminalTask]))
+}

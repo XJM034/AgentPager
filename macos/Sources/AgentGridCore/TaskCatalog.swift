@@ -75,6 +75,16 @@ public struct TaskCatalog: Sendable {
     private var store: TaskStore
     private var requestsByTaskID: [String: PendingRequest]
     private(set) public var revision: UInt64
+    private(set) public var restoredActiveTaskIDs: Set<String>
+
+    public var restoredActiveTaskStartDates: [String: Date] {
+        Dictionary(uniqueKeysWithValues: store.tasks.compactMap { task in
+            guard restoredActiveTaskIDs.contains(task.id) else {
+                return nil
+            }
+            return (task.id, task.startedAt)
+        })
+    }
 
     public init(
         restoring tasks: [TaskSnapshot] = [],
@@ -85,7 +95,17 @@ public struct TaskCatalog: Sendable {
             uniqueKeysWithValues: pendingRequests.map { ($0.taskID, $0) }
         )
         revision = 0
-        normalizeRestoredState()
+        restoredActiveTaskIDs = Set(
+            tasks.filter { task in
+                [
+                    AgentLifecycle.starting,
+                    .running,
+                    .waitingApproval,
+                    .waitingAnswer,
+                ].contains(task.lifecycle)
+            }.map(\.id)
+        )
+        normalize(now: .now)
     }
 
     @discardableResult
@@ -131,6 +151,25 @@ public struct TaskCatalog: Sendable {
         let previousTasks = store.tasks
         let previousRequests = requestsByTaskID
 
+        normalize(now: now)
+
+        return commitIfChanged(
+            previousTasks: previousTasks,
+            previousRequests: previousRequests
+        )
+    }
+
+    @discardableResult
+    public mutating func reconcileRestoredActiveTasks(
+        verifiedActiveTaskIDs: Set<String>,
+        now: Date = .now
+    ) -> Bool {
+        let previousTasks = store.tasks
+        let previousRequests = requestsByTaskID
+        let unverifiedTaskIDs = restoredActiveTaskIDs.subtracting(verifiedActiveTaskIDs)
+
+        _ = store.interruptActiveTasks(withIDs: unverifiedTaskIDs, now: now)
+        restoredActiveTaskIDs.removeAll()
         normalize(now: now)
 
         return commitIfChanged(
@@ -230,10 +269,6 @@ public struct TaskCatalog: Sendable {
                 $0.taskID < $1.taskID
             }
         )
-    }
-
-    private mutating func normalizeRestoredState() {
-        normalize(now: .now)
     }
 
     private mutating func normalize(now: Date) {

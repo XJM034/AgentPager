@@ -32,6 +32,32 @@ public struct TaskStore: Sendable {
     }
 
     @discardableResult
+    public mutating func interruptActiveTasks(
+        withIDs taskIDs: Set<String>,
+        now: Date = .now
+    ) -> Bool {
+        var changed = false
+        for index in tasks.indices {
+            guard taskIDs.contains(tasks[index].id),
+                  [
+                AgentLifecycle.starting,
+                .running,
+                .waitingApproval,
+                .waitingAnswer,
+            ].contains(tasks[index].lifecycle) else {
+                continue
+            }
+            tasks[index].lifecycle = .interrupted
+            tasks[index].activity = nil
+            tasks[index].completedAt = now
+            tasks[index].isUnread = true
+            tasks[index].capabilities = []
+            changed = true
+        }
+        return changed
+    }
+
+    @discardableResult
     public mutating func applyTitles(_ titlesByTaskID: [String: String]) -> Bool {
         var changed = false
         for index in tasks.indices {

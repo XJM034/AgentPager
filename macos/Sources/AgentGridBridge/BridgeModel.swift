@@ -33,6 +33,7 @@ final class BridgeModel {
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
+        reconcileRestoredTasks()
         publishCatalog()
 
         do {
@@ -250,6 +251,18 @@ final class BridgeModel {
         if let commit = catalog.accept(.rollout(signals)) {
             applyCatalogCommit(commit)
         }
+    }
+
+    private func reconcileRestoredTasks() {
+        let reconciliation = rolloutObservation.reconcile(
+            sessionStartDates: catalog.restoredActiveTaskStartDates
+        )
+        if !reconciliation.signals.isEmpty {
+            _ = catalog.accept(.rollout(reconciliation.signals))
+        }
+        _ = catalog.reconcileRestoredActiveTasks(
+            verifiedActiveTaskIDs: reconciliation.activeSessionIDs
+        )
     }
 
     private func handleControl(_ text: String) {

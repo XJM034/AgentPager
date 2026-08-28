@@ -60,11 +60,15 @@ struct CodexRolloutReaderTests {
         ]
         try (lines.joined(separator: "\n") + "\n")
             .write(to: rollout, atomically: true, encoding: .utf8)
+        let now = try #require(
+            ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
+        )
 
         var reader = CodexRolloutReader()
         let discovered = reader.discoverSessions(
             in: root,
-            modifiedAfter: .distantPast
+            modifiedAfter: now.addingTimeInterval(-10 * 60),
+            now: now
         )
         let signals = reader.poll()
 
@@ -72,6 +76,58 @@ struct CodexRolloutReaderTests {
         #expect(signals.last?.sessionID == "session-live")
         #expect(signals.last?.cwd == "/tmp/AgentGrid")
         #expect(signals.last?.latestStep == "swift test")
+    }
+
+    @Test
+    func recentDiscoverySkipsFilesOutsideLookbackDateDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let currentDirectory = root
+            .appendingPathComponent("2026/07/26", isDirectory: true)
+        let unrelatedDirectory = root
+            .appendingPathComponent("2026/01/01", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: currentDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: unrelatedDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        {"type":"session_meta","payload":{"id":"session-current-date","cwd":"/tmp/AgentGrid"}}
+        {"type":"event_msg","payload":{"type":"task_started"}}
+
+        """.write(
+            to: currentDirectory.appendingPathComponent("rollout-session-current-date.jsonl"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        {"type":"session_meta","payload":{"id":"session-unrelated-date","cwd":"/tmp/AgentGrid"}}
+        {"type":"event_msg","payload":{"type":"task_started"}}
+
+        """.write(
+            to: unrelatedDirectory.appendingPathComponent("rollout-session-unrelated-date.jsonl"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let now = try #require(
+            ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
+        )
+
+        var reader = CodexRolloutReader()
+        let discovered = reader.discoverSessions(
+            in: root,
+            modifiedAfter: now.addingTimeInterval(-10 * 60),
+            now: now
+        )
+        let signals = reader.poll(now: now)
+
+        #expect(discovered == 1)
+        #expect(Set(signals.map(\.sessionID)) == ["session-current-date"])
     }
 
     @Test

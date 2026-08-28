@@ -80,6 +80,7 @@ public struct CodexSessionTitleSynchronizer: Sendable {
         // Claude 会话的标题来自 UserPromptSubmit，无需进入该同步流程。
         tasks.contains {
             ($0.source == .codexCLI || $0.source == .codexDesktop)
+            && !$0.isTerminal
             && synchronizedTitles[$0.id] == nil
         }
     }

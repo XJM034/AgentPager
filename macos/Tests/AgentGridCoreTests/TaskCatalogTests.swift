@@ -120,6 +120,37 @@ func staleRolloutDoesNotReopenTerminalTask() {
     #expect(updated.userPrompt == "可以补充的旧消息")
 }
 
+@Test("Bridge 重启对账后会中断没有活动证据的旧状态")
+func restoredActiveTaskStartsInterruptedUntilFreshEvidenceArrives() throws {
+    for lifecycle in [
+        AgentLifecycle.starting,
+        .running,
+        .waitingApproval,
+        .waitingAnswer,
+    ] {
+        let task = TaskSnapshot(
+            id: "session-stale-\(lifecycle.rawValue)",
+            source: .codexCLI,
+            projectName: "AgentGrid",
+            lifecycle: lifecycle,
+            activity: .thinking,
+            startedAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        var catalog = TaskCatalog(restoring: [task])
+        catalog.reconcileRestoredActiveTasks(
+            verifiedActiveTaskIDs: [],
+            now: Date(timeIntervalSince1970: 3_000)
+        )
+        let restored = try #require(catalog.projection().tasks.first)
+
+        #expect(restored.lifecycle == .interrupted)
+        #expect(restored.activity == nil)
+        #expect(restored.completedAt != nil)
+    }
+}
+
 @Test("新一轮用户输入会把已完成 Task 重新打开")
 func freshUserMessageReopensTerminalTask() throws {
     let completedAt = Date.now

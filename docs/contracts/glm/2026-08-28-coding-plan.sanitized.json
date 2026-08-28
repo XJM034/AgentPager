@@ -1,0 +1,171 @@
+{
+  "schemaVersion": "agentpager.gate0.glm-coding-plan.v1",
+  "capturedAt": "2026-08-28T14:55:34+08:00",
+  "environment": {
+    "platform": "open.bigmodel.cn",
+    "planLevel": "lite",
+    "timezone": "Asia/Shanghai"
+  },
+  "privacy": {
+    "rawResponsePersisted": false,
+    "credentialPersisted": false,
+    "excluded": [
+      "authorization value",
+      "cookie",
+      "account identifier",
+      "profile image",
+      "raw error message",
+      "model and tool usage values"
+    ]
+  },
+  "endpoints": {
+    "modelUsage": {
+      "method": "GET",
+      "path": "/api/monitor/usage/model-usage",
+      "httpStatus": 200,
+      "businessEnvelope": {
+        "fields": [
+          "code",
+          "data",
+          "msg",
+          "success"
+        ],
+        "types": {
+          "code": "number",
+          "data": "object",
+          "msg": "string",
+          "success": "boolean"
+        }
+      },
+      "dataFields": {
+        "granularity": "string",
+        "modelCallCount": "number[25]",
+        "modelDataList": "object[2]",
+        "modelSummaryList": "object[2]",
+        "tokensUsage": "number[25]",
+        "totalUsage": "object",
+        "x_time": "string[25]"
+      },
+      "modelDataItemFields": [
+        "modelName",
+        "sortOrder",
+        "tokensUsage",
+        "totalTokens"
+      ]
+    },
+    "toolUsage": {
+      "method": "GET",
+      "path": "/api/monitor/usage/tool-usage",
+      "httpStatus": 200,
+      "businessEnvelope": {
+        "fields": [
+          "code",
+          "data",
+          "msg",
+          "success"
+        ],
+        "types": {
+          "code": "number",
+          "data": "object",
+          "msg": "string",
+          "success": "boolean"
+        }
+      },
+      "dataFields": {
+        "granularity": "string",
+        "networkSearchCount": "number[25]",
+        "toolDataList": "object[2]",
+        "toolSummaryList": "object[2]",
+        "totalUsage": "object",
+        "webReadMcpCount": "number[25]",
+        "x_time": "string[25]",
+        "zreadMcpCount": "number[25]"
+      },
+      "toolDataItemFields": [
+        "sortOrder",
+        "toolCode",
+        "toolName",
+        "toolNameI18n",
+        "totalUsageCount",
+        "usageCount"
+      ]
+    },
+    "quotaLimit": {
+      "method": "GET",
+      "path": "/api/monitor/usage/quota/limit",
+      "httpStatus": 200,
+      "businessStatus": {
+        "success": true,
+        "code": 200
+      },
+      "data": {
+        "level": "lite",
+        "limits": [
+          {
+            "type": "CREDIT_LIMIT",
+            "unit": 3,
+            "number": 5,
+            "usage": 2000,
+            "currentValue": 102,
+            "remaining": 1897,
+            "percentage": 5,
+            "nextResetTime": 1787904223581,
+            "nextResetTimeLocal": "2026-08-28 16:03:43 Asia/Shanghai"
+          },
+          {
+            "type": "CREDIT_LIMIT",
+            "unit": 6,
+            "number": 1,
+            "usage": 10000,
+            "currentValue": 102,
+            "remaining": 9897,
+            "percentage": 1,
+            "nextResetTime": 1788490685990,
+            "nextResetTimeLocal": "2026-09-04 10:58:05 Asia/Shanghai"
+          }
+        ]
+      }
+    }
+  },
+  "sameTimePageComparison": {
+    "observedAt": "2026-08-28 14:54-14:55 Asia/Shanghai",
+    "fiveHour": {
+      "page": "102 / 2000, 5% used, reset 16:03",
+      "api": "102 / 2000, percentage=5, reset 16:03:43",
+      "match": true
+    },
+    "weekly": {
+      "page": "102 / 10000, 1% used, reset 2026-09-04 10:58",
+      "api": "102 / 10000, percentage=1, reset 2026-09-04 10:58:05",
+      "match": true
+    },
+    "planLevel": {
+      "page": "Personal Coding Plan",
+      "api": "lite",
+      "match": null,
+      "conclusion": "The page did not expose the lite identifier, so the mapping remains unverified."
+    },
+    "percentageDirection": "used"
+  },
+  "invalidAuthorization": {
+    "requestCredential": "synthetic invalid value",
+    "httpStatus": 200,
+    "bodyFormat": "json",
+    "businessStatus": {
+      "success": false,
+      "code": 401,
+      "messagePresent": true
+    },
+    "conclusion": "HTTP status alone is insufficient; clients must validate success and code in the JSON envelope."
+  },
+  "contractWarnings": [
+    "The current quota type is CREDIT_LIMIT; do not assume older TOKENS_LIMIT or TIME_LIMIT values.",
+    "remaining was one lower than usage minus currentValue for both limits in this snapshot; preserve the server field rather than recomputing it.",
+    "Quota values are a point-in-time snapshot and can change between calls."
+  ],
+  "unknowns": [
+    "Real 403, 429, exhausted-quota, expired-plan, 5xx, timeout and non-JSON responses were not induced.",
+    "Team and higher-tier plan shapes were not tested.",
+    "No historical compatibility guarantee was established."
+  ]
+}

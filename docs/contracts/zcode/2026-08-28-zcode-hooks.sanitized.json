@@ -1,0 +1,287 @@
+{
+  "schemaVersion": "agentpager.gate0.zcode-hooks.v1",
+  "capturedAt": "2026-08-28",
+  "environment": {
+    "desktopVersion": "3.10.1 (6272)",
+    "embeddedCliVersion": "0.16.5",
+    "platform": "macOS",
+    "captureSurface": "ZCode desktop"
+  },
+  "privacy": {
+    "rawPayloadPersisted": false,
+    "excluded": [
+      "prompt text",
+      "command text",
+      "working directories",
+      "transcript paths",
+      "tool output",
+      "error text",
+      "session identifiers",
+      "account identifiers"
+    ],
+    "identifierPolicy": "Scenario-local placeholders replace real identifiers."
+  },
+  "eventSchemas": {
+    "SessionStart": {
+      "fields": [
+        "cwd",
+        "hookEventName",
+        "hook_event_name",
+        "mode",
+        "model",
+        "permission_mode",
+        "sessionId",
+        "session_id",
+        "source",
+        "timestamp",
+        "traceId",
+        "transcriptPath",
+        "transcript_path",
+        "turnId"
+      ]
+    },
+    "UserPromptSubmit": {
+      "fields": [
+        "cwd",
+        "hookEventName",
+        "hook_event_name",
+        "mode",
+        "permission_mode",
+        "prompt",
+        "sessionId",
+        "session_id",
+        "timestamp",
+        "traceId",
+        "transcriptPath",
+        "transcript_path",
+        "turnId"
+      ]
+    },
+    "PreToolUse": {
+      "fields": [
+        "cwd",
+        "hookEventName",
+        "hook_event_name",
+        "mode",
+        "permission_mode",
+        "riskLevel",
+        "sessionId",
+        "session_id",
+        "sideEffectScope",
+        "timestamp",
+        "toolCallId",
+        "toolInput",
+        "toolName",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "traceId",
+        "transcriptPath",
+        "transcript_path",
+        "turnId"
+      ]
+    },
+    "PermissionRequest": {
+      "fields": [
+        "cwd",
+        "hookEventName",
+        "hook_event_name",
+        "mode",
+        "permission_mode",
+        "reason",
+        "requestId",
+        "riskLevel",
+        "sessionId",
+        "session_id",
+        "sideEffectScope",
+        "timestamp",
+        "toolCallId",
+        "toolInput",
+        "toolName",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "traceId",
+        "transcriptPath",
+        "transcript_path",
+        "turnId"
+      ]
+    },
+    "PostToolUse": {
+      "fields": [
+        "cwd",
+        "hookEventName",
+        "hook_event_name",
+        "mode",
+        "permission_mode",
+        "sessionId",
+        "session_id",
+        "timestamp",
+        "toolCallId",
+        "toolInput",
+        "toolName",
+        "toolResponse",
+        "toolResultPreview",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "traceId",
+        "transcriptPath",
+        "transcript_path",
+        "turnId"
+      ]
+    },
+    "PostToolUseFailure": {
+      "fields": [
+        "cwd",
+        "error",
+        "error_details",
+        "hookEventName",
+        "hook_event_name",
+        "isInterrupt",
+        "is_interrupt",
+        "mode",
+        "permission_mode",
+        "sessionId",
+        "session_id",
+        "timestamp",
+        "toolCallId",
+        "toolInput",
+        "toolName",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "traceId",
+        "transcriptPath",
+        "transcript_path",
+        "turnId"
+      ]
+    },
+    "Stop": {
+      "fields": [
+        "cwd",
+        "hookEventName",
+        "hook_event_name",
+        "last_assistant_message",
+        "mode",
+        "permission_mode",
+        "responsePreview",
+        "responseText",
+        "sessionId",
+        "session_id",
+        "stopHookActive",
+        "stop_hook_active",
+        "timestamp",
+        "toolCallCount",
+        "traceId",
+        "transcriptPath",
+        "transcript_path",
+        "turnId"
+      ]
+    }
+  },
+  "aliasContract": {
+    "session": [
+      "session_id",
+      "sessionId"
+    ],
+    "event": [
+      "hook_event_name",
+      "hookEventName"
+    ],
+    "toolName": [
+      "tool_name",
+      "toolName"
+    ],
+    "toolInput": [
+      "tool_input",
+      "toolInput"
+    ],
+    "toolUseIdObserved": [
+      "tool_use_id"
+    ]
+  },
+  "scenarios": [
+    {
+      "name": "permission-allowed",
+      "sessionRef": "session-allow",
+      "toolRef": "tool-allow",
+      "toolClass": "Bash",
+      "events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "Stop"
+      ],
+      "hookDecision": "allow",
+      "result": "The tool ran without an operating-system permission dialog."
+    },
+    {
+      "name": "permission-denied",
+      "sessionRef": "session-deny",
+      "toolRef": "tool-deny",
+      "toolClass": "Bash",
+      "events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PermissionRequest",
+        "Stop"
+      ],
+      "hookDecision": "deny",
+      "result": "The tool did not run and no post-tool event was emitted."
+    },
+    {
+      "name": "permission-hook-timeout",
+      "sessionRef": "session-timeout",
+      "toolRef": "tool-timeout",
+      "toolClass": "Bash",
+      "configuredTimeoutMs": 1500,
+      "hookSleepMs": 2500,
+      "events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUse",
+        "Stop"
+      ],
+      "result": "The hook failed after the configured timeout and ZCode fell back to its in-session permission card. The user allowed the tool there."
+    },
+    {
+      "name": "tool-failure",
+      "sessionRef": "session-failure",
+      "toolRef": "tool-failure",
+      "toolClass": "Read",
+      "events": [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PermissionRequest",
+        "PostToolUseFailure",
+        "Stop"
+      ],
+      "result": "The missing-file read emitted PostToolUseFailure with an error present, but no error content was retained."
+    }
+  ],
+  "observations": {
+    "sessionIdentity": "session_id and sessionId matched throughout each captured session.",
+    "toolIdentity": "tool_use_id remained stable across PreToolUse, PermissionRequest and the matching post-tool event.",
+    "permissionStdout": {
+      "PreToolUse": "hookSpecificOutput.permissionDecision=ask requested permission handling.",
+      "PermissionRequestAllow": "hookSpecificOutput.decision.behavior=allow allowed execution.",
+      "PermissionRequestDeny": "hookSpecificOutput.decision.behavior=deny blocked execution."
+    },
+    "nonzeroBashExit": "A Bash command with a nonzero exit code still emitted PostToolUse in this capture; it is not sufficient to infer PostToolUseFailure from process exit status.",
+    "stopSemantics": "Stop had stop_hook_active=false and contained an assistant-message field. It marks the end of a model turn, not a proven terminal session state.",
+    "headlessBoundary": "The embedded CLI had no permission client for an ask decision, so the complete PermissionRequest flow was validated in ZCode desktop."
+  },
+  "unknowns": [
+    "No SessionEnd event was observed, so normal completion and interruption cannot be classified from Stop alone.",
+    "No guarantee was established that future ZCode versions will preserve both snake_case and camelCase aliases.",
+    "Permission timeout fallback was observed only in ZCode desktop 3.10.1 (6272)."
+  ]
+}

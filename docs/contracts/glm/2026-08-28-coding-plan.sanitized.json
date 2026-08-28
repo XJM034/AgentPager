@@ -147,6 +147,21 @@
     },
     "percentageDirection": "used"
   },
+  "planFieldContract": {
+    "sourceField": "data.level",
+    "required": false,
+    "valueSemantics": "opaque",
+    "observedValue": "lite",
+    "stablePageMapping": null,
+    "displayNamePolicy": {
+      "trustedDisplayNameAvailable": "Use the separately verified display name.",
+      "fallback": "GLM Coding Plan"
+    },
+    "inferenceForbidden": [
+      "Do not derive a plan name from quota totals.",
+      "Do not convert lite into Personal Coding Plan without a separately verified mapping."
+    ]
+  },
   "invalidAuthorization": {
     "requestCredential": "synthetic invalid value",
     "httpStatus": 200,

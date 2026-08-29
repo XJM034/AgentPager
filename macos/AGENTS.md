@@ -16,6 +16,7 @@
 - `Sources/AgentGridBridge/`：菜单栏 App、运行协调、界面与视觉效果。
 - `Sources/AgentGridHooks/`：Codex 与 Claude Code 调用的 Hook 命令行入口。
 - `Tests/AgentGridCoreTests/`：核心逻辑测试。
+- `Tests/AgentGridBridgeTests/`：Bridge 生产接线与呈现状态测试。
 - `AppInfo.plist`：Bundle、最低系统和本地网络声明。
 - 打包入口位于仓库根目录的 `scripts/package-macos.sh` 与 `scripts/package-dmg.sh`。
 

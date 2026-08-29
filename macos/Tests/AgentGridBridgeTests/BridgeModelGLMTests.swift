@@ -5,6 +5,24 @@ import Testing
 @testable import AgentGridBridge
 
 @MainActor
+@Test("未配置 GLM 额度连接显示正常未启用状态与可选说明")
+func unconfiguredGLMConnectionUsesOptionalNeutralPresentation() {
+    let model = BridgeModel(
+        glmCoordinatorFactory: { _ in BridgeGLMCoordinatorSpy() }
+    )
+
+    #expect(
+        model.glmStatusPresentation ==
+            GLMStatusPresentation(text: "未启用", tone: .neutral)
+    )
+    #expect(GLMConnectionPresentation.title == "GLM 额度连接（可选）")
+    #expect(
+        GLMConnectionPresentation.explanation ==
+            "ZCode 暂未提供第三方可用的额度读取接口。如需在 AgentPager 手机端显示 5 小时与每周额度，可选择单独保存一次 Coding Plan Key。Key 仅保存在这台 Mac 的系统钥匙串中。"
+    )
+}
+
+@MainActor
 @Test("BridgeModel 启动、手机连接和手动入口接入同一 GLM 协调器")
 func bridgeModelWiresGLMRefreshTriggers() async {
     let coordinator = BridgeGLMCoordinatorSpy()

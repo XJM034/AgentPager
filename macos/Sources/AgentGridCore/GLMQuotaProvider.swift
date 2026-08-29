@@ -119,6 +119,7 @@ public struct GLMQuotaProvider: GLMQuotaFetching, Sendable {
             guard let kind = WindowKind(unit: limit.unit, number: limit.number) else {
                 continue
             }
+            let descriptor = kind.descriptor
             guard let usedPercentage = limit.percentage?.value,
                   usedPercentage.isFinite,
                   (0 ... 100).contains(usedPercentage),
@@ -127,11 +128,11 @@ public struct GLMQuotaProvider: GLMQuotaFetching, Sendable {
                 throw GLMQuotaError.invalidData
             }
             matched[kind] = UsageWindow(
-                key: kind.key,
-                label: kind.label,
+                key: descriptor.key,
+                label: descriptor.label,
                 usedPercentage: usedPercentage,
                 remainingPercentage: min(max(100 - usedPercentage, 0), 100),
-                windowMinutes: kind.windowMinutes,
+                windowMinutes: descriptor.windowMinutes,
                 resetsAt: date(milliseconds: limit.nextResetTime?.value),
                 quotaType: limit.type,
                 limitAmount: finiteValue(limit.usage?.value),
@@ -170,26 +171,20 @@ private enum WindowKind: Hashable {
         }
     }
 
-    var key: String {
+    var descriptor: WindowDescriptor {
         switch self {
-        case .fiveHour: "5-hour"
-        case .weekly: "weekly"
+        case .fiveHour:
+            WindowDescriptor(key: "5-hour", label: "5H", windowMinutes: 300)
+        case .weekly:
+            WindowDescriptor(key: "weekly", label: "WEEK", windowMinutes: 10_080)
         }
     }
+}
 
-    var label: String {
-        switch self {
-        case .fiveHour: "5H"
-        case .weekly: "WEEK"
-        }
-    }
-
-    var windowMinutes: Int {
-        switch self {
-        case .fiveHour: 300
-        case .weekly: 10_080
-        }
-    }
+private struct WindowDescriptor {
+    var key: String
+    var label: String
+    var windowMinutes: Int
 }
 
 private struct QuotaEnvelope: Decodable {

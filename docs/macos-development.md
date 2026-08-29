@@ -13,11 +13,12 @@ macOS 端是一个 Swift Package，而不是独立的 `.xcodeproj`：
 | `macos/Sources/AgentGridBridge/` | SwiftUI 菜单栏 App、界面和运行协调 |
 | `macos/Sources/AgentGridHooks/` | Codex/Claude Code 调用的 Hook 命令行程序 |
 | `macos/Tests/AgentGridCoreTests/` | 核心逻辑测试 |
+| `macos/Tests/AgentGridBridgeTests/` | Bridge 生产接线与呈现状态测试 |
 | `macos/AppInfo.plist` | App Bundle、最低系统、本地网络权限和图标声明 |
 | `scripts/package-macos.sh` | 构建并签名本地 App |
 | `scripts/package-dmg.sh` | 在本地 App 基础上生成 DMG |
 
-当前 Package 声明 Swift tools 6.2、最低 macOS 14，包含 `AgentGridCore`、`AgentGridBridge` 和 `AgentGridHooks` 三个产品。以后如代码或清单发生变化，以 `Package.swift` 和实际命令输出为准。
+当前 Package 声明 Swift tools 6.2、最低 macOS 14，包含 `AgentGridCore`、`AgentGridBridge` 和 `AgentGridHooks` 三个产品，以及 `AgentGridCoreTests`、`AgentGridBridgeTests` 两个测试 Target。以后如代码或清单发生变化，以 `Package.swift` 和实际命令输出为准。
 
 ## 1. 每次开发先核实工具链
 

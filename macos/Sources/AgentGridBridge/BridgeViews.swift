@@ -511,21 +511,29 @@ struct BridgeSettingsView: View {
         .padding(28)
     }
 
+    private var glmStatusAccent: Color {
+        switch model.glmStatusPresentation.tone {
+        case .neutral: PixelTheme.text
+        case .pending: PixelTheme.amber
+        case .success: PixelTheme.green
+        case .failure: PixelTheme.red
+        }
+    }
+
     private var glmView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                SettingsTitle("GLM Coding Plan 额度")
+                SettingsTitle(GLMConnectionPresentation.title)
                 PixelPanel {
                     VStack(alignment: .leading, spacing: 13) {
                         InfoRow(
                             label: "KEY",
-                            value: model.glmStatusText,
-                            accent: model.glmValidationStatus == .succeeded
-                                ? PixelTheme.green
-                                : (model.glmValidationStatus == .failed
-                                    ? PixelTheme.red
-                                    : PixelTheme.amber)
+                            value: model.glmStatusPresentation.text,
+                            accent: glmStatusAccent
                         )
+                        Text(GLMConnectionPresentation.explanation)
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
                         SecureField("输入 Coding Plan Key", text: $glmKeyCandidate)
                             .textFieldStyle(.plain)
                             .font(.system(size: 12, design: .monospaced))

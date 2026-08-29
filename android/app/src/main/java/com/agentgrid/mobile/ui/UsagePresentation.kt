@@ -62,25 +62,33 @@ internal object UsagePresentation {
         return codexGroups + listOfNotNull(glmGroup)
     }
 
-    fun quotaTitle(group: QuotaGroup): String = when (quotaKind(group)) {
-        QuotaKind.GLM -> "GLM"
-        QuotaKind.SPARK -> "SPARK"
-        QuotaKind.GENERAL -> "GENERAL"
-        QuotaKind.OTHER -> group.name?.takeIf(String::isNotBlank)?.uppercase()
-            ?: group.id.uppercase()
+    fun quotaTitle(group: QuotaGroup): String = quotaPresentation(group).title
+
+    fun quotaAccent(group: QuotaGroup): QuotaAccent = quotaPresentation(group).accent
+
+    private data class QuotaPresentation(
+        val title: String,
+        val accent: QuotaAccent,
+    )
+
+    private enum class QuotaKind(
+        val fixedTitle: String?,
+        val accent: QuotaAccent,
+    ) {
+        GENERAL("GENERAL", QuotaAccent.MUTED),
+        SPARK("SPARK", QuotaAccent.VIOLET),
+        GLM("GLM", QuotaAccent.CYAN),
+        OTHER(null, QuotaAccent.MUTED),
     }
 
-    fun quotaAccent(group: QuotaGroup): QuotaAccent = when (quotaKind(group)) {
-        QuotaKind.SPARK -> QuotaAccent.VIOLET
-        QuotaKind.GLM -> QuotaAccent.CYAN
-        QuotaKind.GENERAL, QuotaKind.OTHER -> QuotaAccent.MUTED
-    }
-
-    private enum class QuotaKind {
-        GENERAL,
-        SPARK,
-        GLM,
-        OTHER,
+    private fun quotaPresentation(group: QuotaGroup): QuotaPresentation {
+        val kind = quotaKind(group)
+        return QuotaPresentation(
+            title = kind.fixedTitle
+                ?: group.name?.takeIf(String::isNotBlank)?.uppercase()
+                ?: group.id.uppercase(),
+            accent = kind.accent,
+        )
     }
 
     private fun quotaKind(group: QuotaGroup): QuotaKind = when {

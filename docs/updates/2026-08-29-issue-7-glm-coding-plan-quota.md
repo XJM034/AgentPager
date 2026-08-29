@@ -40,7 +40,8 @@
 已验证：
 
 - `scripts/android-doctor.sh`：通过；JDK 17、Gradle 8.13、Android SDK 与 `medium_phone` 可用。
-- `cd macos && swift test`：最终 157 项通过，其中 `AgentGridCoreTests` 154 项、独立的 `AgentGridBridgeTests` 3 项。
+- `swift --version`：Apple Swift 6.4（swiftlang-6.4.0.33.1，Target `arm64-apple-macosx27.0.0`）。
+- `cd macos && swift test`：本次后续复验共 158 项通过、失败 0 项，其中 `AgentGridCoreTests` 154 项、独立的 `AgentGridBridgeTests` 4 项。
 - Android `testDebugUnitTest lintDebug assembleDebug`：通过。
 - `protocol/fixtures` 与 `docs/contracts` 下全部 JSON 经 `jq empty` 解析通过。
 - `git diff --check`：通过。
@@ -98,7 +99,7 @@ Preview 和自动化构建不能替代 Redmi 真机对顶栏顺序、同高、�
 
 上述问题已分别通过更新记录、无参 single-flight 刷新入口、集中 `QuotaKind/QuotaAccent` 映射、删除等待在途刷新、经过生产 `BridgeModel` 的共享快照/任务持久化与触发接线测试、从 `BridgeModel` 发起查询时的真实 Hook/WebSocket 非阻塞测试，以及禁用 Cookie/缓存的独立临时会话修复。Bridge 接线测试最终迁入独立 `AgentGridBridgeTests` 目标，`AgentGridCoreTests` 恢复只依赖 Core，修复了第二轮 Standards 指出的测试分层偏差。
 
-最终 fixed-point 双轴复审结果：Standards 发现 0 项，Spec 发现 0 项。修复后 macOS 全量测试为 154 项 Core 测试加 3 项 Bridge 测试，全部通过。
+最终 fixed-point 双轴复审结果：Standards 发现 0 项，Spec 发现 0 项。本次后续复验为 154 项 Core 测试加 4 项 Bridge 测试，失败 0 项。
 
 ## 未验证项
 

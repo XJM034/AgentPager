@@ -12,6 +12,40 @@ protocol GLMQuotaCoordinating: Sendable {
 
 extension GLMQuotaCoordinator: GLMQuotaCoordinating {}
 
+enum GLMStatusTone: Equatable {
+    case neutral
+    case pending
+    case success
+    case failure
+}
+
+struct GLMStatusPresentation: Equatable {
+    let text: String
+    let tone: GLMStatusTone
+}
+
+enum GLMConnectionPresentation {
+    static let title = "GLM 额度连接（可选）"
+    static let explanation =
+        "ZCode 暂未提供第三方可用的额度读取接口。如需在 AgentPager 手机端显示 5 小时与每周额度，可选择单独保存一次 Coding Plan Key。Key 仅保存在这台 Mac 的系统钥匙串中。"
+
+    static func status(
+        credential: GLMCredentialStatus,
+        validation: GLMValidationStatus
+    ) -> GLMStatusPresentation {
+        switch validation {
+        case .succeeded:
+            GLMStatusPresentation(text: "验证成功", tone: .success)
+        case .failed:
+            GLMStatusPresentation(text: "验证失败", tone: .failure)
+        case .idle:
+            credential == .configured
+                ? GLMStatusPresentation(text: "已配置", tone: .pending)
+                : GLMStatusPresentation(text: "未启用", tone: .neutral)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class BridgeModel {
@@ -402,15 +436,11 @@ final class BridgeModel {
         }
     }
 
-    var glmStatusText: String {
-        switch glmValidationStatus {
-        case .succeeded:
-            "验证成功"
-        case .failed:
-            "验证失败"
-        case .idle:
-            glmCredentialStatus == .configured ? "已配置" : "未配置"
-        }
+    var glmStatusPresentation: GLMStatusPresentation {
+        GLMConnectionPresentation.status(
+            credential: glmCredentialStatus,
+            validation: glmValidationStatus
+        )
     }
 
     private func handle(_ envelope: HookEnvelope) {

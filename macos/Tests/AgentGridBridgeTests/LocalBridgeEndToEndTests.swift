@@ -242,6 +242,11 @@ func configuredGLMLocalBridgeEndToEnd() async throws {
 
     await quotaFetcher.waitForRequestCount(1)
     let firstClient = LocalWebSocketClient(port: webSocketPort)
+    let connectedSnapshot = try await nextSnapshot(from: firstClient) { snapshot in
+        snapshot.usageProviders == nil &&
+            snapshot.usage?.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"]
+    }
+    #expect(connectedSnapshot.tasks.isEmpty)
     model.refreshGLMQuota()
     await Task.yield()
     let overlappingRequestCount = await quotaFetcher.requestCount

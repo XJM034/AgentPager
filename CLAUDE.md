@@ -4,7 +4,7 @@
 
 ## 每次会话先做
 
-1. 运行 `git status --short --branch`，确认当前分支和未提交改动。
+1. 运行 `git status --short --branch`，确认当前分支和未提交改动；普通个人定制应位于长期分支 `alexx_custom`，发现其它分支时不要擅自创建、切换或改名。
 2. 阅读 [docs/README.md](docs/README.md)；处理 Android 时继续阅读 [android/AGENTS.md](android/AGENTS.md)，处理 macOS 时继续阅读 [macos/AGENTS.md](macos/AGENTS.md)。
 3. 延续旧任务时，读取 `handoff/` 中最新的 `*-handoff.md`；交接仅补充上下文，重要结论仍要从代码和运行结果核实。
 4. 合并、安装、推送或发布前，重新核实分支、远程仓库，以及目标平台的包名或 Bundle、SDK、签名、版本和运行设备。
@@ -16,6 +16,7 @@
 - macOS 构建事实：`macos/Package.swift`、`macos/AppInfo.plist`、`scripts/package-macos.sh` 和 `scripts/package-dmg.sh`。
 - Android 开发、预览、模拟器和真机流程：[docs/android-development.md](docs/android-development.md)。
 - macOS 工具链、测试、打包、安装和运行验证：[docs/macos-development.md](docs/macos-development.md)。
+- 长期定制分支、上游同步和 Entire Review 流程：[docs/custom-development-workflow.md](docs/custom-development-workflow.md)。
 - 定制内容与已验证结果：`docs/updates/` 中最新的日期化记录。
 - Android 与 macOS 可分别直接维护；跨平台协议变化必须同时核对 `protocol/`、Android、macOS 和 Windows 实现。
 
@@ -25,6 +26,7 @@
 - macOS 本地打包只生成 `dist/AgentPager Bridge.app`，不等于已经安装；替换 `/Applications` 中的 App 前先备份旧版本，并核对版本、签名和二进制哈希。
 - 不要把本机 SDK 路径、签名文件、证书、APK、AAB、DMG、密钥或配对凭据提交到 Git。
 - AgentPager 当前通过可信局域网内的本地 Bridge 和 WebSocket 工作；不要擅自增加云后端、遥测或外部数据上传。
+- `alexx_custom` 是个人定制的长期维护分支；普通功能优化直接在该分支形成边界清楚的小提交，不因每项功能自动创建新分支。`upstream/main` 只代表作者主线，不是日常修改的 Review 基准。
 - 安装或卸载 Codex、Claude Code Hook 时必须保留用户已有配置，并保持可恢复备份。
 - 涉及相机、振动、通知、常亮、亮度、启动和 MIUI 后台行为时，模拟器结果不能代替 Redmi 真机验收。
 - 未经用户明确要求，不推送、发版、创建 Release、配置正式签名、提交 Apple 公证或提交上游 PR。
@@ -48,7 +50,7 @@
 - macOS 逻辑与构建：`cd macos && swift test`
 - macOS 本地 App/DMG：`scripts/package-macos.sh`、`scripts/package-dmg.sh`；打包后仍需单独完成签名核对、安装和运行验收。
 - Bridge 运行时：启动后可运行 `node scripts/e2e-local.mjs` 验证状态同步、反向审批和结束收敛；真实菜单栏、Hook 信任、手机连接与性能仍需现场检查。
-- 完成代码修改后必须报告：已运行的检查、运行目标、实际结果、未验证项。
+- 完成代码修改后必须报告：修改范围、已运行的检查、运行目标、实际结果和未验证项。
 
 ## Skills
 
@@ -58,6 +60,7 @@
 - 两份文件由官方 CLI 生成且当前内容一致；不要手工分叉。更新时运行：
   `android skills add --agent=codex,claude-code --project=. android-cli`
 - Skill 是否被新会话加载，需要用新会话实际验证；文件存在不等于当前会话已经重新加载。
+- `entire-review` 的项目软链接由外部 Skill 管理仓库维护，不得通过 `.agents/skills/entire-review` 或 `.claude/skills/entire-review` 反向编辑规范源。Hooks 已配置，日常开发不主动运行、建议或反复提醒 Review；只有用户主动唤起该 Skill 时，才按开发流程文档核对审查范围、活动 Session 和 checkpoint。
 - `$claude-agents-bootstrap` 的规范来源是本项目之外受管理的 `xjm034-skill` Skill 源仓库，本仓库不保存它的项目副本；调用时使用当前会话实际加载的运行时副本，不要把源文件存在误当成已经加载。
 
 ## Agent skills

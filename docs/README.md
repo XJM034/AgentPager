@@ -6,6 +6,7 @@
 
 - [Android Agent 开发环境](android-development.md)：工具、服务、预览、模拟器、真机、构建和调试流程。
 - [macOS AgentPager Bridge 开发环境](macos-development.md)：Xcode/Swift、测试、打包、签名、安装、回滚和运行验收。
+- [长期定制与 Entire Review 流程](custom-development-workflow.md)：长期分支、日常修改基准、上游同步、Session tracking 和人工 Review 门槛。
 - [2026-08-25 Android Agent 开发环境更新](updates/2026-08-25-android-agent-development.md)：本轮配置和验证结果。
 - [2026-08-25 macOS Agent 开发环境更新](updates/2026-08-25-macos-development-environment.md)：Xcode 27 beta、Swift 6.4、macOS 27 SDK 与 iOS 27 Simulator 的当前证据。
 - [2026-08-25 AgentPager Bridge CPU 修复](updates/2026-08-25-agentpager-bridge-cpu-fix.md)：日志轮询性能修复、测试、安装与回滚记录。

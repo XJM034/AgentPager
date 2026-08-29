@@ -1,6 +1,6 @@
 {
   "schema": "manage-skills/profile-v1",
-  "name": "agentpager-mattpocock-project-skills",
+  "name": "agentpager-project-skills",
   "bindings": [
     {
       "id": "mattpocock/ask-matt",
@@ -359,6 +359,171 @@
         "claude": {
           "source": "entireio-entire-review-adapter",
           "relative": "."
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/appkit-interop",
+      "runtimeName": "appkit-interop",
+      "entryName": "appkit-interop",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/appkit-interop"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/appkit-interop"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/build-run-debug",
+      "runtimeName": "build-run-debug",
+      "entryName": "build-run-debug",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/build-run-debug"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/build-run-debug"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/liquid-glass",
+      "runtimeName": "liquid-glass",
+      "entryName": "liquid-glass",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/liquid-glass"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/liquid-glass"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/packaging-notarization",
+      "runtimeName": "packaging-notarization",
+      "entryName": "packaging-notarization",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/packaging-notarization"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/packaging-notarization"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/signing-entitlements",
+      "runtimeName": "signing-entitlements",
+      "entryName": "signing-entitlements",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/signing-entitlements"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/signing-entitlements"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/swiftpm-macos",
+      "runtimeName": "swiftpm-macos",
+      "entryName": "swiftpm-macos",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/swiftpm-macos"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/swiftpm-macos"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/swiftui-patterns",
+      "runtimeName": "swiftui-patterns",
+      "entryName": "swiftui-patterns",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/swiftui-patterns"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/swiftui-patterns"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/telemetry",
+      "runtimeName": "telemetry",
+      "entryName": "telemetry",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/telemetry"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/telemetry"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/test-triage",
+      "runtimeName": "test-triage",
+      "entryName": "test-triage",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/test-triage"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/test-triage"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/view-refactor",
+      "runtimeName": "view-refactor",
+      "entryName": "view-refactor",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/view-refactor"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/view-refactor"
+        }
+      }
+    },
+    {
+      "id": "openai/build-macos-apps/window-management",
+      "runtimeName": "window-management",
+      "entryName": "window-management",
+      "targets": {
+        "codex": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/window-management"
+        },
+        "claude": {
+          "source": "openai-plugins",
+          "relative": "plugins/build-macos-apps/skills/window-management"
         }
       }
     }

@@ -32,6 +32,16 @@ ZCode `PermissionRequest` 的 Bridge 等待是有界的。Bridge、手机或连�
 
 Gate 0 已确认：GLM 上游 `percentage` 表示已使用百分比；`remaining` 是服务端独立字段。适配器必须把服务端 `remaining` 原样投影为 `remainingAmount`，禁止用总量减已用量重算。所有协议时间继续使用 Unix 整数毫秒。
 
+GLM 的 `status` 继续是开放字符串，客户端必须保守处理未知值。Issue #8 当前使用：
+
+- `available`、`quota_exhausted`：可信成功快照；只有上游明确的零额度或耗尽状态才使用后者。
+- `stale_*`：当前刷新失败但 `quotaGroups` 仍是最后一次可信读数；provider `capturedAt` 是最近尝试时间，group `capturedAt` 是最后成功时间。
+- `auth_unauthorized`、`auth_forbidden`：鉴权失效；有最后可信读数时可以携带旧窗口，但必须同时显示鉴权状态，不能看起来仍是新数据。
+- `plan_expired`：套餐状态失效，不携带旧额度窗口。
+- `rate_limited`、`timeout`、`server_error`、`non_json`、`missing_fields`、`unknown_schema`、`unavailable`：从未成功读取时的脱敏不可用原因，不得解释为 0%。
+
+未配置可选 GLM Key 时不发送空 GLM provider；客户端应把缺少 `id=glm` 的 provider 解释为正常“未启用”，而不是错误。
+
 ## 保守降级
 
 - 未知 `AgentSource` 在各客户端映射为通用 `unknown`，任务仍保留在快照中。

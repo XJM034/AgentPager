@@ -90,8 +90,87 @@ func glmRejectsBusinessUnauthorizedInsideHTTP200() async {
         )
     )
 
-    await #expect(throws: GLMQuotaError.invalidCredential) {
+    await #expect(throws: GLMQuotaError.unauthorized) {
         try await provider.fetchQuota(using: "invalid-candidate")
+    }
+}
+
+@Test(arguments: [
+    (401, GLMQuotaError.unauthorized),
+    (403, GLMQuotaError.forbidden),
+    (429, GLMQuotaError.rateLimited),
+    (503, GLMQuotaError.serverUnavailable),
+])
+func glmClassifiesHTTPFailures(_ statusCode: Int, _ expected: GLMQuotaError) async {
+    let provider = GLMQuotaProvider(
+        network: RecordingGLMNetworkClient(
+            response: GLMHTTPResponse(statusCode: statusCode, data: Data())
+        )
+    )
+
+    await #expect(throws: expected) {
+        try await provider.fetchQuota(using: "candidate")
+    }
+}
+
+@Test("GLM 超时不暴露底层网络错误")
+func glmClassifiesTimeoutWithoutLeakingNetworkDetails() async {
+    let provider = GLMQuotaProvider(network: ThrowingGLMNetworkClient(error: URLError(.timedOut)))
+
+    await #expect(throws: GLMQuotaError.timedOut) {
+        try await provider.fetchQuota(using: "candidate")
+    }
+}
+
+@Test(arguments: [
+    (Data("<html>gateway</html>".utf8), GLMQuotaError.nonJSON),
+    (Data(#"{"success":true,"code":200,"data":{}}"#.utf8), GLMQuotaError.missingFields),
+    (Data(#"{"success":true,"code":200,"data":{"limits":"changed"}}"#.utf8), GLMQuotaError.unknownSchema),
+])
+func glmSeparatesInvalidResponseShapes(_ data: Data, _ expected: GLMQuotaError) async {
+    let provider = GLMQuotaProvider(
+        network: RecordingGLMNetworkClient(
+            response: GLMHTTPResponse(statusCode: 200, data: data)
+        )
+    )
+
+    await #expect(throws: expected) {
+        try await provider.fetchQuota(using: "candidate")
+    }
+}
+
+@Test(arguments: [
+    (#"{"success":false,"code":400,"reason":"PLAN_EXPIRED"}"#, GLMQuotaError.planExpired),
+    (#"{"success":false,"code":400,"reason":"QUOTA_EXHAUSTED"}"#, GLMQuotaError.quotaExhausted),
+    (#"{"success":false,"code":1309}"#, GLMQuotaError.planExpired),
+    (#"{"success":false,"code":1308}"#, GLMQuotaError.quotaExhausted),
+    (#"{"success":false,"code":1310}"#, GLMQuotaError.quotaExhausted),
+])
+func glmRecognizesOnlyExplicitPlanFailures(_ response: String, _ expected: GLMQuotaError) async {
+    let provider = GLMQuotaProvider(
+        network: RecordingGLMNetworkClient(
+            response: GLMHTTPResponse(statusCode: 200, data: Data(response.utf8))
+        )
+    )
+
+    await #expect(throws: expected) {
+        try await provider.fetchQuota(using: "candidate")
+    }
+}
+
+@Test("GLM 不把未知错误文案猜成额度耗尽")
+func glmDoesNotGuessQuotaExhaustionFromUnknownMessages() async {
+    let provider = GLMQuotaProvider(
+        network: RecordingGLMNetworkClient(
+            response: GLMHTTPResponse(
+                statusCode: 200,
+                data: Data(#"{"success":false,"code":400,"msg":"quota maybe exhausted"}"#.utf8)
+            )
+        )
+    )
+
+    await #expect(throws: GLMQuotaError.unavailable) {
+        try await provider.fetchQuota(using: "candidate")
     }
 }
 
@@ -112,8 +191,16 @@ func glmFallsBackToGenericPlanNameWithoutLevel() async throws {
     #expect(snapshot.planLevel == nil)
 }
 
-@Test(arguments: ["null", #""unknown""#, "-1", "101"])
-func glmRejectsMissingIllegalOrUnknownPercentage(_ percentage: String) async {
+@Test(arguments: [
+    ("null", GLMQuotaError.missingFields),
+    (#""unknown""#, GLMQuotaError.unknownSchema),
+    ("-1", GLMQuotaError.invalidData),
+    ("101", GLMQuotaError.invalidData),
+])
+func glmRejectsMissingIllegalOrUnknownPercentage(
+    _ percentage: String,
+    _ expected: GLMQuotaError
+) async {
     let provider = GLMQuotaProvider(
         network: RecordingGLMNetworkClient(
             response: GLMHTTPResponse(
@@ -126,7 +213,7 @@ func glmRejectsMissingIllegalOrUnknownPercentage(_ percentage: String) async {
         )
     )
 
-    await #expect(throws: GLMQuotaError.invalidData) {
+    await #expect(throws: expected) {
         try await provider.fetchQuota(using: "candidate")
     }
 }
@@ -171,5 +258,13 @@ private actor RecordingGLMNetworkClient: GLMNetworkClient {
     func send(_ request: URLRequest) async throws -> GLMHTTPResponse {
         lastRequest = request
         return response
+    }
+}
+
+private struct ThrowingGLMNetworkClient: GLMNetworkClient {
+    let error: any Error & Sendable
+
+    func send(_ request: URLRequest) async throws -> GLMHTTPResponse {
+        throw error
     }
 }

@@ -19,7 +19,7 @@ public protocol GLMScheduledTask: Sendable {
 
 public protocol GLMRefreshScheduler: Sendable {
     func schedule(
-        every interval: TimeInterval,
+        after interval: TimeInterval,
         operation: @escaping @Sendable () -> Void
     ) -> any GLMScheduledTask
 }
@@ -37,11 +37,11 @@ public final class DispatchGLMRefreshScheduler: GLMRefreshScheduler, @unchecked 
     }
 
     public func schedule(
-        every interval: TimeInterval,
+        after interval: TimeInterval,
         operation: @escaping @Sendable () -> Void
     ) -> any GLMScheduledTask {
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.schedule(deadline: .now() + interval)
         timer.setEventHandler(handler: operation)
         timer.resume()
         return DispatchGLMScheduledTask(timer: timer)
@@ -75,62 +75,89 @@ public enum GLMValidationStatus: String, Equatable, Sendable {
     case failed
 }
 
+public enum GLMDataHealth: String, Equatable, Sendable {
+    case unconfigured
+    case available
+    case stale
+    case authenticationFailed
+    case unavailable
+    case planExpired
+    case exhausted
+}
+
 public struct GLMQuotaState: Equatable, Sendable {
     public var credentialStatus: GLMCredentialStatus
     public var validationStatus: GLMValidationStatus
+    public var health: GLMDataHealth
+    public var failure: GLMQuotaError?
+    public var lastSuccessfulAt: Date?
+    public var lastUpdatedAt: Date?
     public var provider: UsageProviderSnapshot?
 
     public init(
         credentialStatus: GLMCredentialStatus,
         validationStatus: GLMValidationStatus = .idle,
+        health: GLMDataHealth? = nil,
+        failure: GLMQuotaError? = nil,
+        lastSuccessfulAt: Date? = nil,
+        lastUpdatedAt: Date? = nil,
         provider: UsageProviderSnapshot? = nil
     ) {
         self.credentialStatus = credentialStatus
         self.validationStatus = validationStatus
+        self.health = health ?? (credentialStatus == .configured ? .unavailable : .unconfigured)
+        self.failure = failure
+        self.lastSuccessfulAt = lastSuccessfulAt
+        self.lastUpdatedAt = lastUpdatedAt
         self.provider = provider
     }
 }
 
 public actor GLMQuotaCoordinator {
     public static let pollingInterval: TimeInterval = 600
+    public static let maximumBackoffInterval: TimeInterval = 14_400
 
     private let keyStore: any GLMKeyStore
     private let quotaFetcher: any GLMQuotaFetching
     private let scheduler: any GLMRefreshScheduler
+    private let now: @Sendable () -> Date
     private let onStateChange: @Sendable (GLMQuotaState) async -> Void
     private var state = GLMQuotaState(credentialStatus: .unconfigured)
     private var scheduledTask: (any GLMScheduledTask)?
     private var refreshTask: Task<Void, Never>?
     private var requestInFlight = false
     private var started = false
+    private var consecutiveFailures = 0
+    private var configurationRevision = 0
+    private var lastSuccessfulProvider: UsageProviderSnapshot?
 
     public init(
         keyStore: any GLMKeyStore,
         quotaFetcher: any GLMQuotaFetching,
         scheduler: any GLMRefreshScheduler = DispatchGLMRefreshScheduler(),
+        now: @escaping @Sendable () -> Date = Date.init,
         onStateChange: @escaping @Sendable (GLMQuotaState) async -> Void
     ) {
         self.keyStore = keyStore
         self.quotaFetcher = quotaFetcher
         self.scheduler = scheduler
+        self.now = now
         self.onStateChange = onStateChange
     }
 
     public func start() async {
         guard !started else { return }
         started = true
-        scheduledTask = scheduler.schedule(every: Self.pollingInterval) { [weak self] in
-            Task {
-                await self?.refresh()
-            }
-        }
         refresh()
     }
 
     public func refresh() {
         guard refreshTask == nil, !requestInFlight else { return }
+        scheduledTask?.cancel()
+        scheduledTask = nil
+        let revision = configurationRevision
         refreshTask = Task { [weak self] in
-            await self?.performRefresh()
+            await self?.performRefresh(revision: revision)
         }
     }
 
@@ -138,7 +165,7 @@ public actor GLMQuotaCoordinator {
     public func saveCandidate(_ candidate: String) async -> Bool {
         let candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty else {
-            await publishValidationFailure()
+            await publishValidationFailure(.missingFields)
             return false
         }
 
@@ -151,33 +178,53 @@ public actor GLMQuotaCoordinator {
         do {
             let provider = try await quotaFetcher.fetchQuota(using: candidate)
             try keyStore.save(candidate)
+            configurationRevision += 1
             requestInFlight = false
+            consecutiveFailures = 0
+            lastSuccessfulProvider = provider
+            let successfulAt = provider.capturedAt ?? now()
             state = GLMQuotaState(
                 credentialStatus: .configured,
                 validationStatus: .succeeded,
+                health: provider.status == "quota_exhausted" ? .exhausted : .available,
+                lastSuccessfulAt: successfulAt,
+                lastUpdatedAt: now(),
                 provider: provider
             )
             await onStateChange(state)
+            scheduleNext(after: Self.pollingInterval)
             return true
+        } catch let error as GLMQuotaError {
+            requestInFlight = false
+            await publishValidationFailure(error)
+            return false
         } catch {
             requestInFlight = false
-            await publishValidationFailure()
+            await publishValidationFailure(.unavailable)
             return false
         }
     }
 
     public func deleteKey() async -> Bool {
-        if refreshTask != nil {
-            await waitUntilIdle()
-        }
-        guard !requestInFlight else { return false }
         do {
             try keyStore.delete()
-            state = GLMQuotaState(credentialStatus: .unconfigured)
+            configurationRevision += 1
+            scheduledTask?.cancel()
+            scheduledTask = nil
+            refreshTask?.cancel()
+            refreshTask = nil
+            requestInFlight = false
+            consecutiveFailures = 0
+            lastSuccessfulProvider = nil
+            state = GLMQuotaState(
+                credentialStatus: .unconfigured,
+                health: .unconfigured,
+                lastUpdatedAt: now()
+            )
             await onStateChange(state)
             return true
         } catch {
-            await publishValidationFailure()
+            await publishValidationFailure(.unavailable)
             return false
         }
     }
@@ -192,57 +239,218 @@ public actor GLMQuotaCoordinator {
         scheduledTask = nil
         refreshTask?.cancel()
         refreshTask = nil
+        requestInFlight = false
+        configurationRevision += 1
         started = false
     }
 
-    private func performRefresh() async {
+    private func performRefresh(revision: Int) async {
         defer { refreshTask = nil }
         guard !requestInFlight else { return }
         let key: String?
         do {
             key = try keyStore.load()
         } catch {
-            state = GLMQuotaState(
-                credentialStatus: .unconfigured,
-                validationStatus: .failed
-            )
-            await onStateChange(state)
+            await publishRefreshFailure(.unavailable, revision: revision)
             return
         }
 
         guard let key, !key.isEmpty else {
-            state = GLMQuotaState(credentialStatus: .unconfigured)
+            guard revision == configurationRevision else { return }
+            consecutiveFailures = 0
+            lastSuccessfulProvider = nil
+            state = GLMQuotaState(
+                credentialStatus: .unconfigured,
+                health: .unconfigured,
+                lastUpdatedAt: now()
+            )
             await onStateChange(state)
+            scheduleNext(after: Self.pollingInterval)
             return
         }
 
         requestInFlight = true
-        state = GLMQuotaState(credentialStatus: .configured)
-        await onStateChange(state)
         do {
             let provider = try await quotaFetcher.fetchQuota(using: key)
+            guard revision == configurationRevision, !Task.isCancelled else {
+                requestInFlight = false
+                return
+            }
+            consecutiveFailures = 0
+            lastSuccessfulProvider = provider
+            let successfulAt = provider.capturedAt ?? now()
             state = GLMQuotaState(
                 credentialStatus: .configured,
                 validationStatus: .succeeded,
+                health: provider.status == "quota_exhausted" ? .exhausted : .available,
+                lastSuccessfulAt: successfulAt,
+                lastUpdatedAt: now(),
                 provider: provider
             )
+            requestInFlight = false
+            await onStateChange(state)
+            scheduleNext(after: Self.pollingInterval)
+        } catch is CancellationError {
+            requestInFlight = false
+        } catch let error as GLMQuotaError {
+            requestInFlight = false
+            await publishRefreshFailure(error, revision: revision)
         } catch {
-            state = GLMQuotaState(
-                credentialStatus: .configured,
-                validationStatus: .failed
-            )
+            requestInFlight = false
+            await publishRefreshFailure(.unavailable, revision: revision)
         }
-        requestInFlight = false
-        await onStateChange(state)
     }
 
-    private func publishValidationFailure() async {
+    private func publishValidationFailure(_ error: GLMQuotaError) async {
         let hasStoredKey = (try? keyStore.exists()) == true
         state = GLMQuotaState(
             credentialStatus: hasStoredKey ? .configured : .unconfigured,
             validationStatus: .failed,
+            health: hasStoredKey ? state.health : .unconfigured,
+            failure: error,
+            lastSuccessfulAt: state.lastSuccessfulAt,
+            lastUpdatedAt: now(),
             provider: state.provider
         )
         await onStateChange(state)
+        scheduleNext(after: hasStoredKey ? backoffInterval() : Self.pollingInterval)
+    }
+
+    private func publishRefreshFailure(_ error: GLMQuotaError, revision: Int) async {
+        guard revision == configurationRevision, !Task.isCancelled else { return }
+        consecutiveFailures += 1
+        let updatedAt = now()
+        let failurePresentation = error.failurePresentation
+        let trusted = failurePresentation.retainsTrustedQuota
+            ? lastSuccessfulProvider
+            : nil
+        let health = failurePresentation.health(hasTrustedQuota: trusted != nil)
+        let provider = UsageProviderSnapshot(
+            id: "glm",
+            displayName: "GLM",
+            planName: lastSuccessfulProvider?.planName ?? "GLM Coding Plan",
+            planLevel: lastSuccessfulProvider?.planLevel,
+            capturedAt: updatedAt,
+            status: failurePresentation.providerStatus(hasTrustedQuota: trusted != nil),
+            quotaGroups: trusted?.quotaGroups ?? []
+        )
+        state = GLMQuotaState(
+            credentialStatus: .configured,
+            validationStatus: .failed,
+            health: health,
+            failure: error,
+            lastSuccessfulAt: lastSuccessfulProvider?.capturedAt,
+            lastUpdatedAt: updatedAt,
+            provider: provider
+        )
+        await onStateChange(state)
+        scheduleNext(after: backoffInterval())
+    }
+
+    private func backoffInterval() -> TimeInterval {
+        let exponent = min(consecutiveFailures, 10)
+        let multiplier = pow(2.0, Double(exponent))
+        return min(Self.pollingInterval * multiplier, Self.maximumBackoffInterval)
+    }
+
+    private func scheduleNext(after interval: TimeInterval) {
+        guard started else { return }
+        scheduledTask?.cancel()
+        scheduledTask = scheduler.schedule(after: interval) { [weak self] in
+            Task { await self?.scheduledRefreshFired() }
+        }
+    }
+
+    private func scheduledRefreshFired() {
+        scheduledTask = nil
+        refresh()
+    }
+}
+
+private extension GLMQuotaError {
+    var failurePresentation: GLMFailurePresentation {
+        switch self {
+        case .unauthorized:
+            GLMFailurePresentation(
+                status: "auth_unauthorized",
+                retention: .historical,
+                healthPolicy: .authenticationFailed
+            )
+        case .forbidden:
+            GLMFailurePresentation(
+                status: "auth_forbidden",
+                retention: .historical,
+                healthPolicy: .authenticationFailed
+            )
+        case .rateLimited:
+            GLMFailurePresentation(status: "rate_limited", retention: .stale)
+        case .planExpired:
+            GLMFailurePresentation(
+                status: "plan_expired",
+                retention: .none,
+                healthPolicy: .planExpired
+            )
+        case .quotaExhausted:
+            GLMFailurePresentation(
+                status: "quota_exhausted",
+                retention: .none,
+                healthPolicy: .exhausted
+            )
+        case .timedOut:
+            GLMFailurePresentation(status: "timeout", retention: .stale)
+        case .serverUnavailable:
+            GLMFailurePresentation(status: "server_error", retention: .stale)
+        case .nonJSON:
+            GLMFailurePresentation(status: "non_json", retention: .stale)
+        case .missingFields:
+            GLMFailurePresentation(status: "missing_fields", retention: .stale)
+        case .unknownSchema, .invalidData:
+            GLMFailurePresentation(status: "unknown_schema", retention: .stale)
+        case .invalidHTTPResponse, .unavailable:
+            GLMFailurePresentation(status: "unavailable", retention: .stale)
+        }
+    }
+}
+
+private enum GLMTrustedQuotaRetention {
+    case none
+    case stale
+    case historical
+}
+
+private enum GLMFailureHealthPolicy {
+    case transient
+    case authenticationFailed
+    case planExpired
+    case exhausted
+
+    func health(hasTrustedQuota: Bool) -> GLMDataHealth {
+        switch self {
+        case .transient:
+            hasTrustedQuota ? .stale : .unavailable
+        case .authenticationFailed:
+            .authenticationFailed
+        case .planExpired:
+            .planExpired
+        case .exhausted:
+            .exhausted
+        }
+    }
+}
+
+private struct GLMFailurePresentation {
+    var status: String
+    var retention: GLMTrustedQuotaRetention
+    var healthPolicy: GLMFailureHealthPolicy = .transient
+
+    var retainsTrustedQuota: Bool { retention != .none }
+
+    func health(hasTrustedQuota: Bool) -> GLMDataHealth {
+        healthPolicy.health(hasTrustedQuota: hasTrustedQuota)
+    }
+
+    func providerStatus(hasTrustedQuota: Bool) -> String {
+        guard hasTrustedQuota, retention == .stale else { return status }
+        return "stale_\(status)"
     }
 }

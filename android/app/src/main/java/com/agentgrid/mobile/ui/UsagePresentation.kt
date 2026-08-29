@@ -8,6 +8,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 internal enum class UsageRange(
     val days: Int,
@@ -24,7 +25,107 @@ internal enum class QuotaAccent {
     CYAN,
 }
 
+internal enum class QuotaProviderTab(val label: String) {
+    CODEX("CODEX"),
+    GLM("GLM"),
+}
+
+internal enum class GLMHealthTone {
+    MUTED,
+    CYAN,
+    ORANGE,
+    RED,
+}
+
+private enum class GLMFailureReason(
+    val staleMessage: String,
+    val unavailableMessage: String,
+) {
+    RATE_LIMITED("请求受限，保留上次可信读数", "请求受限，请稍后重试"),
+    TIMEOUT("请求超时，保留上次可信读数", "请求超时，请稍后重试"),
+    SERVER_ERROR("上游服务异常，保留上次可信读数", "上游服务暂不可用"),
+    NON_JSON("上游响应异常，保留上次可信读数", "上游返回非 JSON 数据"),
+    MISSING_FIELDS("上游缺少必要字段，保留上次可信读数", "上游响应缺少必要字段"),
+    UNKNOWN_SCHEMA("上游格式变化，保留上次可信读数", "上游响应格式暂不兼容"),
+    OTHER("暂时无法刷新，保留上次可信读数", "额度暂不可用"),
+}
+
+private fun glmFailureReason(status: String): GLMFailureReason = when {
+    status.contains("rate_limited") -> GLMFailureReason.RATE_LIMITED
+    status.contains("timeout") -> GLMFailureReason.TIMEOUT
+    status.contains("server_error") -> GLMFailureReason.SERVER_ERROR
+    status.contains("non_json") -> GLMFailureReason.NON_JSON
+    status.contains("missing_fields") -> GLMFailureReason.MISSING_FIELDS
+    status.contains("unknown_schema") -> GLMFailureReason.UNKNOWN_SCHEMA
+    else -> GLMFailureReason.OTHER
+}
+
+internal enum class GLMHealth(
+    val text: String,
+    val tone: GLMHealthTone,
+    val showsTrustedWindows: Boolean,
+    val providerTimestampCanBeSuccess: Boolean,
+) {
+    UNCONFIGURED("未启用", GLMHealthTone.MUTED, false, false),
+    AVAILABLE("可用", GLMHealthTone.CYAN, true, true),
+    STALE("数据陈旧", GLMHealthTone.ORANGE, true, false),
+    AUTHENTICATION_FAILED("鉴权失效", GLMHealthTone.RED, true, false),
+    UNAVAILABLE("暂不可用", GLMHealthTone.RED, false, false),
+    PLAN_EXPIRED("套餐已过期", GLMHealthTone.RED, false, false),
+    EXHAUSTED("额度耗尽", GLMHealthTone.RED, true, false),
+    ;
+
+    fun message(status: String): String = when (this) {
+        UNCONFIGURED -> "可选连接，不影响 ZCode 会话与手机审批"
+        AVAILABLE -> "额度数据可用"
+        STALE -> glmFailureReason(status).staleMessage
+        AUTHENTICATION_FAILED -> "请在 Mac 上重新连接 GLM 额度；显示的是最后可信读数"
+        UNAVAILABLE -> glmFailureReason(status).unavailableMessage
+        PLAN_EXPIRED -> "Coding Plan 套餐已过期"
+        EXHAUSTED -> "上游明确返回额度耗尽"
+    }
+}
+
+internal enum class QuotaLevel(
+    val text: String,
+    val tone: GLMHealthTone,
+) {
+    NORMAL("额度充足", GLMHealthTone.CYAN),
+    LOW("额度偏低", GLMHealthTone.ORANGE),
+    CRITICAL("额度告急", GLMHealthTone.RED),
+    EXHAUSTED("额度耗尽", GLMHealthTone.RED),
+}
+
+internal data class GLMWindowPresentation(
+    val label: String,
+    val remainingPercentage: Int,
+    val resetText: String,
+    val level: QuotaLevel,
+    val levelText: String,
+    val accessibilityText: String,
+)
+
+internal data class GLMQuotaDetails(
+    val planLabel: String,
+    val planLevelRaw: String?,
+    val health: GLMHealth,
+    val healthText: String,
+    val message: String,
+    val lastSuccessfulAt: Long?,
+    val lastUpdatedAt: Long?,
+    val windows: List<GLMWindowPresentation>,
+)
+
+internal data class TopQuotaItem(
+    val group: QuotaGroup,
+    val statusText: String? = null,
+    val statusTone: GLMHealthTone? = null,
+)
+
 internal object UsagePresentation {
+    val defaultQuotaTab = QuotaProviderTab.CODEX
+    val quotaProviderTabs = QuotaProviderTab.entries
+
     fun topQuotaGroups(
         usage: UsageSnapshot?,
         providers: List<UsageProviderSnapshot> = emptyList(),
@@ -65,6 +166,90 @@ internal object UsagePresentation {
     fun quotaTitle(group: QuotaGroup): String = quotaPresentation(group).title
 
     fun quotaAccent(group: QuotaGroup): QuotaAccent = quotaPresentation(group).accent
+
+    fun topQuotaItems(
+        usage: UsageSnapshot?,
+        providers: List<UsageProviderSnapshot> = emptyList(),
+    ): List<TopQuotaItem> {
+        val glmProvider = providers.firstOrNull { it.id.equals("glm", ignoreCase = true) }
+        return topQuotaGroups(usage, providers).map { group ->
+            if (!group.id.equals("glm", ignoreCase = true)) {
+                TopQuotaItem(group)
+            } else {
+                val details = glmDetails(glmProvider)
+                TopQuotaItem(
+                    group = group,
+                    statusText = details.healthText.takeUnless { details.health == GLMHealth.AVAILABLE },
+                    statusTone = details.health.tone,
+                )
+            }
+        }
+    }
+
+    fun glmDetails(provider: UsageProviderSnapshot?): GLMQuotaDetails {
+        val status = provider?.status.orEmpty().lowercase()
+        val health = when {
+            provider == null -> GLMHealth.UNCONFIGURED
+            status == "available" -> GLMHealth.AVAILABLE
+            status == "quota_exhausted" -> GLMHealth.EXHAUSTED
+            status == "plan_expired" -> GLMHealth.PLAN_EXPIRED
+            status.startsWith("stale_") -> GLMHealth.STALE
+            status.startsWith("auth_") -> GLMHealth.AUTHENTICATION_FAILED
+            else -> GLMHealth.UNAVAILABLE
+        }
+        val groups = provider?.quotaGroups.orEmpty()
+        val windows = if (health.showsTrustedWindows) {
+            groups.flatMap { it.windows }
+                .filter { it.remainingPercentage.isFinite() }
+                .sortedBy { it.windowMinutes }
+                .take(2)
+                .map { window -> glmWindow(window, health == GLMHealth.EXHAUSTED) }
+        } else {
+            emptyList()
+        }
+        val groupCapturedAt = groups.firstNotNullOfOrNull { it.capturedAt }
+        val lastSuccessfulAt = groupCapturedAt
+            ?: provider?.capturedAt?.takeIf { health.providerTimestampCanBeSuccess }
+        return GLMQuotaDetails(
+            planLabel = provider?.planName?.takeIf(String::isNotBlank)
+                ?: "GLM Coding Plan",
+            planLevelRaw = provider?.planLevel?.takeIf(String::isNotBlank),
+            health = health,
+            healthText = health.text,
+            message = health.message(status),
+            lastSuccessfulAt = lastSuccessfulAt,
+            lastUpdatedAt = provider?.capturedAt,
+            windows = windows,
+        )
+    }
+
+    private fun glmWindow(
+        window: com.agentgrid.mobile.domain.UsageWindow,
+        explicitlyExhausted: Boolean,
+    ): GLMWindowPresentation {
+        val remaining = window.remainingPercentage.roundToInt().coerceIn(0, 100)
+        val level = when {
+            explicitlyExhausted && remaining == 0 -> QuotaLevel.EXHAUSTED
+            remaining < 10 -> QuotaLevel.CRITICAL
+            remaining < 20 -> QuotaLevel.LOW
+            else -> QuotaLevel.NORMAL
+        }
+        val label = when {
+            window.key.equals("5-hour", ignoreCase = true) || window.windowMinutes == 300 ->
+                "5 小时"
+            window.key.equals("weekly", ignoreCase = true) || window.windowMinutes == 10_080 ->
+                "每周"
+            else -> window.label
+        }
+        return GLMWindowPresentation(
+            label = label,
+            remainingPercentage = remaining,
+            resetText = resetText(window.resetsAt),
+            level = level,
+            levelText = level.text,
+            accessibilityText = "$label${"剩余 $remaining%"}，${level.text}",
+        )
+    }
 
     private data class QuotaPresentation(
         val title: String,

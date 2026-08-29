@@ -153,6 +153,180 @@ func validatedKeyDoesNotEnterSharedSnapshot() async throws {
     #expect(!persisted.contains(syntheticKey))
 }
 
+@Test("临时失败保留最后可信读数并指数退避，成功后恢复正常刷新")
+func temporaryFailureKeepsTrustedQuotaAndRecoversPollingInterval() async throws {
+    let capturedAt = Date(timeIntervalSince1970: 1_787_900_134)
+    let first = UsageProviderSnapshot(
+        id: "glm",
+        planName: "GLM Coding Plan",
+        capturedAt: capturedAt,
+        status: "available",
+        quotaGroups: [
+            QuotaGroup(
+                id: "credit",
+                name: "CREDIT_LIMIT",
+                capturedAt: capturedAt,
+                windows: [
+                    UsageWindow(
+                        key: "5-hour",
+                        label: "5H",
+                        usedPercentage: 15,
+                        remainingPercentage: 85,
+                        windowMinutes: 300,
+                        resetsAt: nil,
+                        remainingAmount: 1_700
+                    ),
+                ]
+            ),
+        ]
+    )
+    let quota = SequencedGLMQuotaFetcher(results: [
+        .success(first),
+        .failure(.timedOut),
+        .success(first),
+    ])
+    let scheduler = RecordingGLMScheduler()
+    let states = GLMStateRecorder()
+    let updatedAt = Date(timeIntervalSince1970: 1_787_900_200)
+    let coordinator = GLMQuotaCoordinator(
+        keyStore: MemoryGLMKeyStore(key: "stored-key"),
+        quotaFetcher: quota,
+        scheduler: scheduler,
+        now: { updatedAt },
+        onStateChange: { state in await states.record(state) }
+    )
+
+    await coordinator.start()
+    await coordinator.waitUntilIdle()
+    #expect(await states.latest?.health == .available)
+    #expect(scheduler.interval == 600)
+
+    await coordinator.refresh()
+    await coordinator.waitUntilIdle()
+    let stale = try #require(await states.latest)
+    #expect(stale.health == .stale)
+    #expect(stale.failure == .timedOut)
+    #expect(stale.lastSuccessfulAt == capturedAt)
+    #expect(stale.provider?.status == "stale_timeout")
+    #expect(stale.provider?.quotaGroups.single?.windows.single?.remainingAmount == 1_700)
+    #expect(scheduler.interval == 1_200)
+
+    await coordinator.refresh()
+    await coordinator.waitUntilIdle()
+    #expect(await states.latest?.health == .available)
+    #expect(await states.latest?.failure == nil)
+    #expect(scheduler.interval == 600)
+}
+
+@Test(arguments: [
+    (GLMQuotaError.unauthorized, GLMDataHealth.authenticationFailed, "auth_unauthorized"),
+    (GLMQuotaError.forbidden, GLMDataHealth.authenticationFailed, "auth_forbidden"),
+    (GLMQuotaError.planExpired, GLMDataHealth.planExpired, "plan_expired"),
+    (GLMQuotaError.unknownSchema, GLMDataHealth.unavailable, "unknown_schema"),
+])
+func firstFailurePublishesHonestEmptyState(
+    _ error: GLMQuotaError,
+    _ expectedHealth: GLMDataHealth,
+    _ expectedStatus: String
+) async throws {
+    let states = GLMStateRecorder()
+    let coordinator = GLMQuotaCoordinator(
+        keyStore: MemoryGLMKeyStore(key: "stored-key"),
+        quotaFetcher: SequencedGLMQuotaFetcher(results: [.failure(error)]),
+        scheduler: RecordingGLMScheduler(),
+        onStateChange: { state in await states.record(state) }
+    )
+
+    await coordinator.start()
+    await coordinator.waitUntilIdle()
+
+    let state = try #require(await states.latest)
+    #expect(state.health == expectedHealth)
+    #expect(state.failure == error)
+    #expect(state.provider?.status == expectedStatus)
+    #expect(state.provider?.quotaGroups.isEmpty == true)
+    #expect(state.lastSuccessfulAt == nil)
+}
+
+@Test(arguments: [
+    (GLMQuotaError.unknownSchema, GLMDataHealth.stale, "stale_unknown_schema"),
+    (GLMQuotaError.missingFields, GLMDataHealth.stale, "stale_missing_fields"),
+    (GLMQuotaError.unauthorized, GLMDataHealth.authenticationFailed, "auth_unauthorized"),
+])
+func schemaAndAuthenticationFailuresKeepLastTrustedReading(
+    _ error: GLMQuotaError,
+    _ expectedHealth: GLMDataHealth,
+    _ expectedStatus: String
+) async throws {
+    let capturedAt = Date(timeIntervalSince1970: 1_787_900_134)
+    let trusted = UsageProviderSnapshot(
+        id: "glm",
+        capturedAt: capturedAt,
+        status: "available",
+        quotaGroups: [
+            QuotaGroup(
+                id: "credit",
+                name: "CREDIT_LIMIT",
+                capturedAt: capturedAt,
+                windows: [
+                    UsageWindow(
+                        key: "5-hour",
+                        label: "5H",
+                        usedPercentage: 15,
+                        remainingPercentage: 85,
+                        windowMinutes: 300,
+                        resetsAt: nil,
+                        remainingAmount: 1_700
+                    ),
+                ]
+            ),
+        ]
+    )
+    let states = GLMStateRecorder()
+    let coordinator = GLMQuotaCoordinator(
+        keyStore: MemoryGLMKeyStore(key: "stored-key"),
+        quotaFetcher: SequencedGLMQuotaFetcher(results: [.success(trusted), .failure(error)]),
+        scheduler: RecordingGLMScheduler(),
+        onStateChange: { state in await states.record(state) }
+    )
+
+    await coordinator.start()
+    await coordinator.waitUntilIdle()
+    await coordinator.refresh()
+    await coordinator.waitUntilIdle()
+
+    let state = try #require(await states.latest)
+    #expect(state.health == expectedHealth)
+    #expect(state.provider?.status == expectedStatus)
+    #expect(state.provider?.quotaGroups.single?.windows.single?.remainingAmount == 1_700)
+    #expect(state.lastSuccessfulAt == capturedAt)
+}
+
+@Test("删除 Key 立即发布未启用且已取消请求不能恢复旧数据")
+func deletingKeyImmediatelyClearsQuotaAndIgnoresCancelledRequest() async {
+    let keyStore = MemoryGLMKeyStore(key: "stored-key")
+    let quota = BlockingFirstGLMQuotaFetcher()
+    let states = GLMStateRecorder()
+    let coordinator = GLMQuotaCoordinator(
+        keyStore: keyStore,
+        quotaFetcher: quota,
+        scheduler: RecordingGLMScheduler(),
+        onStateChange: { state in await states.record(state) }
+    )
+    await coordinator.start()
+    await quota.waitForRequestCount(1)
+
+    #expect(await coordinator.deleteKey())
+    #expect((try? keyStore.load()) == nil)
+    #expect(await states.latest?.health == .unconfigured)
+    #expect(await states.latest?.provider == nil)
+
+    await quota.releaseFirstRequest()
+    await Task.yield()
+    #expect(await states.latest?.health == .unconfigured)
+    #expect(await states.latest?.provider == nil)
+}
+
 private final class MemoryGLMKeyStore: GLMKeyStore, @unchecked Sendable {
     private let lock = NSLock()
     private var key: String?
@@ -185,7 +359,7 @@ private actor CountingGLMQuotaFetcher: GLMQuotaFetching {
 
 private actor RejectingGLMQuotaFetcher: GLMQuotaFetching {
     func fetchQuota(using key: String) async throws -> UsageProviderSnapshot {
-        throw GLMQuotaError.invalidCredential
+        throw GLMQuotaError.unauthorized
     }
 }
 
@@ -227,6 +401,19 @@ private actor BlockingFirstGLMQuotaFetcher: GLMQuotaFetching {
     }
 }
 
+private actor SequencedGLMQuotaFetcher: GLMQuotaFetching {
+    private var results: [Result<UsageProviderSnapshot, GLMQuotaError>]
+
+    init(results: [Result<UsageProviderSnapshot, GLMQuotaError>]) {
+        self.results = results
+    }
+
+    func fetchQuota(using key: String) async throws -> UsageProviderSnapshot {
+        guard !results.isEmpty else { throw GLMQuotaError.unavailable }
+        return try results.removeFirst().get()
+    }
+}
+
 private final class RecordingGLMScheduler: GLMRefreshScheduler, @unchecked Sendable {
     private let lock = NSLock()
     private var storedInterval: TimeInterval?
@@ -237,7 +424,7 @@ private final class RecordingGLMScheduler: GLMRefreshScheduler, @unchecked Senda
     }
 
     func schedule(
-        every interval: TimeInterval,
+        after interval: TimeInterval,
         operation: @escaping @Sendable () -> Void
     ) -> any GLMScheduledTask {
         lock.withLock {

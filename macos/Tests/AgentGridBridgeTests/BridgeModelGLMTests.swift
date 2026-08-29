@@ -23,6 +23,57 @@ func unconfiguredGLMConnectionUsesOptionalNeutralPresentation() {
 }
 
 @MainActor
+@Test(arguments: [
+    (GLMDataHealth.available, GLMQuotaError?.none, "可用", GLMStatusTone.success),
+    (GLMDataHealth.stale, GLMQuotaError.timedOut, "数据陈旧", GLMStatusTone.pending),
+    (
+        GLMDataHealth.authenticationFailed,
+        GLMQuotaError.unauthorized,
+        "鉴权失效",
+        GLMStatusTone.failure
+    ),
+    (
+        GLMDataHealth.unavailable,
+        GLMQuotaError.unknownSchema,
+        "暂不可用",
+        GLMStatusTone.failure
+    ),
+    (GLMDataHealth.planExpired, GLMQuotaError.planExpired, "套餐已过期", GLMStatusTone.failure),
+    (GLMDataHealth.exhausted, GLMQuotaError.quotaExhausted, "额度耗尽", GLMStatusTone.failure),
+])
+func glmConnectionPresentsDataHealth(
+    _ health: GLMDataHealth,
+    _ failure: GLMQuotaError?,
+    _ text: String,
+    _ tone: GLMStatusTone
+) {
+    #expect(
+        GLMConnectionPresentation.status(
+            credential: .configured,
+            validation: failure == nil ? .succeeded : .failed,
+            health: health
+        ) == GLMStatusPresentation(text: text, tone: tone)
+    )
+}
+
+@MainActor
+@Test(arguments: [
+    (GLMQuotaError.unauthorized, "鉴权失效（401）"),
+    (GLMQuotaError.forbidden, "访问被拒绝（403）"),
+    (GLMQuotaError.rateLimited, "请求过于频繁（429）"),
+    (GLMQuotaError.planExpired, "套餐已过期"),
+    (GLMQuotaError.quotaExhausted, "上游明确返回额度耗尽"),
+    (GLMQuotaError.timedOut, "请求超时"),
+    (GLMQuotaError.serverUnavailable, "上游服务错误（5xx）"),
+    (GLMQuotaError.nonJSON, "上游返回非 JSON 数据"),
+    (GLMQuotaError.missingFields, "上游响应缺少必要字段"),
+    (GLMQuotaError.unknownSchema, "上游响应格式暂不兼容"),
+])
+func glmConnectionUsesSanitizedErrorText(_ error: GLMQuotaError, _ text: String) {
+    #expect(GLMConnectionPresentation.errorText(error) == text)
+}
+
+@MainActor
 @Test("BridgeModel 启动、手机连接和手动入口接入同一 GLM 协调器")
 func bridgeModelWiresGLMRefreshTriggers() async {
     let coordinator = BridgeGLMCoordinatorSpy()
@@ -319,7 +370,7 @@ private final class BridgeSnapshotRecorder {
 
 private final class BridgeNoopGLMScheduler: GLMRefreshScheduler, @unchecked Sendable {
     func schedule(
-        every interval: TimeInterval,
+        after interval: TimeInterval,
         operation: @escaping @Sendable () -> Void
     ) -> any GLMScheduledTask {
         BridgeNoopGLMScheduledTask()

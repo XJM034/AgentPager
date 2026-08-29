@@ -47,6 +47,7 @@ import com.agentgrid.mobile.domain.AgentLifecycle
 import com.agentgrid.mobile.domain.DailyUsagePoint
 import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.UsageSnapshot
+import com.agentgrid.mobile.domain.UsageProviderSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
 import com.agentgrid.mobile.render.PixelCoreSurfaceView
 import com.agentgrid.mobile.render.PixelRenderState
@@ -92,53 +93,333 @@ private fun QuotaFreshnessTextPreview() {
     }
 }
 
+@Preview(name = "GLM 正常", widthDp = 900, heightDp = 340, showBackground = true)
+@Composable
+private fun GLMAvailablePreview() {
+    GLMDetailsPreview(previewGLMProvider("available", 82.0, 64.0))
+}
+
+@Preview(name = "GLM 低额度", widthDp = 900, heightDp = 340, showBackground = true)
+@Composable
+private fun GLMLowQuotaPreview() {
+    GLMDetailsPreview(previewGLMProvider("available", 19.0, 9.0))
+}
+
+@Preview(name = "GLM 数据陈旧", widthDp = 900, heightDp = 340, showBackground = true)
+@Composable
+private fun GLMStalePreview() {
+    GLMDetailsPreview(previewGLMProvider("stale_timeout", 72.0, 51.0))
+}
+
+@Preview(name = "GLM 未启用", widthDp = 900, heightDp = 340, showBackground = true)
+@Composable
+private fun GLMUnconfiguredPreview() {
+    GLMDetailsPreview(null)
+}
+
+@Preview(name = "GLM 鉴权失效", widthDp = 900, heightDp = 340, showBackground = true)
+@Composable
+private fun GLMAuthenticationFailedPreview() {
+    GLMDetailsPreview(previewGLMProvider("auth_unauthorized"))
+}
+
+@Preview(name = "GLM 未知 Schema", widthDp = 900, heightDp = 340, showBackground = true)
+@Composable
+private fun GLMUnknownSchemaPreview() {
+    GLMDetailsPreview(previewGLMProvider("unknown_schema"))
+}
+
+@Composable
+private fun GLMDetailsPreview(provider: UsageProviderSnapshot?) {
+    AgentGridTheme {
+        UsageDashboard(
+            usage = UsageSnapshot(planType = "plus"),
+            usageProviders = listOfNotNull(provider),
+            connected = true,
+            initialTab = QuotaProviderTab.GLM,
+            modifier = Modifier.background(AgentGridColors.Background),
+        )
+    }
+}
+
+private fun previewGLMProvider(
+    status: String,
+    fiveHourRemaining: Double? = null,
+    weeklyRemaining: Double? = null,
+): UsageProviderSnapshot {
+    val updatedAt = 1_787_900_200_000
+    val remaining = listOfNotNull(fiveHourRemaining, weeklyRemaining)
+    return UsageProviderSnapshot(
+        id = "glm",
+        displayName = "GLM",
+        planName = "GLM Coding Plan",
+        planLevel = "lite",
+        capturedAt = updatedAt,
+        status = status,
+        quotaGroups = if (remaining.size == 2) {
+            listOf(
+                QuotaGroup(
+                    id = "credit",
+                    name = "CREDIT_LIMIT",
+                    capturedAt = updatedAt - if (status.startsWith("stale_")) 3_600_000 else 0,
+                    windows = remaining.mapIndexed { index, value ->
+                        UsageWindow(
+                            key = if (index == 0) "5-hour" else "weekly",
+                            label = if (index == 0) "5H" else "WEEK",
+                            usedPercentage = 100 - value,
+                            remainingPercentage = value,
+                            windowMinutes = if (index == 0) 300 else 10_080,
+                            resetsAt = updatedAt + (index + 2) * 3_600_000,
+                            remainingAmount = value * 20,
+                        )
+                    },
+                ),
+            )
+        } else {
+            emptyList()
+        },
+    )
+}
+
 @Composable
 internal fun UsageDashboard(
     usage: UsageSnapshot?,
+    usageProviders: List<UsageProviderSnapshot> = emptyList(),
     connected: Boolean,
     modifier: Modifier = Modifier,
+    initialTab: QuotaProviderTab = UsagePresentation.defaultQuotaTab,
 ) {
     var selectedRange by remember { mutableStateOf(UsageRange.SEVEN_DAYS) }
+    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
     val allPoints = usage?.dailyUsage.orEmpty()
+    val glmProvider = usageProviders.firstOrNull { it.id.equals("glm", ignoreCase = true) }
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .height(310.dp)
-            .padding(horizontal = 36.dp, vertical = 20.dp),
+            .padding(horizontal = 36.dp, vertical = 4.dp),
     ) {
         val quotaWidth = if (maxWidth < 700.dp) 226.dp else 270.dp
-
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            QuotaPanel(
-                usage = usage,
-                connected = connected,
-                modifier = Modifier
-                    .width(quotaWidth)
-                    .fillMaxHeight(),
+        Column(modifier = Modifier.fillMaxSize()) {
+            QuotaProviderSelector(
+                selected = selectedTab,
+                onSelected = { selectedTab = it },
             )
+            Spacer(Modifier.height(8.dp))
+            when (selectedTab) {
+                QuotaProviderTab.CODEX -> Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    QuotaPanel(
+                        usage = usage,
+                        connected = connected,
+                        modifier = Modifier
+                            .width(quotaWidth)
+                            .fillMaxHeight(),
+                    )
 
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 24.dp)
-                    .width(1.dp)
-                    .fillMaxHeight()
-                    .background(AgentGridColors.Divider),
-            )
+                    DashboardDivider()
 
-            HistoryPanel(
-                allPoints = allPoints,
-                selectedRange = selectedRange,
-                onRangeSelected = { selectedRange = it },
+                    HistoryPanel(
+                        allPoints = allPoints,
+                        selectedRange = selectedRange,
+                        onRangeSelected = { selectedRange = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    )
+                }
+
+                QuotaProviderTab.GLM -> GLMDetailsPanel(
+                    details = UsagePresentation.glmDetails(glmProvider),
+                    connected = connected,
+                    summaryWidth = quotaWidth,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuotaProviderSelector(
+    selected: QuotaProviderTab,
+    onSelected: (QuotaProviderTab) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+        UsagePresentation.quotaProviderTabs.forEach { tab ->
+            Text(
+                tab.label,
+                color = if (selected == tab) AgentGridColors.Text else AgentGridColors.Muted,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
+                    .background(
+                        if (selected == tab) AgentGridColors.Divider else AgentGridColors.Surface,
+                        RectangleShape,
+                    )
+                    .clickable { onSelected(tab) }
+                    .semantics {
+                        contentDescription = "切换到 ${tab.label} 额度详情" +
+                            if (selected == tab) "，已选中" else ""
+                    }
+                    .padding(horizontal = 15.dp, vertical = 6.dp),
             )
         }
     }
+}
+
+@Composable
+private fun DashboardDivider() {
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 24.dp)
+            .width(1.dp)
+            .fillMaxHeight()
+            .background(AgentGridColors.Divider),
+    )
+}
+
+@Composable
+private fun GLMDetailsPanel(
+    details: GLMQuotaDetails,
+    connected: Boolean,
+    summaryWidth: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier
+                .width(summaryWidth)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    "GLM 额度",
+                    color = AgentGridColors.Text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(details.planLabel, color = AgentGridColors.Muted, fontSize = 10.sp)
+                details.planLevelRaw?.let { level ->
+                    Text(
+                        "等级原值 · $level",
+                        color = AgentGridColors.Dimmed,
+                        fontSize = 9.sp,
+                    )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(
+                    details.healthText,
+                    color = glmHealthToneColor(details.health.tone),
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    details.message,
+                    color = AgentGridColors.Muted,
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp,
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "最后成功 · ${UsagePresentation.freshnessText(details.lastSuccessfulAt)}",
+                    color = AgentGridColors.Dimmed,
+                    fontSize = 9.sp,
+                )
+                Text(
+                    "最后更新 · ${UsagePresentation.freshnessText(details.lastUpdatedAt)}" +
+                        if (!connected) " · Bridge 离线" else "",
+                    color = if (connected) AgentGridColors.Dimmed else AgentGridColors.Red,
+                    fontSize = 9.sp,
+                )
+            }
+        }
+
+        DashboardDivider()
+
+        if (details.windows.isEmpty()) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    if (details.health == GLMHealth.UNCONFIGURED) {
+                        "如需启用，请在 Mac 的 AgentPager Bridge 中打开\n“GLM 额度连接（可选）”。"
+                    } else {
+                        "当前没有可信额度读数。\n不会将未知状态显示为 0% 或额度耗尽。"
+                    },
+                    color = AgentGridColors.Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 19.sp,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                details.windows.forEach { window ->
+                    GLMWindowCard(window = window, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GLMWindowCard(
+    window: GLMWindowPresentation,
+    modifier: Modifier = Modifier,
+) {
+    val color = glmHealthToneColor(window.level.tone)
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(AgentGridColors.Surface, RectangleShape)
+            .padding(16.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "${window.accessibilityText}，${window.resetText}"
+            },
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(window.label, color = AgentGridColors.Muted, fontSize = 11.sp)
+        Text(
+            "${window.remainingPercentage}%",
+            color = color,
+            fontSize = 38.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        LinearProgressIndicator(
+            progress = { window.remainingPercentage / 100f },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(5.dp),
+            color = color,
+            trackColor = AgentGridColors.Divider,
+            gapSize = 0.dp,
+            drawStopIndicator = {},
+        )
+        Text(window.levelText, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(window.resetText, color = AgentGridColors.Dimmed, fontSize = 9.sp)
+    }
+}
+
+internal fun glmHealthToneColor(tone: GLMHealthTone?): Color = when (tone) {
+    null -> AgentGridColors.Muted
+    GLMHealthTone.MUTED -> AgentGridColors.Muted
+    GLMHealthTone.CYAN -> AgentGridColors.Cyan
+    GLMHealthTone.ORANGE -> AgentGridColors.Orange
+    GLMHealthTone.RED -> AgentGridColors.Red
 }
 
 @Composable

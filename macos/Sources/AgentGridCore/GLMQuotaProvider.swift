@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 public struct GLMHTTPResponse: Sendable {
     public var statusCode: Int
@@ -45,7 +46,16 @@ public struct URLSessionGLMNetworkClient: GLMNetworkClient {
 
 public enum GLMQuotaError: Error, Equatable, Sendable {
     case invalidHTTPResponse
-    case invalidCredential
+    case unauthorized
+    case forbidden
+    case rateLimited
+    case planExpired
+    case quotaExhausted
+    case timedOut
+    case serverUnavailable
+    case nonJSON
+    case missingFields
+    case unknownSchema
     case unavailable
     case invalidData
 }
@@ -75,33 +85,67 @@ public struct GLMQuotaProvider: GLMQuotaFetching, Sendable {
         request.httpMethod = "GET"
         request.setValue(key, forHTTPHeaderField: "Authorization")
 
-        let response = try await network.send(request)
-        guard (200 ..< 300).contains(response.statusCode) else {
-            throw GLMQuotaError.unavailable
-        }
-
-        let envelope: QuotaEnvelope
+        let response: GLMHTTPResponse
         do {
-            envelope = try JSONDecoder().decode(QuotaEnvelope.self, from: response.data)
+            response = try await network.send(request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw GLMQuotaError.timedOut
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
-            throw GLMQuotaError.invalidData
+            throw GLMQuotaError.unavailable
         }
-        guard envelope.success, envelope.code == 200, let data = envelope.data else {
-            if envelope.code == 401 {
-                throw GLMQuotaError.invalidCredential
-            }
+        switch response.statusCode {
+        case 200 ..< 300:
+            break
+        case 401:
+            throw GLMQuotaError.unauthorized
+        case 403:
+            throw GLMQuotaError.forbidden
+        case 429:
+            throw GLMQuotaError.rateLimited
+        case 500 ... 599:
+            throw GLMQuotaError.serverUnavailable
+        default:
             throw GLMQuotaError.unavailable
         }
 
-        let windows = try quotaWindows(from: data.limits)
+        let root: [String: Any]
+        do {
+            let object = try JSONSerialization.jsonObject(with: response.data)
+            guard let dictionary = object as? [String: Any] else {
+                throw GLMQuotaError.unknownSchema
+            }
+            root = dictionary
+        } catch let error as GLMQuotaError {
+            throw error
+        } catch {
+            throw GLMQuotaError.nonJSON
+        }
+
+        let success = try requiredBool(root, key: "success")
+        let code = try requiredInt(root, key: "code")
+        guard success, code == 200 else {
+            throw classifyBusinessFailure(code: code, reason: root["reason"])
+        }
+        guard let rawData = root["data"] else {
+            throw GLMQuotaError.missingFields
+        }
+        guard let data = rawData as? [String: Any] else {
+            throw GLMQuotaError.unknownSchema
+        }
+
+        let windows = try quotaWindows(from: data)
         let capturedAt = now()
         return UsageProviderSnapshot(
             id: "glm",
             displayName: "GLM",
             planName: "GLM Coding Plan",
-            planLevel: data.level?.value,
+            planLevel: try optionalString(data, key: "level"),
             capturedAt: capturedAt,
-            status: "available",
+            status: windows.contains(where: isExplicitlyExhausted)
+                ? "quota_exhausted"
+                : "available",
             quotaGroups: [
                 QuotaGroup(
                     id: "credit",
@@ -113,18 +157,31 @@ public struct GLMQuotaProvider: GLMQuotaFetching, Sendable {
         )
     }
 
-    private func quotaWindows(from limits: [QuotaLimit]) throws -> [UsageWindow] {
+    private func quotaWindows(from data: [String: Any]) throws -> [UsageWindow] {
+        guard let rawLimits = data["limits"] else {
+            throw GLMQuotaError.missingFields
+        }
+        guard let limits = rawLimits as? [Any] else {
+            throw GLMQuotaError.unknownSchema
+        }
         var matched: [WindowKind: UsageWindow] = [:]
-        for limit in limits where limit.type == "CREDIT_LIMIT" {
-            guard let kind = WindowKind(unit: limit.unit, number: limit.number) else {
+        var sawCreditLimit = false
+        for rawLimit in limits {
+            guard let limit = rawLimit as? [String: Any] else {
+                throw GLMQuotaError.unknownSchema
+            }
+            let type = try requiredString(limit, key: "type")
+            guard type == "CREDIT_LIMIT" else { continue }
+            sawCreditLimit = true
+            let unit = try requiredInt(limit, key: "unit")
+            let number = try requiredInt(limit, key: "number")
+            guard let kind = WindowKind(unit: unit, number: number) else {
                 continue
             }
             let descriptor = kind.descriptor
-            guard let usedPercentage = limit.percentage?.value,
-                  usedPercentage.isFinite,
-                  (0 ... 100).contains(usedPercentage),
-                  let remainingAmount = limit.remaining?.value,
-                  remainingAmount.isFinite else {
+            let usedPercentage = try requiredDouble(limit, key: "percentage")
+            let remainingAmount = try requiredDouble(limit, key: "remaining")
+            guard (0 ... 100).contains(usedPercentage) else {
                 throw GLMQuotaError.invalidData
             }
             matched[kind] = UsageWindow(
@@ -133,24 +190,94 @@ public struct GLMQuotaProvider: GLMQuotaFetching, Sendable {
                 usedPercentage: usedPercentage,
                 remainingPercentage: min(max(100 - usedPercentage, 0), 100),
                 windowMinutes: descriptor.windowMinutes,
-                resetsAt: date(milliseconds: limit.nextResetTime?.value),
-                quotaType: limit.type,
-                limitAmount: finiteValue(limit.usage?.value),
-                usedAmount: finiteValue(limit.currentValue?.value),
+                resetsAt: date(milliseconds: try optionalDouble(limit, key: "nextResetTime")),
+                quotaType: type,
+                limitAmount: try optionalDouble(limit, key: "usage"),
+                usedAmount: try optionalDouble(limit, key: "currentValue"),
                 remainingAmount: remainingAmount
             )
         }
 
         guard let fiveHour = matched[.fiveHour],
               let weekly = matched[.weekly] else {
-            throw GLMQuotaError.invalidData
+            throw sawCreditLimit
+                ? GLMQuotaError.missingFields
+                : GLMQuotaError.unknownSchema
         }
         return [fiveHour, weekly]
     }
 
-    private func finiteValue(_ value: Double?) -> Double? {
-        guard let value, value.isFinite else { return nil }
+    private func classifyBusinessFailure(code: Int, reason: Any?) -> GLMQuotaError {
+        switch code {
+        case 401: return .unauthorized
+        case 403: return .forbidden
+        case 429: return .rateLimited
+        case 1308, 1310: return .quotaExhausted
+        case 1309: return .planExpired
+        case 500 ... 599: return .serverUnavailable
+        default: break
+        }
+        guard let reason = reason as? String else { return .unavailable }
+        switch reason.uppercased() {
+        case "PLAN_EXPIRED", "PACKAGE_EXPIRED": return .planExpired
+        case "QUOTA_EXHAUSTED", "CREDIT_EXHAUSTED": return .quotaExhausted
+        default: return .unavailable
+        }
+    }
+
+    private func requiredBool(_ object: [String: Any], key: String) throws -> Bool {
+        guard let raw = object[key] else { throw GLMQuotaError.missingFields }
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            throw GLMQuotaError.unknownSchema
+        }
+        return number.boolValue
+    }
+
+    private func requiredString(_ object: [String: Any], key: String) throws -> String {
+        guard let raw = object[key] else { throw GLMQuotaError.missingFields }
+        guard let value = raw as? String else { throw GLMQuotaError.unknownSchema }
         return value
+    }
+
+    private func optionalString(_ object: [String: Any], key: String) throws -> String? {
+        guard let raw = object[key], !(raw is NSNull) else { return nil }
+        guard let value = raw as? String else { throw GLMQuotaError.unknownSchema }
+        return value
+    }
+
+    private func requiredInt(_ object: [String: Any], key: String) throws -> Int {
+        let value = try requiredDouble(object, key: key)
+        guard value.rounded() == value else { throw GLMQuotaError.unknownSchema }
+        return Int(value)
+    }
+
+    private func requiredDouble(_ object: [String: Any], key: String) throws -> Double {
+        guard let raw = object[key], !(raw is NSNull) else {
+            throw GLMQuotaError.missingFields
+        }
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            throw GLMQuotaError.unknownSchema
+        }
+        let value = number.doubleValue
+        guard value.isFinite else { throw GLMQuotaError.invalidData }
+        return value
+    }
+
+    private func optionalDouble(_ object: [String: Any], key: String) throws -> Double? {
+        guard let raw = object[key], !(raw is NSNull) else { return nil }
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            throw GLMQuotaError.unknownSchema
+        }
+        let value = number.doubleValue
+        guard value.isFinite else { throw GLMQuotaError.invalidData }
+        return value
+    }
+
+    private func isExplicitlyExhausted(_ window: UsageWindow) -> Bool {
+        window.remainingPercentage == 0 && window.remainingAmount == 0
     }
 
     private func date(milliseconds: Double?) -> Date? {
@@ -185,44 +312,4 @@ private struct WindowDescriptor {
     var key: String
     var label: String
     var windowMinutes: Int
-}
-
-private struct QuotaEnvelope: Decodable {
-    var success: Bool
-    var code: Int
-    var data: QuotaData?
-}
-
-private struct QuotaData: Decodable {
-    var level: LossyString?
-    var limits: [QuotaLimit]
-}
-
-private struct QuotaLimit: Decodable {
-    var type: String?
-    var unit: Int?
-    var number: Int?
-    var usage: LossyDouble?
-    var currentValue: LossyDouble?
-    var remaining: LossyDouble?
-    var percentage: LossyDouble?
-    var nextResetTime: LossyDouble?
-}
-
-private struct LossyDouble: Decodable {
-    var value: Double?
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        value = try? container.decode(Double.self)
-    }
-}
-
-private struct LossyString: Decodable {
-    var value: String?
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        value = try? container.decode(String.self)
-    }
 }

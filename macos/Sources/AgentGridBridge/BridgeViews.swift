@@ -527,10 +527,23 @@ struct BridgeSettingsView: View {
                 PixelPanel {
                     VStack(alignment: .leading, spacing: 13) {
                         InfoRow(
-                            label: "KEY",
+                            label: "连接状态",
                             value: model.glmStatusPresentation.text,
                             accent: glmStatusAccent
                         )
+                        InfoRow(
+                            label: "最后成功",
+                            value: glmTimeText(model.glmLastSuccessfulAt),
+                            accent: PixelTheme.text
+                        )
+                        InfoRow(
+                            label: "最后更新",
+                            value: glmTimeText(model.glmLastUpdatedAt),
+                            accent: PixelTheme.text
+                        )
+                        if let error = model.glmErrorText {
+                            InfoRow(label: "脱敏错误", value: error, accent: PixelTheme.red)
+                        }
                         Text(GLMConnectionPresentation.explanation)
                             .foregroundStyle(PixelTheme.muted)
                             .lineSpacing(4)
@@ -590,6 +603,10 @@ struct BridgeSettingsView: View {
             }
             .padding(28)
         }
+    }
+
+    private func glmTimeText(_ date: Date?) -> String {
+        date?.formatted(date: .abbreviated, time: .shortened) ?? "—"
     }
 
     private var simulatorPreviewTask: TaskSnapshot? {

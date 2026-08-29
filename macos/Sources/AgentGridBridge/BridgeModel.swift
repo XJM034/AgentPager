@@ -31,17 +31,46 @@ enum GLMConnectionPresentation {
 
     static func status(
         credential: GLMCredentialStatus,
-        validation: GLMValidationStatus
+        validation: GLMValidationStatus,
+        health: GLMDataHealth? = nil
     ) -> GLMStatusPresentation {
-        switch validation {
-        case .succeeded:
-            GLMStatusPresentation(text: "验证成功", tone: .success)
-        case .failed:
-            GLMStatusPresentation(text: "验证失败", tone: .failure)
-        case .idle:
-            credential == .configured
-                ? GLMStatusPresentation(text: "已配置", tone: .pending)
+        let resolvedHealth = health ?? (
+            credential == .configured ? GLMDataHealth.unavailable : .unconfigured
+        )
+        return switch resolvedHealth {
+        case .unconfigured:
+            validation == .failed
+                ? GLMStatusPresentation(text: "未启用 · 验证失败", tone: .failure)
                 : GLMStatusPresentation(text: "未启用", tone: .neutral)
+        case .available:
+            GLMStatusPresentation(text: "可用", tone: .success)
+        case .stale:
+            GLMStatusPresentation(text: "数据陈旧", tone: .pending)
+        case .authenticationFailed:
+            GLMStatusPresentation(text: "鉴权失效", tone: .failure)
+        case .unavailable:
+            GLMStatusPresentation(text: "暂不可用", tone: .failure)
+        case .planExpired:
+            GLMStatusPresentation(text: "套餐已过期", tone: .failure)
+        case .exhausted:
+            GLMStatusPresentation(text: "额度耗尽", tone: .failure)
+        }
+    }
+
+    static func errorText(_ error: GLMQuotaError) -> String {
+        switch error {
+        case .unauthorized: "鉴权失效（401）"
+        case .forbidden: "访问被拒绝（403）"
+        case .rateLimited: "请求过于频繁（429）"
+        case .planExpired: "套餐已过期"
+        case .quotaExhausted: "上游明确返回额度耗尽"
+        case .timedOut: "请求超时"
+        case .serverUnavailable: "上游服务错误（5xx）"
+        case .nonJSON: "上游返回非 JSON 数据"
+        case .missingFields: "上游响应缺少必要字段"
+        case .unknownSchema, .invalidData: "上游响应格式暂不兼容"
+        case .invalidHTTPResponse: "上游响应无效"
+        case .unavailable: "连接暂不可用"
         }
     }
 }
@@ -60,6 +89,10 @@ final class BridgeModel {
     private(set) var zcodeHookManaged = false
     private(set) var glmCredentialStatus = GLMCredentialStatus.unconfigured
     private(set) var glmValidationStatus = GLMValidationStatus.idle
+    private(set) var glmDataHealth = GLMDataHealth.unconfigured
+    private(set) var glmFailure: GLMQuotaError?
+    private(set) var glmLastSuccessfulAt: Date?
+    private(set) var glmLastUpdatedAt: Date?
     private(set) var glmProvider: UsageProviderSnapshot?
     private(set) var glmOperationInProgress = false
     private(set) var pendingZCodeRestorePlan: ZCodeHookRestorePlan?
@@ -439,8 +472,13 @@ final class BridgeModel {
     var glmStatusPresentation: GLMStatusPresentation {
         GLMConnectionPresentation.status(
             credential: glmCredentialStatus,
-            validation: glmValidationStatus
+            validation: glmValidationStatus,
+            health: glmDataHealth
         )
+    }
+
+    var glmErrorText: String? {
+        glmFailure.map(GLMConnectionPresentation.errorText)
     }
 
     private func handle(_ envelope: HookEnvelope) {
@@ -600,6 +638,10 @@ final class BridgeModel {
     private func applyGLMState(_ state: GLMQuotaState) {
         glmCredentialStatus = state.credentialStatus
         glmValidationStatus = state.validationStatus
+        glmDataHealth = state.health
+        glmFailure = state.failure
+        glmLastSuccessfulAt = state.lastSuccessfulAt
+        glmLastUpdatedAt = state.lastUpdatedAt
         glmProvider = state.provider
         switch state.validationStatus {
         case .succeeded:

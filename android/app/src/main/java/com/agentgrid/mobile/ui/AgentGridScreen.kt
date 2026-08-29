@@ -375,6 +375,7 @@ private fun TaskTerminal(
             if (isDashboardVisible) {
                 UsageDashboard(
                     usage = state.usage,
+                    usageProviders = state.usageProviders,
                     connected = state.linkState == LinkState.CONNECTED,
                 )
             } else {
@@ -504,8 +505,8 @@ private fun TopControls(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        UsagePresentation.topQuotaGroups(usage, usageProviders).forEach { group ->
-            UsageBank(group)
+        UsagePresentation.topQuotaItems(usage, usageProviders).forEach { item ->
+            UsageBank(item)
         }
         Box(
             modifier = Modifier
@@ -570,7 +571,8 @@ private fun ViewSwitchIcon(showTaskIcon: Boolean) {
 }
 
 @Composable
-private fun UsageBank(group: QuotaGroup) {
+private fun UsageBank(item: TopQuotaItem) {
+    val group = item.group
     val windows = group.windows.sortedBy { it.windowMinutes }.take(2)
     if (windows.isEmpty()) return
     val title = UsagePresentation.quotaTitle(group)
@@ -582,6 +584,7 @@ private fun UsageBank(group: QuotaGroup) {
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
                     append(title)
+                    item.statusText?.let { append("，$it") }
                     windows.forEach { window ->
                         append("，${window.label} 剩余 ")
                         append(window.remainingPercentage.roundToInt().coerceIn(0, 100))
@@ -593,18 +596,29 @@ private fun UsageBank(group: QuotaGroup) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            title,
-            color = when (UsagePresentation.quotaAccent(group)) {
-                QuotaAccent.VIOLET -> AgentGridColors.Violet
-                QuotaAccent.CYAN -> AgentGridColors.Cyan
-                QuotaAccent.MUTED -> AgentGridColors.Muted
-            },
-            fontSize = 8.sp,
-            lineHeight = 8.sp,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 0.25.sp,
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                title,
+                color = when (UsagePresentation.quotaAccent(group)) {
+                    QuotaAccent.VIOLET -> AgentGridColors.Violet
+                    QuotaAccent.CYAN -> AgentGridColors.Cyan
+                    QuotaAccent.MUTED -> AgentGridColors.Muted
+                },
+                fontSize = 8.sp,
+                lineHeight = 8.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.25.sp,
+            )
+            item.statusText?.let { status ->
+                Text(
+                    status,
+                    color = glmHealthToneColor(item.statusTone),
+                    fontSize = 7.sp,
+                    lineHeight = 7.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
         windows.forEachIndexed { index, window ->
             if (index > 0) {
                 Box(

@@ -210,11 +210,187 @@ class UsagePresentationTest {
         )
     }
 
+    @Test
+    fun `额度详情默认保持 Codex 且固定提供 GLM 切换`() {
+        assertEquals(QuotaProviderTab.CODEX, UsagePresentation.defaultQuotaTab)
+        assertEquals(
+            listOf(QuotaProviderTab.CODEX, QuotaProviderTab.GLM),
+            UsagePresentation.quotaProviderTabs,
+        )
+    }
+
+    @Test
+    fun `GLM 正常详情显示套餐原值双窗口和更新时间`() {
+        val updatedAt = Instant.parse("2026-08-29T08:00:00Z").toEpochMilli()
+        val provider = glmProvider(
+            status = "available",
+            capturedAt = updatedAt,
+            planLevel = "lite",
+            remaining = listOf(82.0, 64.0),
+        )
+
+        val details = UsagePresentation.glmDetails(provider)
+
+        assertEquals(GLMHealth.AVAILABLE, details.health)
+        assertEquals("可用", details.healthText)
+        assertEquals("GLM Coding Plan", details.planLabel)
+        assertEquals("lite", details.planLevelRaw)
+        assertEquals(listOf("5 小时", "每周"), details.windows.map { it.label })
+        assertEquals(listOf(82, 64), details.windows.map { it.remainingPercentage })
+        assertEquals(updatedAt, details.lastSuccessfulAt)
+        assertEquals(updatedAt, details.lastUpdatedAt)
+    }
+
+    @Test
+    fun `GLM 低额度同时提供颜色等级和文字语义`() {
+        val details = UsagePresentation.glmDetails(
+            glmProvider(status = "available", remaining = listOf(19.0, 9.0)),
+        )
+
+        assertEquals(listOf(QuotaLevel.LOW, QuotaLevel.CRITICAL), details.windows.map { it.level })
+        assertEquals(listOf("额度偏低", "额度告急"), details.windows.map { it.levelText })
+        assertEquals(
+            listOf("5 小时剩余 19%，额度偏低", "每周剩余 9%，额度告急"),
+            details.windows.map { it.accessibilityText },
+        )
+    }
+
+    @Test
+    fun `只有明确耗尽状态才显示额度耗尽`() {
+        val explicit = UsagePresentation.glmDetails(
+            glmProvider(status = "quota_exhausted", remaining = listOf(0.0, 35.0)),
+        )
+        val ambiguous = UsagePresentation.glmDetails(
+            glmProvider(status = "available", remaining = listOf(0.0, 35.0)),
+        )
+
+        assertEquals(GLMHealth.EXHAUSTED, explicit.health)
+        assertEquals("额度耗尽", explicit.windows.first().levelText)
+        assertEquals("额度告急", ambiguous.windows.first().levelText)
+    }
+
+    @Test
+    fun `首次明确耗尽只记录更新时间不伪造最后成功时间`() {
+        val updatedAt = Instant.parse("2026-08-29T08:00:00Z").toEpochMilli()
+        val details = UsagePresentation.glmDetails(
+            glmProvider(
+                status = "quota_exhausted",
+                capturedAt = updatedAt,
+                remaining = emptyList(),
+            ),
+        )
+
+        assertEquals(GLMHealth.EXHAUSTED, details.health)
+        assertEquals(null, details.lastSuccessfulAt)
+        assertEquals(updatedAt, details.lastUpdatedAt)
+        assertEquals(emptyList<GLMWindowPresentation>(), details.windows)
+    }
+
+    @Test
+    fun `GLM 陈旧数据保留最后可信窗口并区分最后成功和更新`() {
+        val successfulAt = Instant.parse("2026-08-29T07:00:00Z").toEpochMilli()
+        val updatedAt = Instant.parse("2026-08-29T08:00:00Z").toEpochMilli()
+        val provider = glmProvider(
+            status = "stale_timeout",
+            capturedAt = updatedAt,
+            groupCapturedAt = successfulAt,
+            remaining = listOf(70.0, 55.0),
+        )
+
+        val details = UsagePresentation.glmDetails(provider)
+
+        assertEquals(GLMHealth.STALE, details.health)
+        assertEquals("数据陈旧", details.healthText)
+        assertEquals(successfulAt, details.lastSuccessfulAt)
+        assertEquals(updatedAt, details.lastUpdatedAt)
+        assertEquals(listOf(70, 55), details.windows.map { it.remainingPercentage })
+    }
+
+    @Test
+    fun `GLM 未启用鉴权失效和未知 Schema 不伪装成零额度`() {
+        val unconfigured = UsagePresentation.glmDetails(null)
+        val unauthorized = UsagePresentation.glmDetails(
+            glmProvider(status = "auth_unauthorized", remaining = emptyList()),
+        )
+        val unknown = UsagePresentation.glmDetails(
+            glmProvider(status = "unknown_schema", remaining = emptyList()),
+        )
+
+        assertEquals(GLMHealth.UNCONFIGURED, unconfigured.health)
+        assertEquals("未启用", unconfigured.healthText)
+        assertEquals("GLM Coding Plan", unconfigured.planLabel)
+        assertEquals(emptyList<GLMWindowPresentation>(), unconfigured.windows)
+        assertEquals("可选连接，不影响 ZCode 会话与手机审批", unconfigured.message)
+        assertEquals(GLMHealth.AUTHENTICATION_FAILED, unauthorized.health)
+        assertEquals("鉴权失效", unauthorized.healthText)
+        assertEquals(emptyList<GLMWindowPresentation>(), unauthorized.windows)
+        assertEquals(GLMHealth.UNAVAILABLE, unknown.health)
+        assertEquals("暂不可用", unknown.healthText)
+        assertEquals(emptyList<GLMWindowPresentation>(), unknown.windows)
+    }
+
+    @Test
+    fun `顶部 GLM 最后可信读数明确标记异常状态`() {
+        val stale = glmProvider(
+            status = "stale_timeout",
+            remaining = listOf(70.0, 55.0),
+        )
+        val unauthorized = glmProvider(
+            status = "auth_unauthorized",
+            remaining = listOf(70.0, 55.0),
+        )
+
+        assertEquals(
+            "数据陈旧",
+            UsagePresentation.topQuotaItems(null, listOf(stale)).single().statusText,
+        )
+        assertEquals(
+            "鉴权失效",
+            UsagePresentation.topQuotaItems(null, listOf(unauthorized)).single().statusText,
+        )
+    }
+
     private fun window(label: String, minutes: Int) = UsageWindow(
         key = "primary",
         label = label,
         usedPercentage = 8.0,
         remainingPercentage = 92.0,
         windowMinutes = minutes,
+    )
+
+    private fun glmProvider(
+        status: String,
+        capturedAt: Long = 1_787_900_200_000,
+        groupCapturedAt: Long = capturedAt,
+        planLevel: String? = null,
+        remaining: List<Double>,
+    ) = UsageProviderSnapshot(
+        id = "glm",
+        displayName = "GLM",
+        planName = "GLM Coding Plan",
+        planLevel = planLevel,
+        capturedAt = capturedAt,
+        status = status,
+        quotaGroups = if (remaining.isEmpty()) {
+            emptyList()
+        } else {
+            listOf(
+                QuotaGroup(
+                    id = "credit",
+                    capturedAt = groupCapturedAt,
+                    windows = remaining.mapIndexed { index, value ->
+                        UsageWindow(
+                            key = if (index == 0) "5-hour" else "weekly",
+                            label = if (index == 0) "5H" else "WEEK",
+                            usedPercentage = 100 - value,
+                            remainingPercentage = value,
+                            windowMinutes = if (index == 0) 300 else 10_080,
+                            resetsAt = capturedAt + (index + 1) * 3_600_000,
+                            remainingAmount = value * 10,
+                        )
+                    },
+                ),
+            )
+        },
     )
 }

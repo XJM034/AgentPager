@@ -3,6 +3,7 @@ package com.agentgrid.mobile.ui
 import com.agentgrid.mobile.domain.DailyUsagePoint
 import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.UsageSnapshot
+import com.agentgrid.mobile.domain.UsageProviderSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
 import java.time.Instant
 import java.time.ZoneId
@@ -37,6 +38,53 @@ class UsagePresentationTest {
             ),
         )
         assertEquals(listOf("GENERAL"), legacy.map(UsagePresentation::quotaTitle))
+    }
+
+    @Test
+    fun `顶部额度固定为 General Spark GLM 且缺失 GLM 不占位`() {
+        val general = QuotaGroup(
+            id = "codex",
+            windows = listOf(window("5H", 300)),
+        )
+        val spark = QuotaGroup(
+            id = "codex_bengalfox",
+            name = "GPT-5.3-Codex-Spark",
+            windows = listOf(window("5H", 300)),
+        )
+        val glm = UsageProviderSnapshot(
+            id = "glm",
+            displayName = "GLM",
+            planName = "GLM Coding Plan",
+            quotaGroups = listOf(
+                QuotaGroup(
+                    id = "credit",
+                    windows = listOf(window("5H", 300), window("WEEK", 10_080)),
+                ),
+            ),
+        )
+
+        val all = UsagePresentation.topQuotaGroups(
+            usage = UsageSnapshot(quotaGroups = listOf(spark, general)),
+            providers = listOf(glm),
+        )
+        val onlyGLM = UsagePresentation.topQuotaGroups(
+            usage = null,
+            providers = listOf(glm),
+        )
+        val withoutGLM = UsagePresentation.topQuotaGroups(
+            usage = UsageSnapshot(quotaGroups = listOf(spark, general)),
+            providers = emptyList(),
+        )
+
+        assertEquals(
+            listOf("GENERAL", "SPARK", "GLM"),
+            all.map(UsagePresentation::quotaTitle),
+        )
+        assertEquals(listOf("GLM"), onlyGLM.map(UsagePresentation::quotaTitle))
+        assertEquals(
+            listOf("GENERAL", "SPARK"),
+            withoutGLM.map(UsagePresentation::quotaTitle),
+        )
     }
 
     @Test

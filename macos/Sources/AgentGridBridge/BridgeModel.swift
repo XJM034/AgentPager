@@ -2,6 +2,16 @@ import AgentGridCore
 import Foundation
 import Observation
 
+protocol GLMQuotaCoordinating: Sendable {
+    func start() async
+    func refresh() async
+    func waitUntilIdle() async
+    func saveCandidate(_ candidate: String) async -> Bool
+    func deleteKey() async -> Bool
+}
+
+extension GLMQuotaCoordinator: GLMQuotaCoordinating {}
+
 @MainActor
 @Observable
 final class BridgeModel {
@@ -14,6 +24,10 @@ final class BridgeModel {
     private(set) var claudeHookInstalled = false
     private(set) var zcodeHookInstalled = false
     private(set) var zcodeHookManaged = false
+    private(set) var glmCredentialStatus = GLMCredentialStatus.unconfigured
+    private(set) var glmValidationStatus = GLMValidationStatus.idle
+    private(set) var glmProvider: UsageProviderSnapshot?
+    private(set) var glmOperationInProgress = false
     private(set) var pendingZCodeRestorePlan: ZCodeHookRestorePlan?
     private(set) var lastError: String?
     private(set) var pairingText = ""
@@ -26,6 +40,18 @@ final class BridgeModel {
     private let claudeHookConfiguration = ClaudeHookConfiguration()
     private let zcodeHookConfiguration = ZCodeHookConfiguration()
     private let usageLoader = CodexUsageLoader()
+    @ObservationIgnored
+    private let glmCoordinatorFactory: @MainActor @Sendable (
+        @escaping @Sendable (GLMQuotaState) async -> Void
+    ) -> any GLMQuotaCoordinating
+    @ObservationIgnored
+    private let snapshotObserver: (@MainActor @Sendable (String) -> Void)?
+    @ObservationIgnored
+    private lazy var glmQuotaCoordinator = glmCoordinatorFactory { [weak self] state in
+        await MainActor.run {
+            self?.applyGLMState(state)
+        }
+    }
     private var rolloutObservation = CodexRolloutObservation()
     private var hookServer: HookBridgeServer?
     private var webSocketServer: WebSocketServer?
@@ -33,6 +59,22 @@ final class BridgeModel {
     private var usageLoadTask: Task<Void, Never>?
     private var rolloutTask: Task<Void, Never>?
     private var hasStarted = false
+
+    init(
+        glmCoordinatorFactory: @escaping @MainActor @Sendable (
+            @escaping @Sendable (GLMQuotaState) async -> Void
+        ) -> any GLMQuotaCoordinating = { stateHandler in
+            GLMQuotaCoordinator(
+                keyStore: GLMKeychainStore(),
+                quotaFetcher: GLMQuotaProvider(),
+                onStateChange: stateHandler
+            )
+        },
+        snapshotObserver: (@MainActor @Sendable (String) -> Void)? = nil
+    ) {
+        self.glmCoordinatorFactory = glmCoordinatorFactory
+        self.snapshotObserver = snapshotObserver
+    }
 
     func start() {
         guard !hasStarted else { return }
@@ -77,15 +119,7 @@ final class BridgeModel {
                 },
                 countHandler: { [weak self] count in
                     Task { @MainActor in
-                        guard let self else { return }
-                        let phoneConnected = count > self.phoneCount
-                        self.phoneCount = count
-                        hookServer.setPhoneConnected(count > 0)
-                        if phoneConnected {
-                            self.refreshUsage()
-                        } else {
-                            self.broadcastSnapshot()
-                        }
+                        self?.updatePhoneCount(count)
                     }
                 },
                 localHTTPHandler: { path in
@@ -104,6 +138,7 @@ final class BridgeModel {
         refreshClaudeHookStatus()
         refreshZCodeHookStatus()
         refreshUsage()
+        startGLMQuotaMonitoring()
         handleRolloutObservation()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -316,6 +351,68 @@ final class BridgeModel {
         lastError = nil
     }
 
+    func saveGLMKey(_ candidate: String) {
+        guard !glmOperationInProgress else { return }
+        glmOperationInProgress = true
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.glmQuotaCoordinator.saveCandidate(candidate)
+            self.glmOperationInProgress = false
+        }
+    }
+
+    func startGLMQuotaMonitoring() {
+        Task {
+            await glmQuotaCoordinator.start()
+        }
+    }
+
+    func updatePhoneCount(_ count: Int) {
+        let phoneConnected = count > phoneCount
+        phoneCount = count
+        hookServer?.setPhoneConnected(count > 0)
+        if phoneConnected {
+            refreshUsage()
+            Task {
+                await glmQuotaCoordinator.refresh()
+            }
+        } else {
+            broadcastSnapshot()
+        }
+    }
+
+    func refreshGLMQuota() {
+        guard !glmOperationInProgress else { return }
+        glmOperationInProgress = true
+        Task { [weak self] in
+            guard let self else { return }
+            await self.glmQuotaCoordinator.refresh()
+            await self.glmQuotaCoordinator.waitUntilIdle()
+            self.glmOperationInProgress = false
+        }
+    }
+
+    func deleteGLMKey() {
+        guard !glmOperationInProgress else { return }
+        glmOperationInProgress = true
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.glmQuotaCoordinator.deleteKey()
+            self.glmOperationInProgress = false
+        }
+    }
+
+    var glmStatusText: String {
+        switch glmValidationStatus {
+        case .succeeded:
+            "验证成功"
+        case .failed:
+            "验证失败"
+        case .idle:
+            glmCredentialStatus == .configured ? "已配置" : "未配置"
+        }
+    }
+
     private func handle(_ envelope: HookEnvelope) {
         let commit: TaskCatalogCommit?
         let diagnosticSummary: String
@@ -470,6 +567,21 @@ final class BridgeModel {
         zcodeHookManaged = zcodeHookConfiguration.containsManagedHooks()
     }
 
+    private func applyGLMState(_ state: GLMQuotaState) {
+        glmCredentialStatus = state.credentialStatus
+        glmValidationStatus = state.validationStatus
+        glmProvider = state.provider
+        switch state.validationStatus {
+        case .succeeded:
+            addEvent("GLM 额度已刷新")
+        case .failed:
+            addEvent("GLM 额度验证失败")
+        case .idle:
+            break
+        }
+        broadcastSnapshot()
+    }
+
     private func publishCatalog(focusedTaskIDOverride: String? = nil) {
         applyCatalogCommit(
             catalog.synchronize(
@@ -491,11 +603,13 @@ final class BridgeModel {
         let payload = StateSnapshotPayload(
             tasks: tasks,
             usage: usage,
+            usageProviders: glmProvider.map { [$0] },
             focusedTaskID: focusedTaskID,
             pendingRequests: catalog.projection().pendingRequests
         )
         let envelope = MessageEnvelope(type: "state.snapshot", payload: payload)
         guard let text = encode(envelope) else { return }
+        snapshotObserver?(text)
         webSocketServer?.broadcast(text)
     }
 

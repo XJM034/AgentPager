@@ -3,6 +3,7 @@ package com.agentgrid.mobile.ui
 import com.agentgrid.mobile.domain.DailyUsagePoint
 import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.UsageSnapshot
+import com.agentgrid.mobile.domain.UsageProviderSnapshot
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -17,33 +18,76 @@ internal enum class UsageRange(
     NINETY_DAYS(90, "90 天"),
 }
 
+internal enum class QuotaAccent {
+    MUTED,
+    VIOLET,
+    CYAN,
+}
+
 internal object UsagePresentation {
-    fun topQuotaGroups(usage: UsageSnapshot?): List<QuotaGroup> {
-        usage ?: return emptyList()
-        val groups = usage.quotaGroups.ifEmpty {
-            if (usage.windows.isEmpty()) {
+    fun topQuotaGroups(
+        usage: UsageSnapshot?,
+        providers: List<UsageProviderSnapshot> = emptyList(),
+    ): List<QuotaGroup> {
+        val groups = usage?.quotaGroups.orEmpty().ifEmpty {
+            if (usage?.windows.isNullOrEmpty()) {
                 emptyList()
             } else {
                 listOf(
                     QuotaGroup(
-                        id = usage.limitID ?: "default",
+                        id = usage?.limitID ?: "default",
                         name = usage.limitName,
                         capturedAt = usage.capturedAt,
-                        windows = usage.windows,
+                        windows = usage?.windows.orEmpty(),
                     ),
                 )
             }
         }
         val general = groups.firstOrNull(::isGeneralQuota)
         val spark = groups.firstOrNull(::isSparkQuota)
-        return listOfNotNull(general, spark).ifEmpty { groups.take(2) }
+        val codexGroups = listOfNotNull(general, spark).ifEmpty { groups.take(2) }
+        val glmProvider = providers.firstOrNull {
+            it.id.equals("glm", ignoreCase = true)
+        }
+        val glmGroup = glmProvider
+            ?.quotaGroups
+            ?.firstOrNull { it.windows.isNotEmpty() }
+            ?.let { group ->
+                group.copy(
+                    id = "glm",
+                    name = glmProvider.displayName ?: "GLM",
+                    capturedAt = group.capturedAt ?: glmProvider.capturedAt,
+                )
+            }
+        return codexGroups + listOfNotNull(glmGroup)
     }
 
-    fun quotaTitle(group: QuotaGroup): String = when {
-        isSparkQuota(group) -> "SPARK"
-        isGeneralQuota(group) -> "GENERAL"
-        !group.name.isNullOrBlank() -> group.name.uppercase()
-        else -> group.id.uppercase()
+    fun quotaTitle(group: QuotaGroup): String = when (quotaKind(group)) {
+        QuotaKind.GLM -> "GLM"
+        QuotaKind.SPARK -> "SPARK"
+        QuotaKind.GENERAL -> "GENERAL"
+        QuotaKind.OTHER -> group.name?.takeIf(String::isNotBlank)?.uppercase()
+            ?: group.id.uppercase()
+    }
+
+    fun quotaAccent(group: QuotaGroup): QuotaAccent = when (quotaKind(group)) {
+        QuotaKind.SPARK -> QuotaAccent.VIOLET
+        QuotaKind.GLM -> QuotaAccent.CYAN
+        QuotaKind.GENERAL, QuotaKind.OTHER -> QuotaAccent.MUTED
+    }
+
+    private enum class QuotaKind {
+        GENERAL,
+        SPARK,
+        GLM,
+        OTHER,
+    }
+
+    private fun quotaKind(group: QuotaGroup): QuotaKind = when {
+        group.id.equals("glm", ignoreCase = true) -> QuotaKind.GLM
+        isSparkQuota(group) -> QuotaKind.SPARK
+        isGeneralQuota(group) -> QuotaKind.GENERAL
+        else -> QuotaKind.OTHER
     }
 
     private fun isGeneralQuota(group: QuotaGroup): Boolean =

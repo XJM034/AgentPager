@@ -195,6 +195,7 @@ struct BridgeSettingsView: View {
     private enum Tab: String, CaseIterable {
         case pairing = "连接"
         case hook = "Hook"
+        case glm = "GLM"
         case simulator = "模拟器"
         case diagnostics = "诊断"
     }
@@ -207,6 +208,7 @@ struct BridgeSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: Tab = .pairing
     @State private var pairingTextCopied = false
+    @State private var glmKeyCandidate = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -243,6 +245,8 @@ struct BridgeSettingsView: View {
                     pairingView
                 case .hook:
                     hookView
+                case .glm:
+                    glmView
                 case .simulator:
                     simulatorView
                 case .diagnostics:
@@ -505,6 +509,79 @@ struct BridgeSettingsView: View {
             Spacer()
         }
         .padding(28)
+    }
+
+    private var glmView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                SettingsTitle("GLM Coding Plan 额度")
+                PixelPanel {
+                    VStack(alignment: .leading, spacing: 13) {
+                        InfoRow(
+                            label: "KEY",
+                            value: model.glmStatusText,
+                            accent: model.glmValidationStatus == .succeeded
+                                ? PixelTheme.green
+                                : (model.glmValidationStatus == .failed
+                                    ? PixelTheme.red
+                                    : PixelTheme.amber)
+                        )
+                        SecureField("输入 Coding Plan Key", text: $glmKeyCandidate)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12, design: .monospaced))
+                            .padding(9)
+                            .background(PixelTheme.background)
+                            .overlay {
+                                Rectangle()
+                                    .stroke(PixelTheme.divider, lineWidth: 1)
+                            }
+                            .accessibilityLabel("GLM Coding Plan Key 安全输入")
+                        Text("候选 Key 会先通过额度接口验证；验证失败不会覆盖已经保存的有效 Key。Bridge 不会回显完整 Key。")
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                        HStack(spacing: 10) {
+                            Button("保存并验证") {
+                                let candidate = glmKeyCandidate
+                                glmKeyCandidate = ""
+                                model.saveGLMKey(candidate)
+                            }
+                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                            .disabled(
+                                glmKeyCandidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    || model.glmOperationInProgress
+                            )
+                            Button("刷新额度") { model.refreshGLMQuota() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+                                .disabled(
+                                    model.glmCredentialStatus != .configured
+                                        || model.glmOperationInProgress
+                                )
+                            Button("删除 Key") { model.deleteGLMKey() }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                                .disabled(
+                                    model.glmCredentialStatus != .configured
+                                        || model.glmOperationInProgress
+                                )
+                        }
+                    }
+                }
+                PixelPanel {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("安全边界")
+                            .font(.pixel(12, weight: .bold))
+                            .foregroundStyle(PixelTheme.cyan)
+                        Text("Key 仅保存在 macOS 钥匙串；不会进入普通设置、日志、手机快照或任务持久化。额度每 10 分钟低频刷新，也会在 Bridge 启动和手机新连接时刷新。")
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                        Text("KEYCHAIN · com.agentpager.bridge.glm-coding-plan / coding-plan-key")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(PixelTheme.muted)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(28)
+        }
     }
 
     private var simulatorPreviewTask: TaskSnapshot? {

@@ -12,6 +12,7 @@ import com.agentgrid.mobile.domain.TaskDashboardProjector
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.TaskControlIntent
 import com.agentgrid.mobile.domain.UsageSnapshot
+import com.agentgrid.mobile.domain.UsageProviderSnapshot
 import com.agentgrid.mobile.network.LinkState
 import com.agentgrid.mobile.network.PairingOutcome
 import com.agentgrid.mobile.network.PairingSummary
@@ -29,6 +30,7 @@ data class AgentGridUiState(
     val linkState: LinkState = LinkState.DISCONNECTED,
     val taskProjection: TaskDashboardProjection = TaskDashboardProjection.empty(),
     val usage: UsageSnapshot? = null,
+    val usageProviders: List<UsageProviderSnapshot> = emptyList(),
     val pendingRequests: List<PendingRequest> = emptyList(),
     val pairingError: String? = null,
     val terminalMode: Boolean = true,
@@ -90,6 +92,7 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
                     linkState = session.link,
                     taskProjection = projection,
                     usage = session.snapshot.usage,
+                    usageProviders = session.snapshot.usageProviders.orEmpty(),
                     pendingRequests = session.snapshot.pendingRequests,
                 )
                 if (snapshotChanged) scheduleDashboardTransition(projection)

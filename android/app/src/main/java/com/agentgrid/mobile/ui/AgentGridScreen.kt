@@ -91,6 +91,7 @@ import com.agentgrid.mobile.domain.TaskCapability
 import com.agentgrid.mobile.domain.TaskControlIntent
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.UsageSnapshot
+import com.agentgrid.mobile.domain.UsageProviderSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
 import com.agentgrid.mobile.network.LinkState
 import com.agentgrid.mobile.render.PixelCoreSurfaceView
@@ -332,6 +333,11 @@ private fun TaskTerminal(
             } else {
                 state.usage
             },
+            usageProviders = if (showDashboard) {
+                emptyList()
+            } else {
+                state.usageProviders
+            },
             settingsVisible = settingsVisible,
             dashboardVisible = showDashboard,
             onToggleDashboard = {
@@ -486,6 +492,7 @@ private fun TaskTerminal(
 @Composable
 private fun TopControls(
     usage: UsageSnapshot?,
+    usageProviders: List<UsageProviderSnapshot> = emptyList(),
     settingsVisible: Boolean,
     dashboardVisible: Boolean,
     onToggleDashboard: () -> Unit,
@@ -497,7 +504,7 @@ private fun TopControls(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        UsagePresentation.topQuotaGroups(usage).forEach { group ->
+        UsagePresentation.topQuotaGroups(usage, usageProviders).forEach { group ->
             UsageBank(group)
         }
         Box(
@@ -588,7 +595,11 @@ private fun UsageBank(group: QuotaGroup) {
     ) {
         Text(
             title,
-            color = if (title == "SPARK") AgentGridColors.Violet else AgentGridColors.Muted,
+            color = when (UsagePresentation.quotaAccent(group)) {
+                QuotaAccent.VIOLET -> AgentGridColors.Violet
+                QuotaAccent.CYAN -> AgentGridColors.Cyan
+                QuotaAccent.MUTED -> AgentGridColors.Muted
+            },
             fontSize = 8.sp,
             lineHeight = 8.sp,
             fontWeight = FontWeight.Medium,
@@ -1315,6 +1326,137 @@ private fun ZCodeCoreSessionActivityPreview() {
         }
     }
 }
+
+@Preview(
+    name = "顶部额度 · General Spark GLM",
+    widthDp = 720,
+    heightDp = 64,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun AllQuotaProvidersPreview() {
+    QuotaTopControlsPreview(
+        usage = previewCodexUsage(),
+        providers = listOf(previewGLMProvider()),
+    )
+}
+
+@Preview(
+    name = "顶部额度 · 只有 GLM",
+    widthDp = 360,
+    heightDp = 64,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun GLMOnlyQuotaPreview() {
+    QuotaTopControlsPreview(
+        usage = null,
+        providers = listOf(previewGLMProvider()),
+    )
+}
+
+@Preview(
+    name = "顶部额度 · 没有 GLM",
+    widthDp = 480,
+    heightDp = 64,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun NoGLMQuotaPreview() {
+    QuotaTopControlsPreview(
+        usage = previewCodexUsage(),
+        providers = emptyList(),
+    )
+}
+
+@Preview(
+    name = "顶部额度 · 窄屏三提供方",
+    widthDp = 650,
+    heightDp = 64,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun NarrowAllQuotaProvidersPreview() {
+    QuotaTopControlsPreview(
+        usage = previewCodexUsage(),
+        providers = listOf(previewGLMProvider()),
+    )
+}
+
+@Composable
+private fun QuotaTopControlsPreview(
+    usage: UsageSnapshot?,
+    providers: List<UsageProviderSnapshot>,
+) {
+    AgentGridTheme {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(AgentGridColors.Background),
+        ) {
+            TopControls(
+                usage = usage,
+                usageProviders = providers,
+                settingsVisible = false,
+                dashboardVisible = false,
+                onToggleDashboard = {},
+                onToggleSettings = {},
+                modifier = Modifier.align(Alignment.TopEnd),
+            )
+        }
+    }
+}
+
+private fun previewCodexUsage() = UsageSnapshot(
+    quotaGroups = listOf(
+        QuotaGroup(
+            id = "codex",
+            windows = listOf(
+                previewUsageWindow("5H", 300, 78.0),
+                previewUsageWindow("WEEK", 10_080, 64.0),
+            ),
+        ),
+        QuotaGroup(
+            id = "codex_bengalfox",
+            name = "GPT-5.3-Codex-Spark",
+            windows = listOf(
+                previewUsageWindow("5H", 300, 88.0),
+                previewUsageWindow("WEEK", 10_080, 71.0),
+            ),
+        ),
+    ),
+)
+
+private fun previewGLMProvider() = UsageProviderSnapshot(
+    id = "glm",
+    displayName = "GLM",
+    planName = "GLM Coding Plan",
+    quotaGroups = listOf(
+        QuotaGroup(
+            id = "credit",
+            windows = listOf(
+                previewUsageWindow("5H", 300, 95.0),
+                previewUsageWindow("WEEK", 10_080, 99.0),
+            ),
+        ),
+    ),
+)
+
+private fun previewUsageWindow(
+    label: String,
+    windowMinutes: Int,
+    remainingPercentage: Double,
+) = UsageWindow(
+    key = label.lowercase(),
+    label = label,
+    usedPercentage = 100 - remainingPercentage,
+    remainingPercentage = remainingPercentage,
+    windowMinutes = windowMinutes,
+)
 
 internal fun statusText(lifecycle: AgentLifecycle): String = when (lifecycle) {
     AgentLifecycle.OFFLINE -> "离线"

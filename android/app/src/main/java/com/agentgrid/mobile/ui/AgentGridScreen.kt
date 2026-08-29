@@ -1342,6 +1342,47 @@ private fun ZCodeCoreSessionActivityPreview() {
 }
 
 @Preview(
+    name = "ZCode waitingApproval",
+    widthDp = 360,
+    heightDp = 220,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun ZCodeWaitingApprovalPreview() {
+    val task = TaskSnapshot(
+        id = "zcode-approval-preview",
+        source = AgentSource.ZCODE,
+        projectName = "AgentPager",
+        title = "AgentPager · 处理工具审批",
+        lifecycle = AgentLifecycle.WAITING_APPROVAL,
+        startedAt = 1,
+        updatedAt = 2,
+        capabilities = setOf(TaskCapability.APPROVE, TaskCapability.DENY),
+    )
+    val pending = PendingRequest(
+        taskID = task.id,
+        requestID = "zcode:fixture-request",
+        kind = PendingRequestKind.APPROVAL,
+        summary = "读取文件 · 等待手机批准",
+    )
+
+    AgentGridTheme {
+        Box(modifier = Modifier.background(AgentGridColors.Background)) {
+            TaskRow(
+                task = task,
+                pending = listOf(pending),
+                expanded = true,
+                dimmed = false,
+                showDivider = false,
+                onClick = {},
+                onControl = {},
+            )
+        }
+    }
+}
+
+@Preview(
     name = "顶部额度 · General Spark GLM",
     widthDp = 720,
     heightDp = 64,

@@ -28,6 +28,26 @@ class ZCodeTaskPresentationTest {
         assertEquals("正在思考", taskActivitySummary(thinking))
     }
 
+    @Test
+    fun `ZCode running waitingApproval idle 使用稳定的客户端投影`() {
+        val running = zcodeTask(
+            lifecycle = AgentLifecycle.RUNNING,
+            activity = AgentActivity.EDITING,
+        )
+        val waiting = zcodeTask(
+            lifecycle = AgentLifecycle.WAITING_APPROVAL,
+            activity = null,
+        )
+        val idle = zcodeTask(
+            lifecycle = AgentLifecycle.IDLE,
+            activity = null,
+        )
+
+        assertEquals("正在编辑", taskActivitySummary(running))
+        assertEquals("等待批准", taskActivitySummary(waiting))
+        assertEquals("空闲", taskActivitySummary(idle))
+    }
+
     private fun zcodeTask(
         lifecycle: AgentLifecycle,
         activity: AgentActivity?,

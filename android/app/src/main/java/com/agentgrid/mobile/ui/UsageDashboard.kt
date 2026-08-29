@@ -129,6 +129,12 @@ private fun GLMUnknownSchemaPreview() {
     GLMDetailsPreview(previewGLMProvider("unknown_schema"))
 }
 
+@Preview(name = "GLM 暂不可用", widthDp = 900, heightDp = 340, showBackground = true)
+@Composable
+private fun GLMTemporarilyUnavailablePreview() {
+    GLMDetailsPreview(previewGLMProvider("server_error"))
+}
+
 @Composable
 private fun GLMDetailsPreview(provider: UsageProviderSnapshot?) {
     AgentGridTheme {

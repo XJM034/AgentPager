@@ -75,6 +75,46 @@ enum GLMConnectionPresentation {
     }
 }
 
+struct BridgeRuntimeConfiguration: Sendable {
+    var hookPort: UInt16
+    var webSocketPort: UInt16
+    var advertisedHost: String
+    var pairingSecretLoader: @Sendable () throws -> Data
+    var taskPersistence: TaskSnapshotPersistence
+    var observesLocalEnvironment: Bool
+    var startsBackgroundMaintenance: Bool
+    var zcodeDecisionTimeoutMilliseconds: Int
+    var usageLoader: @Sendable () -> UsageSnapshot?
+
+    init(
+        hookPort: UInt16 = 49_361,
+        webSocketPort: UInt16 = 49_362,
+        advertisedHost: String = LocalNetworkAddress.preferredIPv4(),
+        pairingSecretLoader: @escaping @Sendable () throws -> Data =
+            PairingSecretStore.loadOrCreate,
+        taskPersistence: TaskSnapshotPersistence = TaskSnapshotPersistence(),
+        observesLocalEnvironment: Bool = true,
+        startsBackgroundMaintenance: Bool = true,
+        zcodeDecisionTimeoutMilliseconds: Int =
+            ZCodePermissionTiming.bridgeDecisionTimeoutMilliseconds,
+        usageLoader: @escaping @Sendable () -> UsageSnapshot? = {
+            CodexUsageLoader().load()
+        }
+    ) {
+        precondition(hookPort != webSocketPort)
+        precondition(zcodeDecisionTimeoutMilliseconds > 0)
+        self.hookPort = hookPort
+        self.webSocketPort = webSocketPort
+        self.advertisedHost = advertisedHost
+        self.pairingSecretLoader = pairingSecretLoader
+        self.taskPersistence = taskPersistence
+        self.observesLocalEnvironment = observesLocalEnvironment
+        self.startsBackgroundMaintenance = startsBackgroundMaintenance
+        self.zcodeDecisionTimeoutMilliseconds = zcodeDecisionTimeoutMilliseconds
+        self.usageLoader = usageLoader
+    }
+}
+
 @MainActor
 @Observable
 final class BridgeModel {
@@ -100,13 +140,14 @@ final class BridgeModel {
     private(set) var pairingText = ""
     private(set) var recentEvents: [String] = []
 
-    private var catalog = PersistentTaskCatalog()
+    private var catalog: PersistentTaskCatalog
     private var controlAuthorizer = SignedTaskControlAuthorizer()
     private var pairingSecret = Data()
     private let hookConfiguration = CodexHookConfiguration()
     private let claudeHookConfiguration = ClaudeHookConfiguration()
     private let zcodeHookConfiguration = ZCodeHookConfiguration()
-    private let usageLoader = CodexUsageLoader()
+    @ObservationIgnored
+    private let runtimeConfiguration: BridgeRuntimeConfiguration
     @ObservationIgnored
     private let glmCoordinatorFactory: @MainActor @Sendable (
         @escaping @Sendable (GLMQuotaState) async -> Void
@@ -128,6 +169,7 @@ final class BridgeModel {
     private var hasStarted = false
 
     init(
+        runtimeConfiguration: BridgeRuntimeConfiguration = BridgeRuntimeConfiguration(),
         glmCoordinatorFactory: @escaping @MainActor @Sendable (
             @escaping @Sendable (GLMQuotaState) async -> Void
         ) -> any GLMQuotaCoordinating = { stateHandler in
@@ -139,6 +181,10 @@ final class BridgeModel {
         },
         snapshotObserver: (@MainActor @Sendable (String) -> Void)? = nil
     ) {
+        self.runtimeConfiguration = runtimeConfiguration
+        catalog = PersistentTaskCatalog(
+            persistence: runtimeConfiguration.taskPersistence
+        )
         self.glmCoordinatorFactory = glmCoordinatorFactory
         self.snapshotObserver = snapshotObserver
     }
@@ -146,15 +192,17 @@ final class BridgeModel {
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
-        reconcileRestoredTasks()
+        if runtimeConfiguration.observesLocalEnvironment {
+            reconcileRestoredTasks()
+        }
         publishCatalog()
 
         do {
-            pairingSecret = try PairingSecretStore.loadOrCreate()
+            pairingSecret = try runtimeConfiguration.pairingSecretLoader()
             let payload = PairingPayload(
                 serviceID: "agentgrid-\(Host.current().localizedName ?? "mac")",
-                host: LocalNetworkAddress.preferredIPv4(),
-                port: 49_362,
+                host: runtimeConfiguration.advertisedHost,
+                port: runtimeConfiguration.webSocketPort,
                 secret: pairingSecret.base64EncodedString()
             )
             let encoder = JSONEncoder()
@@ -164,6 +212,8 @@ final class BridgeModel {
             pairingText = pairingPayloadText
 
             let hookServer = HookBridgeServer(
+                zcodeDecisionTimeoutMilliseconds:
+                    runtimeConfiguration.zcodeDecisionTimeoutMilliseconds,
                 eventHandler: { [weak self] envelope in
                     Task { @MainActor in
                         self?.handle(envelope)
@@ -175,7 +225,7 @@ final class BridgeModel {
                     }
                 }
             )
-            try hookServer.start()
+            try hookServer.start(port: runtimeConfiguration.hookPort)
             self.hookServer = hookServer
 
             let webSocketServer = WebSocketServer(
@@ -193,7 +243,7 @@ final class BridgeModel {
                     path == "/pairing" ? pairingPayloadText : nil
                 }
             )
-            try webSocketServer.start()
+            try webSocketServer.start(port: runtimeConfiguration.webSocketPort)
             self.webSocketServer = webSocketServer
             serviceStatus = "局域网服务运行中"
         } catch {
@@ -201,32 +251,55 @@ final class BridgeModel {
             lastError = error.localizedDescription
         }
 
-        refreshHookStatus()
-        refreshClaudeHookStatus()
-        refreshZCodeHookStatus()
+        if runtimeConfiguration.observesLocalEnvironment {
+            refreshHookStatus()
+            refreshClaudeHookStatus()
+            refreshZCodeHookStatus()
+            handleRolloutObservation()
+        }
         refreshUsage()
         startGLMQuotaMonitoring()
-        handleRolloutObservation()
-        refreshTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(600))
-                guard let self else { return }
-                self.refreshUsage()
-                if let commit = self.catalog.maintain() {
-                    self.applyCatalogCommit(commit)
+        if runtimeConfiguration.startsBackgroundMaintenance {
+            refreshTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(600))
+                    guard let self else { return }
+                    self.refreshUsage()
+                    if let commit = self.catalog.maintain() {
+                        self.applyCatalogCommit(commit)
+                    }
+                }
+            }
+            if runtimeConfiguration.observesLocalEnvironment {
+                rolloutTask = Task { [weak self] in
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(750))
+                        guard let self else { return }
+                        self.handleRolloutObservation()
+                        if let commit = self.catalog.maintain() {
+                            self.applyCatalogCommit(commit)
+                        }
+                    }
                 }
             }
         }
-        rolloutTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(750))
-                guard let self else { return }
-                self.handleRolloutObservation()
-                if let commit = self.catalog.maintain() {
-                    self.applyCatalogCommit(commit)
-                }
-            }
-        }
+    }
+
+    func stop() {
+        guard hasStarted else { return }
+        refreshTask?.cancel()
+        usageLoadTask?.cancel()
+        rolloutTask?.cancel()
+        refreshTask = nil
+        usageLoadTask = nil
+        rolloutTask = nil
+        hookServer?.stop()
+        webSocketServer?.stop()
+        hookServer = nil
+        webSocketServer = nil
+        phoneCount = 0
+        serviceStatus = "服务已停止"
+        hasStarted = false
     }
 
     func installHooks() {
@@ -608,10 +681,10 @@ final class BridgeModel {
 
     private func refreshUsage() {
         guard usageLoadTask == nil else { return }
-        let usageLoader = usageLoader
+        let usageLoader = runtimeConfiguration.usageLoader
         usageLoadTask = Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) {
-                usageLoader.load()
+                usageLoader()
             }.value
             guard let self else { return }
             self.usage = snapshot

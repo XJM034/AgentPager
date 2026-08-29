@@ -330,6 +330,18 @@ class UsagePresentationTest {
     }
 
     @Test
+    fun `GLM 首次临时服务错误显示暂不可用且不伪造额度`() {
+        val unavailable = UsagePresentation.glmDetails(
+            glmProvider(status = "server_error", remaining = emptyList()),
+        )
+
+        assertEquals(GLMHealth.UNAVAILABLE, unavailable.health)
+        assertEquals("暂不可用", unavailable.healthText)
+        assertEquals("上游服务暂不可用", unavailable.message)
+        assertEquals(emptyList<GLMWindowPresentation>(), unavailable.windows)
+    }
+
+    @Test
     fun `顶部 GLM 最后可信读数明确标记异常状态`() {
         val stale = glmProvider(
             status = "stale_timeout",

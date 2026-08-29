@@ -268,7 +268,20 @@ data class PendingRequest(
     val kind: PendingRequestKind,
     val summary: String? = null,
     val options: List<String> = emptyList(),
-)
+) {
+    fun controlIntent(action: ControlAction): TaskControlIntent? {
+        if (kind != PendingRequestKind.APPROVAL ||
+            action !in setOf(ControlAction.APPROVE, ControlAction.DENY)
+        ) {
+            return null
+        }
+        return TaskControlIntent(
+            taskID = taskID,
+            action = action,
+            pendingRequestID = requestID,
+        )
+    }
+}
 
 @Serializable
 data class StateEnvelope(
@@ -327,6 +340,13 @@ enum class ControlAction {
     @SerialName("pin")
     PIN,
 }
+
+data class TaskControlIntent(
+    val taskID: String,
+    val action: ControlAction,
+    val value: String? = null,
+    val pendingRequestID: String? = null,
+)
 
 @Serializable
 data class ControlPayload(

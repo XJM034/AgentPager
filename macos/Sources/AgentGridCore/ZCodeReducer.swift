@@ -167,8 +167,12 @@ public enum ZCodeEventReducer {
         activityPresentation(for: activity).step
     }
 
-    public static func approvalSummary(for activity: AgentActivity) -> String {
-        "\(safeStep(for: activity)) · 等待本地批准"
+    public static func approvalSummary(
+        for activity: AgentActivity,
+        mobileDecisionAvailable: Bool = false
+    ) -> String {
+        let destination = mobileDecisionAvailable ? "等待手机批准" : "等待本地批准"
+        return "\(safeStep(for: activity)) · \(destination)"
     }
 
     public static func failureSummary(
@@ -188,12 +192,10 @@ public enum ZCodeEventReducer {
     }
 
     public static func safeRequestID(from hook: ZCodeHookPayload) -> String? {
-        guard let rawRequestID = hook.requestID ?? hook.toolUseID,
-              let session = safeIdentifierComponent(hook.sessionID),
-              let request = safeIdentifierComponent(rawRequestID) else {
-            return nil
-        }
-        return "zcode:\(session):\(request)"
+        ZCodePendingRequestID.make(
+            sessionID: hook.sessionID,
+            toolUseID: hook.toolUseID
+        )
     }
 
     public static func safeTitle(projectName: String, prompt: String?) -> String {
@@ -230,10 +232,4 @@ public enum ZCodeEventReducer {
         }
     }
 
-    private static func safeIdentifierComponent(_ value: String) -> String? {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
-        let scalars = value.unicodeScalars.filter { allowed.contains($0) }
-        let sanitized = String(String.UnicodeScalarView(scalars).prefix(64))
-        return sanitized.isEmpty ? nil : sanitized
-    }
 }

@@ -119,7 +119,7 @@ internal static class Program
         Equal(5d, fiveHour.UsedPercentage, "已使用百分比");
         Equal(1_897d, fiveHour.RemainingAmount!.Value, "服务端 remaining");
         Equal(
-            "zcode:session-1:tool-1",
+            "zcode:dba8317bdc0b859fdf59bc62bbe9631112fec8b939e2b5630f454f2c12db9b52",
             envelope.Payload.PendingRequests.Single().RequestID!,
             "待审批请求标识");
     }

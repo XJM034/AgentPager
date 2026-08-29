@@ -1,34 +1,5 @@
 import AgentGridCore
 import Foundation
-import Network
-
-private final class HookClientState: @unchecked Sendable {
-    private let lock = NSLock()
-    private let semaphore = DispatchSemaphore(value: 0)
-    private var didFinish = false
-    private var response = Data()
-
-    func append(_ data: Data) {
-        lock.lock()
-        response.append(data)
-        lock.unlock()
-    }
-
-    func finish() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return }
-        didFinish = true
-        semaphore.signal()
-    }
-
-    func wait(until timeout: DispatchTime) -> Data {
-        _ = semaphore.wait(timeout: timeout)
-        lock.lock()
-        defer { lock.unlock() }
-        return response
-    }
-}
 
 @main
 struct AgentPagerHooksCommand {
@@ -47,52 +18,32 @@ struct AgentPagerHooksCommand {
             let payload = try? JSONDecoder().decode(CodexHookPayload.self, from: input)
             isPermission = payload?.hookEventName == .permissionRequest
         case .zcode:
-            // ZCode 权限回传属于 Issue #6；#5 的 Hook 永远快速放行。
-            isPermission = false
+            let payload = try? JSONDecoder().decode(ZCodeHookPayload.self, from: input)
+            isPermission = payload?.event == .permissionRequest
         }
 
-        let line = wrapInEnvelope(input: input, source: source)
-        let connection = NWConnection(
-            host: "127.0.0.1",
-            port: NWEndpoint.Port(rawValue: 49_361)!,
-            using: .tcp
+        // 权限请求可能等手机操作；ZCode 内部等待严格短于配置中的外层超时。
+        // 其余事件最多等待 5 秒后放行。
+        let timeoutMilliseconds = isPermission
+            ? permissionTimeoutMilliseconds(for: source)
+            : 5_000
+        let response = HookBridgeClient.exchange(
+            input: input,
+            source: source,
+            timeoutMilliseconds: timeoutMilliseconds
         )
-        let queue = DispatchQueue(label: "com.agentgrid.hook-client")
-        let clientState = HookClientState()
-
-        connection.stateUpdateHandler = { connectionState in
-            switch connectionState {
-            case .ready:
-                connection.send(content: line, completion: .contentProcessed { error in
-                    if error != nil {
-                        clientState.finish()
-                        return
-                    }
-                    connection.receiveMessage { data, _, _, _ in
-                        if let data {
-                            clientState.append(data)
-                        }
-                        clientState.finish()
-                    }
-                })
-            case .failed, .cancelled:
-                clientState.finish()
-            default:
-                break
-            }
-        }
-        connection.start(queue: queue)
-
-        // Codex/Claude 权限请求可能等手机操作；其余事件（包括 #5 ZCode）
-        // 最多等待 5 秒后放行。
-        let timeout: DispatchTime = isPermission
-            ? .now() + (source == .claude ? 86_400 : 3_600)
-            : .now() + 5
-        let response = clientState.wait(until: timeout)
-        connection.cancel()
 
         if !response.isEmpty {
             FileHandle.standardOutput.write(response)
+        }
+    }
+
+    private static func permissionTimeoutMilliseconds(for source: HookSource) -> Int {
+        switch source {
+        case .claude: 86_400_000
+        case .codex: 3_600_000
+        case .zcode:
+            ZCodePermissionTiming.clientResponseTimeoutMilliseconds
         }
     }
 
@@ -109,27 +60,5 @@ struct AgentPagerHooksCommand {
             }
         }
         return .codex
-    }
-
-    /// 把原始 Hook 载荷包进 `{hook_source, payload}` 信封并加换行，
-    /// 让桥接服务器能按来源选择解码器与响应格式。
-    private static func wrapInEnvelope(input: Data, source: HookSource) -> Data {
-        guard let payload = try? JSONSerialization.jsonObject(with: input) else {
-            // 极端情况下无法解析时，退化为原样发送，服务器仍按 codex 兼容。
-            var fallback = input
-            fallback.append(UInt8(ascii: "\n"))
-            return fallback
-        }
-        let envelope: [String: Any] = [
-            "hook_source": source.rawValue,
-            "payload": payload,
-        ]
-        let data = (try? JSONSerialization.data(
-            withJSONObject: envelope,
-            options: [.sortedKeys, .withoutEscapingSlashes]
-        )) ?? input
-        var line = data
-        line.append(UInt8(ascii: "\n"))
-        return line
     }
 }

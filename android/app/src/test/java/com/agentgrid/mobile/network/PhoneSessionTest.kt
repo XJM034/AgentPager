@@ -5,6 +5,8 @@ import com.agentgrid.mobile.domain.AgentSource
 import com.agentgrid.mobile.domain.ControlAction
 import com.agentgrid.mobile.domain.ControlResult
 import com.agentgrid.mobile.domain.PairingPayload
+import com.agentgrid.mobile.domain.PendingRequest
+import com.agentgrid.mobile.domain.PendingRequestKind
 import com.agentgrid.mobile.domain.SignedControlEnvelope
 import com.agentgrid.mobile.domain.StateEnvelope
 import com.agentgrid.mobile.domain.StateSnapshotPayload
@@ -140,24 +142,30 @@ class PhoneSessionTest {
     }
 
     @Test
-    fun `控制请求可携带唯一待审批请求标识`() = runTest {
+    fun `控制请求只携带用户选中的唯一待审批请求标识`() = runTest {
         val fixture = connectedFixture()
+        val selected = PendingRequest(
+            taskID = "zcode-session-1",
+            requestID = "zcode:second",
+            kind = PendingRequestKind.APPROVAL,
+            summary = "执行工具 · 等待手机批准",
+        ).controlIntent(ControlAction.APPROVE)!!
 
         fixture.session.control(
-            taskID = "zcode-session-1",
-            action = ControlAction.APPROVE,
-            pendingRequestID = "zcode:session-1:tool-1",
+            taskID = selected.taskID,
+            action = selected.action,
+            pendingRequestID = selected.pendingRequestID,
         )
         val envelope = json.decodeFromString<SignedControlEnvelope>(
             fixture.transport.sentTexts.single(),
         )
 
         assertEquals(
-            "zcode:session-1:tool-1",
+            "zcode:second",
             envelope.payload.pendingRequestID,
         )
         assertEquals(
-            """{"action":"approve","pendingRequestID":"zcode:session-1:tool-1","taskID":"zcode-session-1"}""",
+            """{"action":"approve","pendingRequestID":"zcode:second","taskID":"zcode-session-1"}""",
             ControlSigner.signingText(envelope.copy(signature = "")).lineSequence().last(),
         )
         assertEquals(
@@ -271,7 +279,7 @@ class PhoneSessionTest {
         assertEquals(5.0, fiveHour?.usedPercentage)
         assertEquals(1_897.0, fiveHour?.remainingAmount)
         assertEquals(
-            "zcode:session-1:tool-1",
+            "zcode:dba8317bdc0b859fdf59bc62bbe9631112fec8b939e2b5630f454f2c12db9b52",
             snapshot.pendingRequests.single().requestID,
         )
         fixture.close()

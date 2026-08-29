@@ -56,5 +56,33 @@ class ControlSignerTest {
         assertEquals(32, Base64.getDecoder().decode(first).size)
         assertNotEquals(first, ControlSigner.sign(envelope.copy(payload = envelope.payload.copy(action = ControlAction.DENY)), secret))
     }
-}
 
+    @Test
+    fun `篡改 pending request ID 会改变签名`() {
+        val secret = ByteArray(32) { 0x42 }
+        val envelope = SignedControlEnvelope(
+            messageId = "6f539e96-6bce-4fdc-94d5-3cf4ea755622",
+            sentAt = 1_785_067_200_000,
+            deviceId = "nova4",
+            sequence = 8u,
+            nonce = "nonce-8",
+            payload = ControlPayload(
+                taskID = "zcode-session-1",
+                action = ControlAction.APPROVE,
+                pendingRequestID = "zcode:first",
+            ),
+            signature = "",
+        )
+        val signature = ControlSigner.sign(envelope, secret)
+
+        assertNotEquals(
+            signature,
+            ControlSigner.sign(
+                envelope.copy(
+                    payload = envelope.payload.copy(pendingRequestID = "zcode:second"),
+                ),
+                secret,
+            ),
+        )
+    }
+}

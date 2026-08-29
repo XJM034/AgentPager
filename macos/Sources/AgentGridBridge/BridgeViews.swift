@@ -444,7 +444,7 @@ struct BridgeSettingsView: View {
                         }
                     }
                 }
-                Text("PermissionRequest 只观察本地等待状态；Bridge 不裁决、不长等待，ZCode 自身的本地权限流程保持可用。Stop 只显示空闲，不误报完成。")
+                Text("PermissionRequest 在手机在线时可批准或拒绝本次工具请求；Bridge、手机或连接不可用以及等待超时时会立即交还 ZCode 本地审批。单次裁决不会改写工具输入或永久权限。Stop 只显示空闲，不误报完成。")
                     .font(.pixel(10))
                     .foregroundStyle(PixelTheme.muted)
                 Spacer(minLength: 0)

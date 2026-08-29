@@ -71,6 +71,21 @@ public struct PersistentTaskCatalog: Sendable {
         return commit()
     }
 
+    public mutating func completeZCodePermissionRequest(
+        _ requestID: String,
+        state: ZCodePermissionRequestState,
+        now: Date = .now
+    ) -> TaskCatalogCommit? {
+        guard catalog.completeZCodePermissionRequest(
+            requestID,
+            state: state,
+            now: now
+        ) else {
+            return nil
+        }
+        return commit()
+    }
+
     public mutating func perform(
         _ control: AuthorizedTaskControl,
         permissionResolver: any CodexPermissionResolving,

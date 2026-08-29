@@ -34,6 +34,26 @@ func tamperedControlIsRejected() throws {
     #expect(try !ControlSigner.verify(envelope, secret: secret))
 }
 
+@Test("篡改 pending request ID 会破坏控制签名")
+func tamperedPendingRequestIDIsRejected() throws {
+    let secret = Data(repeating: 0x24, count: 32)
+    var envelope = SignedControlEnvelope(
+        sentAt: 1_785_067_200_000,
+        deviceId: "nova4",
+        sequence: 2,
+        nonce: "nonce-2",
+        payload: ControlPayload(
+            taskID: "zcode-session-1",
+            action: .approve,
+            pendingRequestID: "zcode:first"
+        )
+    )
+    envelope.signature = try ControlSigner.sign(envelope, secret: secret)
+    envelope.payload.pendingRequestID = "zcode:second"
+
+    #expect(try !ControlSigner.verify(envelope, secret: secret))
+}
+
 @Test("重放保护拒绝相同序号和 nonce")
 func replayGuardRejectsReplay() throws {
     let now = Date(timeIntervalSince1970: 1_785_067_200)
@@ -146,7 +166,7 @@ func extendedStateSnapshotPreservesProtocolSemantics() throws {
     #expect(fiveHour.remainingAmount == 1_897)
     #expect(
         envelope.payload.pendingRequests.first?.requestID ==
-            "zcode:session-1:tool-1"
+            "zcode:dba8317bdc0b859fdf59bc62bbe9631112fec8b939e2b5630f454f2c12db9b52"
     )
 }
 

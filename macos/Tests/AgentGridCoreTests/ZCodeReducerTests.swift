@@ -131,10 +131,225 @@ func zcodePermissionRequestWaitsWithoutPhoneDecisionCapability() throws {
     #expect(task.completedAt == nil)
     #expect(task.capabilities.isEmpty)
     #expect(request.kind == .approval)
-    #expect(request.requestID == "zcode:zcode-session-1:request-1")
+    #expect(
+        request.requestID ==
+            "zcode:dba8317bdc0b859fdf59bc62bbe9631112fec8b939e2b5630f454f2c12db9b52"
+    )
     #expect(request.summary == "执行工具 · 等待本地批准")
     #expect(!request.summary.orEmpty.contains("printenv"))
     #expect(!request.summary.orEmpty.contains("/Users/example"))
+}
+
+@Test("ZCode 同一 Session 并发请求按 tool_use_id 独立批准和拒绝")
+func zcodeConcurrentPermissionRequestsResolveOnlySelectedRequest() throws {
+    let firstHook = ZCodeHookPayload(
+        sessionID: "zcode-session-1",
+        hookEventName: "PermissionRequest",
+        cwd: "/private/work/AgentPager",
+        toolName: "Read",
+        toolUseID: "tool-1"
+    )
+    let secondHook = ZCodeHookPayload(
+        sessionID: "zcode-session-1",
+        hookEventName: "PermissionRequest",
+        cwd: "/private/work/AgentPager",
+        toolName: "Bash",
+        toolUseID: "tool-2"
+    )
+    let firstID = try #require(ZCodeEventReducer.safeRequestID(from: firstHook))
+    let secondID = try #require(ZCodeEventReducer.safeRequestID(from: secondHook))
+    let resolver = RecordingZCodePermissionResolver()
+    var catalog = TaskCatalog()
+
+    catalog.accept(.zcodeHook(firstHook, permissionState: .pending))
+    catalog.accept(.zcodeHook(secondHook, permissionState: .pending))
+
+    #expect(Set(catalog.projection().pendingRequests.compactMap(\.requestID)) == [firstID, secondID])
+    #expect(
+        Set(catalog.projection().pendingRequests.compactMap(\.summary)) == [
+            "读取文件 · 等待手机批准",
+            "执行工具 · 等待手机批准",
+        ]
+    )
+    #expect(catalog.projection().tasks.single?.capabilities == [.approve, .deny])
+
+    let approved = catalog.perform(
+        AuthorizedTaskControl(
+            requestID: UUID(),
+            taskID: "zcode-session-1",
+            action: .approve,
+            pendingRequestID: firstID
+        ),
+        permissionResolver: resolver
+    )
+
+    #expect(approved.result == .accepted)
+    #expect(catalog.projection().pendingRequests.map(\.requestID) == [secondID])
+    #expect(catalog.projection().tasks.single?.lifecycle == .waitingApproval)
+
+    let denied = catalog.perform(
+        AuthorizedTaskControl(
+            requestID: UUID(),
+            taskID: "zcode-session-1",
+            action: .deny,
+            pendingRequestID: secondID
+        ),
+        permissionResolver: resolver
+    )
+
+    #expect(denied.result == .accepted)
+    #expect(catalog.projection().pendingRequests.isEmpty)
+    #expect(catalog.projection().tasks.single?.lifecycle == .running)
+    #expect(resolver.decisions == [
+        .init(requestID: firstID, decision: .allow),
+        .init(requestID: secondID, decision: .deny),
+    ])
+}
+
+@Test("ZCode 重复 未知 过期和已完成请求返回明确 stale 结果")
+func zcodeInvalidPermissionAnswersAreExplicit() throws {
+    let hook = ZCodeHookPayload(
+        sessionID: "zcode-session-1",
+        hookEventName: "PermissionRequest",
+        cwd: "/private/work/AgentPager",
+        toolName: "Read",
+        toolUseID: "tool-1"
+    )
+    let requestID = try #require(ZCodeEventReducer.safeRequestID(from: hook))
+    let resolver = RecordingZCodePermissionResolver()
+    var catalog = TaskCatalog()
+    catalog.accept(.zcodeHook(hook, permissionState: .pending))
+
+    let first = catalog.perform(
+        AuthorizedTaskControl(
+            requestID: UUID(),
+            taskID: hook.sessionID,
+            action: .approve,
+            pendingRequestID: requestID
+        ),
+        permissionResolver: resolver
+    )
+    resolver.states[requestID] = .approved
+
+    let duplicate = catalog.perform(
+        AuthorizedTaskControl(
+            requestID: UUID(),
+            taskID: hook.sessionID,
+            action: .approve,
+            pendingRequestID: requestID
+        ),
+        permissionResolver: resolver
+    )
+    let unknown = catalog.perform(
+        AuthorizedTaskControl(
+            requestID: UUID(),
+            taskID: hook.sessionID,
+            action: .deny,
+            pendingRequestID: "zcode:unknown"
+        ),
+        permissionResolver: resolver
+    )
+    resolver.states["zcode:expired"] = .expired
+    let expired = catalog.perform(
+        AuthorizedTaskControl(
+            requestID: UUID(),
+            taskID: hook.sessionID,
+            action: .approve,
+            pendingRequestID: "zcode:expired"
+        ),
+        permissionResolver: resolver
+    )
+    resolver.states["zcode:cancelled"] = .cancelled
+    let completed = catalog.perform(
+        AuthorizedTaskControl(
+            requestID: UUID(),
+            taskID: hook.sessionID,
+            action: .deny,
+            pendingRequestID: "zcode:cancelled"
+        ),
+        permissionResolver: resolver
+    )
+
+    #expect(first.result == .accepted)
+    #expect(duplicate.result == .stale)
+    #expect(duplicate.reason?.contains("已批准") == true)
+    #expect(unknown.result == .stale)
+    #expect(unknown.reason?.contains("未知") == true)
+    #expect(expired.result == .stale)
+    #expect(expired.reason?.contains("过期") == true)
+    #expect(completed.result == .stale)
+    #expect(completed.reason?.contains("已取消") == true)
+}
+
+@Test("ZCode 超时或断线会及时清理 pending 并恢复非阻塞任务态")
+func zcodeTerminalRelayStateCleansPendingCatalogEntry() throws {
+    let hook = ZCodeHookPayload(
+        sessionID: "zcode-session-1",
+        hookEventName: "PermissionRequest",
+        cwd: "/private/work/AgentPager",
+        toolName: "Read",
+        toolUseID: "tool-timeout"
+    )
+    let requestID = try #require(ZCodeEventReducer.safeRequestID(from: hook))
+    var catalog = TaskCatalog()
+    catalog.accept(.zcodeHook(hook, permissionState: .pending))
+
+    let changed = catalog.completeZCodePermissionRequest(
+        requestID,
+        state: .expired,
+        now: Date(timeIntervalSince1970: 2_000)
+    )
+    let projection = catalog.projection()
+
+    #expect(changed)
+    #expect(projection.pendingRequests.isEmpty)
+    #expect(projection.tasks.single?.lifecycle == .running)
+    #expect(projection.tasks.single?.capabilities.isEmpty == true)
+}
+
+@Test("ZCode terminal 回调先到也不会留下随后到达的 pending")
+func zcodeTerminalStateBeforeHookEventStillPreventsPendingEntry() throws {
+    let hook = ZCodeHookPayload(
+        sessionID: "zcode-session-1",
+        hookEventName: "PermissionRequest",
+        cwd: "/private/work/AgentPager",
+        toolName: "Read",
+        toolUseID: "tool-cancelled-before-event"
+    )
+    let requestID = try #require(ZCodeEventReducer.safeRequestID(from: hook))
+    var catalog = TaskCatalog()
+
+    let completedBeforeEvent = catalog.completeZCodePermissionRequest(
+        requestID,
+        state: .cancelled
+    )
+    #expect(!completedBeforeEvent)
+    catalog.accept(.zcodeHook(hook, permissionState: .pending))
+
+    #expect(catalog.projection().pendingRequests.isEmpty)
+    #expect(catalog.projection().tasks.single?.lifecycle == .running)
+    #expect(catalog.projection().tasks.single?.capabilities.isEmpty == true)
+}
+
+@Test("缺少 tool_use_id 的 ZCode 权限事件不能留下不可裁决 pending")
+func zcodePermissionWithoutToolUseIDDoesNotCreatePendingEntry() {
+    var catalog = TaskCatalog()
+
+    catalog.accept(
+        .zcodeHook(
+            ZCodeHookPayload(
+                sessionID: "zcode-session-1",
+                hookEventName: "PermissionRequest",
+                cwd: "/private/work/AgentPager",
+                toolName: "Read",
+                toolUseID: nil
+            )
+        )
+    )
+
+    #expect(catalog.projection().pendingRequests.isEmpty)
+    #expect(catalog.projection().tasks.single?.lifecycle == .running)
+    #expect(catalog.projection().tasks.single?.capabilities.isEmpty == true)
 }
 
 @Test("ZCode PostToolUseFailure 保持运行并只显示脱敏错误步骤")
@@ -271,4 +486,38 @@ func zcodeTitleExcludesUnlabelledCredentialFormats() {
 
 private extension Optional where Wrapped == String {
     var orEmpty: String { self ?? "" }
+}
+
+private final class RecordingZCodePermissionResolver:
+    CodexPermissionResolving,
+    @unchecked Sendable
+{
+    struct Decision: Equatable {
+        var requestID: String
+        var decision: CodexPermissionDecision
+    }
+
+    var decisions: [Decision] = []
+    var states: [String: ZCodePermissionRequestState] = [:]
+
+    func resolve(
+        sessionID _: String,
+        decision _: CodexPermissionDecision
+    ) throws {
+        Issue.record("ZCode 裁决必须携带 pending request ID")
+    }
+
+    func resolve(
+        sessionID _: String,
+        pendingRequestID: String,
+        decision: CodexPermissionDecision
+    ) throws {
+        if let state = states[pendingRequestID] {
+            throw ZCodePermissionResolutionError.completed(state)
+        }
+        guard pendingRequestID != "zcode:unknown" else {
+            throw ZCodePermissionResolutionError.unknownRequest
+        }
+        decisions.append(.init(requestID: pendingRequestID, decision: decision))
+    }
 }

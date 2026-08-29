@@ -5,12 +5,12 @@ import android.provider.Settings
 import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.agentgrid.mobile.domain.ControlAction
 import com.agentgrid.mobile.domain.PendingRequest
 import com.agentgrid.mobile.domain.StateSnapshotPayload
 import com.agentgrid.mobile.domain.TaskDashboardProjection
 import com.agentgrid.mobile.domain.TaskDashboardProjector
 import com.agentgrid.mobile.domain.TaskSnapshot
+import com.agentgrid.mobile.domain.TaskControlIntent
 import com.agentgrid.mobile.domain.UsageSnapshot
 import com.agentgrid.mobile.network.LinkState
 import com.agentgrid.mobile.network.PairingOutcome
@@ -122,9 +122,14 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun control(taskID: String, action: ControlAction, value: String? = null) {
+    fun control(intent: TaskControlIntent) {
         viewModelScope.launch {
-            phoneSession.control(taskID, action, value)
+            phoneSession.control(
+                intent.taskID,
+                intent.action,
+                intent.value,
+                intent.pendingRequestID,
+            )
         }
     }
 

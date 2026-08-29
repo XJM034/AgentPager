@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// ZCode 当前公开的七类 Hook 事件名。Issue #5 只观察本地权限等待；
@@ -20,6 +21,92 @@ public enum ZCodeErrorCategory: String, Equatable, Sendable {
     case cancelled
     case invalidInput
     case toolFailure
+}
+
+public enum ZCodePermissionRequestState: String, Equatable, Sendable {
+    case pending
+    case approved
+    case denied
+    case expired
+    case cancelled
+
+    public var userFacingDescription: String {
+        switch self {
+        case .pending: "仍在等待"
+        case .approved: "已批准"
+        case .denied: "已拒绝"
+        case .expired: "已过期"
+        case .cancelled: "已取消"
+        }
+    }
+}
+
+public enum ZCodePermissionResolutionError: LocalizedError, Equatable {
+    case unknownRequest
+    case completed(ZCodePermissionRequestState)
+    case unavailable
+
+    public var errorDescription: String? {
+        switch self {
+        case .unknownRequest: "未知的 ZCode 权限请求"
+        case let .completed(state): "ZCode 权限请求\(state.userFacingDescription)"
+        case .unavailable: "ZCode 权限通道不可用"
+        }
+    }
+}
+
+/// ZCode 外层 Hook、CLI 客户端与 Bridge 等待使用同一组有界时间。
+/// Bridge 最先结束，CLI 其次，始终给 ZCode 外层超时保留十秒清理余量。
+public enum ZCodePermissionTiming {
+    public static let bridgeDecisionTimeoutMilliseconds = 45_000
+    public static let clientResponseTimeoutMilliseconds = 50_000
+    public static let hookOuterTimeoutMilliseconds = 60_000
+    public static let terminalHistoryLimit = 512
+}
+
+/// Gate 0 已验证的 ZCode `PermissionRequest` stdout 契约。
+/// fallback 必须保持空输出，将裁决交还 ZCode 本地权限卡片。
+public enum ZCodeHookOutput {
+    private struct PermissionResponse: Encodable {
+        var hookSpecificOutput: SpecificOutput
+
+        struct SpecificOutput: Encodable {
+            var decision: Decision
+            var hookEventName = ZCodeHookEvent.permissionRequest.rawValue
+        }
+
+        struct Decision: Encodable {
+            var behavior: CodexPermissionDecision
+        }
+    }
+
+    public static let fallback = Data()
+
+    public static func permission(_ decision: CodexPermissionDecision) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        var data = try encoder.encode(
+            PermissionResponse(
+                hookSpecificOutput: .init(decision: .init(behavior: decision))
+            )
+        )
+        data.append(UInt8(ascii: "\n"))
+        return data
+    }
+}
+
+/// pending request ID 只暴露来源与不可逆摘要；原始 Session/tool 标识不进入手机快照。
+public enum ZCodePendingRequestID {
+    public static func make(sessionID: String, toolUseID: String?) -> String? {
+        guard !sessionID.isEmpty, let toolUseID, !toolUseID.isEmpty else {
+            return nil
+        }
+        let material = Data("zcode\u{0}\(sessionID)\u{0}\(toolUseID)".utf8)
+        let digest = SHA256.hash(data: material)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "zcode:\(digest)"
+    }
 }
 
 /// ZCode 通过 stdin 发送的 Hook 载荷。
@@ -336,7 +423,7 @@ public enum ZCodeHookInstaller {
                 "command": command,
                 "args": ["--source", "zcode"],
                 "enabled": true,
-                "timeoutMs": 10_000,
+                "timeoutMs": ZCodePermissionTiming.hookOuterTimeoutMilliseconds,
                 "statusMessage": managedStatusMessage,
             ]],
         ]
@@ -394,7 +481,8 @@ public enum ZCodeHookInstaller {
                 && hook["command"] as? String == command
                 && hook["args"] as? [String] == ["--source", "zcode"]
                 && hook["enabled"] as? Bool == true
-                && hook["timeoutMs"] as? Int == 10_000
+                && hook["timeoutMs"] as? Int ==
+                    ZCodePermissionTiming.hookOuterTimeoutMilliseconds
         }
     }
 

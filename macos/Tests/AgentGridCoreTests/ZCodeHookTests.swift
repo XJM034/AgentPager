@@ -82,3 +82,76 @@ func zcodeProjectNameHidesBareUserHomeDirectory() {
 
     #expect(payload.projectName == "ZCode")
 }
+
+@Test("ZCode 权限输出精确匹配 Gate 0 JSON 且 fallback 为空")
+func zcodePermissionOutputMatchesGateZeroExactly() throws {
+    #expect(
+        String(data: try ZCodeHookOutput.permission(.allow), encoding: .utf8) ==
+            #"{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}"# + "\n"
+    )
+    #expect(
+        String(data: try ZCodeHookOutput.permission(.deny), encoding: .utf8) ==
+            #"{"hookSpecificOutput":{"decision":{"behavior":"deny"},"hookEventName":"PermissionRequest"}}"# + "\n"
+    )
+    #expect(ZCodeHookOutput.fallback.isEmpty)
+}
+
+@Test("ZCode 手机裁决等待为 Hook 外层超时保留确定性余量")
+func zcodePermissionTimingLeavesOuterSafetyMargin() {
+    #expect(ZCodePermissionTiming.bridgeDecisionTimeoutMilliseconds == 45_000)
+    #expect(ZCodePermissionTiming.clientResponseTimeoutMilliseconds == 50_000)
+    #expect(ZCodePermissionTiming.hookOuterTimeoutMilliseconds == 60_000)
+    #expect(
+        ZCodePermissionTiming.bridgeDecisionTimeoutMilliseconds <
+            ZCodePermissionTiming.clientResponseTimeoutMilliseconds
+    )
+    #expect(
+        ZCodePermissionTiming.clientResponseTimeoutMilliseconds + 10_000 <=
+            ZCodePermissionTiming.hookOuterTimeoutMilliseconds
+    )
+}
+
+@Test("ZCode pending request ID 由来源 Session 与 tool_use_id 稳定形成且不泄露原值")
+func zcodePendingRequestIDIsStableUniqueAndOpaque() throws {
+    let first = try #require(
+        ZCodePendingRequestID.make(sessionID: "session/private:1", toolUseID: "tool/private:1")
+    )
+    let same = try #require(
+        ZCodePendingRequestID.make(sessionID: "session/private:1", toolUseID: "tool/private:1")
+    )
+    let secondTool = try #require(
+        ZCodePendingRequestID.make(sessionID: "session/private:1", toolUseID: "tool/private:2")
+    )
+    let secondSession = try #require(
+        ZCodePendingRequestID.make(sessionID: "session/private:2", toolUseID: "tool/private:1")
+    )
+
+    #expect(first == same)
+    #expect(first != secondTool)
+    #expect(first != secondSession)
+    #expect(first.hasPrefix("zcode:"))
+    #expect(!first.contains("session/private"))
+    #expect(!first.contains("tool/private"))
+    #expect(ZCodePendingRequestID.make(sessionID: "", toolUseID: "tool-1") == nil)
+    #expect(ZCodePendingRequestID.make(sessionID: "session-1", toolUseID: nil) == nil)
+}
+
+@Test("ZCode terminal lifecycle 历史有界且淘汰后仍明确为 unknown")
+func zcodePermissionRegistryBoundsTerminalHistory() throws {
+    var registry = ZCodePermissionRegistry(terminalHistoryLimit: 2)
+
+    #expect(registry.register("zcode:first", channelAvailable: true) == .registered)
+    #expect(try registry.resolve("zcode:first", decision: .allow) == .approved)
+    #expect(registry.register("zcode:second", channelAvailable: true) == .registered)
+    #expect(try registry.resolve("zcode:second", decision: .deny) == .denied)
+    #expect(registry.register("zcode:third", channelAvailable: true) == .registered)
+    let expired = registry.expire("zcode:third")
+    #expect(expired)
+
+    #expect(registry.state(for: "zcode:first") == nil)
+    #expect(registry.state(for: "zcode:second") == .denied)
+    #expect(registry.state(for: "zcode:third") == .expired)
+    #expect(throws: ZCodePermissionResolutionError.unknownRequest) {
+        try registry.resolve("zcode:first", decision: .allow)
+    }
+}

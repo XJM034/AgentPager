@@ -112,7 +112,7 @@
     "pendingRequests": [
       {
         "taskID": "zcode-session-1",
-        "requestID": "zcode:session-1:tool-1",
+        "requestID": "zcode:dba8317bdc0b859fdf59bc62bbe9631112fec8b939e2b5630f454f2c12db9b52",
         "kind": "approval",
         "summary": "运行已清洗的工具步骤",
         "options": []

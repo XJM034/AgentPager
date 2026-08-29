@@ -88,6 +88,7 @@ import com.agentgrid.mobile.domain.PendingRequestKind
 import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.SubagentSnapshot
 import com.agentgrid.mobile.domain.TaskCapability
+import com.agentgrid.mobile.domain.TaskControlIntent
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.UsageSnapshot
 import com.agentgrid.mobile.domain.UsageWindow
@@ -135,7 +136,7 @@ fun AgentGridScreen(
     state: AgentGridUiState,
     onPair: (String) -> Unit,
     onUnpair: () -> Unit,
-    onControl: (String, ControlAction, String?) -> Unit,
+    onControl: (TaskControlIntent) -> Unit,
     onFocus: (String) -> Unit,
     onToggleDashboard: () -> Unit,
     onActiveTaskBrightnessChange: (Float) -> Unit,
@@ -272,7 +273,7 @@ private fun PairingScreen(
 private fun TaskTerminal(
     state: AgentGridUiState,
     onUnpair: () -> Unit,
-    onControl: (String, ControlAction, String?) -> Unit,
+    onControl: (TaskControlIntent) -> Unit,
     onFocus: (String) -> Unit,
     onToggleDashboard: () -> Unit,
     onActiveTaskBrightnessChange: (Float) -> Unit,
@@ -394,7 +395,7 @@ private fun TaskTerminal(
                         val entersFromTop = remember(task.id) {
                             task.id in enteringVisibleTaskIDs
                         }
-                        val pending = state.pendingRequests.firstOrNull {
+                        val pending = state.pendingRequests.filter {
                             it.taskID == task.id
                         }
                         TaskRow(
@@ -426,7 +427,9 @@ private fun TaskTerminal(
                                 val willExpand = expandedTaskID != task.id
                                 expandedTaskID = if (willExpand) task.id else null
                                 if (task.isUnread) {
-                                    onControl(task.id, ControlAction.MARK_READ, null)
+                                    onControl(
+                                        TaskControlIntent(task.id, ControlAction.MARK_READ),
+                                    )
                                 }
                                 onFocus(task.id)
                             },
@@ -662,12 +665,12 @@ private fun UsageGauge(
 private fun TaskRow(
     modifier: Modifier = Modifier,
     task: TaskSnapshot,
-    pending: PendingRequest?,
+    pending: List<PendingRequest>,
     expanded: Boolean,
     dimmed: Boolean,
     showDivider: Boolean,
     onClick: () -> Unit,
-    onControl: (String, ControlAction, String?) -> Unit,
+    onControl: (TaskControlIntent) -> Unit,
 ) {
     val rowAlpha by animateFloatAsState(
         targetValue = if (dimmed) 0.34f else 1f,
@@ -912,8 +915,8 @@ private fun MetaTag(text: String, color: Color, alpha: Float) {
 @Composable
 private fun TaskDetails(
     task: TaskSnapshot,
-    pending: PendingRequest?,
-    onControl: (String, ControlAction, String?) -> Unit,
+    pending: List<PendingRequest>,
+    onControl: (TaskControlIntent) -> Unit,
 ) {
     var answer by remember(task.id) { mutableStateOf("") }
     Column(
@@ -936,7 +939,7 @@ private fun TaskDetails(
         }
         AnimatedContent(
             targetState = pending,
-            contentKey = { it?.kind },
+            contentKey = { requests -> requests.map { it.requestID to it.kind } },
             transitionSpec = {
                 (
                     (
@@ -955,49 +958,61 @@ private fun TaskDetails(
                 ).using(SizeTransform(clip = false))
             },
             label = "待处理请求切换",
-        ) { targetPending ->
+        ) { targetRequests ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                targetPending?.summary?.let { summary ->
-                    DetailLine(
-                        if (targetPending.kind == PendingRequestKind.APPROVAL) {
-                            "APPROVAL"
-                        } else {
-                            "QUESTION"
-                        },
-                        summary,
-                        if (targetPending.kind == PendingRequestKind.APPROVAL) {
-                            AgentGridColors.Amber
-                        } else {
-                            AgentGridColors.Yellow
-                        },
-                    )
-                }
+                targetRequests.forEach { targetPending ->
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        targetPending.summary?.let { summary ->
+                            DetailLine(
+                                if (targetPending.kind == PendingRequestKind.APPROVAL) {
+                                    "APPROVAL"
+                                } else {
+                                    "QUESTION"
+                                },
+                                summary,
+                                if (targetPending.kind == PendingRequestKind.APPROVAL) {
+                                    AgentGridColors.Amber
+                                } else {
+                                    AgentGridColors.Yellow
+                                },
+                            )
+                        }
 
-                if (
-                    targetPending?.kind == PendingRequestKind.APPROVAL &&
-                    TaskCapability.APPROVE in task.capabilities
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PixelButton("允许", AgentGridColors.Green) {
-                            onControl(task.id, ControlAction.APPROVE, null)
-                        }
-                        PixelButton("拒绝", AgentGridColors.Red) {
-                            onControl(task.id, ControlAction.DENY, null)
-                        }
-                    }
-                } else if (
-                    targetPending?.kind == PendingRequestKind.QUESTION &&
-                    TaskCapability.ANSWER in task.capabilities
-                ) {
-                    OutlinedTextField(
-                        value = answer,
-                        onValueChange = { answer = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 3,
-                    )
-                    PixelButton("发送回答", AgentGridColors.Yellow) {
-                        if (answer.isNotBlank()) {
-                            onControl(task.id, ControlAction.ANSWER, answer)
+                        if (
+                            targetPending.kind == PendingRequestKind.APPROVAL &&
+                            TaskCapability.APPROVE in task.capabilities
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                PixelButton("允许", AgentGridColors.Green) {
+                                    targetPending.controlIntent(ControlAction.APPROVE)
+                                        ?.let(onControl)
+                                }
+                                PixelButton("拒绝", AgentGridColors.Red) {
+                                    targetPending.controlIntent(ControlAction.DENY)
+                                        ?.let(onControl)
+                                }
+                            }
+                        } else if (
+                            targetPending.kind == PendingRequestKind.QUESTION &&
+                            TaskCapability.ANSWER in task.capabilities
+                        ) {
+                            OutlinedTextField(
+                                value = answer,
+                                onValueChange = { answer = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                maxLines = 3,
+                            )
+                            PixelButton("发送回答", AgentGridColors.Yellow) {
+                                if (answer.isNotBlank()) {
+                                    onControl(
+                                        TaskControlIntent(
+                                            taskID = task.id,
+                                            action = ControlAction.ANSWER,
+                                            value = answer,
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1289,12 +1304,12 @@ private fun ZCodeCoreSessionActivityPreview() {
             tasks.forEachIndexed { index, task ->
                 TaskRow(
                     task = task,
-                    pending = null,
+                    pending = emptyList(),
                     expanded = false,
                     dimmed = false,
                     showDivider = index < tasks.lastIndex,
                     onClick = {},
-                    onControl = { _, _, _ -> },
+                    onControl = {},
                 )
             }
         }

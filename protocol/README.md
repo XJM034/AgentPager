@@ -1,6 +1,6 @@
 # AgentPager 共享状态协议
 
-AgentPager 的 macOS、Android 与 Windows 实现使用同一份 JSON 状态语义。Issue #3 只做向后兼容的字段扩展，消息 `version` 继续为 `1`；旧客户端和旧 Bridge 仍可使用既有 `usage` 字段。
+AgentPager 的 macOS、Android 与 Windows 实现使用同一份 JSON 状态语义。当前扩展保持向后兼容，消息 `version` 继续为 `1`；旧客户端和旧 Bridge 仍可使用既有 `usage` 字段。
 
 ## 状态快照扩展
 
@@ -11,7 +11,9 @@ AgentPager 的 macOS、Android 与 Windows 实现使用同一份 JSON 状态语�
 - `usageProviders`：可选的多提供方额度列表。字段缺失表示 Bridge 尚未发送新模型，不表示额度为零。
 - `pendingRequests[].requestID`：可选的待审批请求标识。旧来源没有唯一工具请求标识时允许缺失。
 
-批准或拒绝控制消息可在 `payload.pendingRequestID` 携带上述请求标识。该字段为可选字段；缺失时保持现有按任务处理的兼容路径。
+批准或拒绝控制消息可在 `payload.pendingRequestID` 携带上述请求标识。该字段为可选字段；缺失时保持现有按任务处理的兼容路径。ZCode 的请求标识必须由固定来源 `zcode`、Session ID 与 `tool_use_id` 共同计算为不透明摘要；同一 Session 的多个请求不得共用标识。ZCode 手机裁决只处理标识命中的单次请求，重复、未知、过期或已完成标识必须返回明确结果。
+
+ZCode `PermissionRequest` 的 Bridge 等待是有界的。Bridge、手机或连接不可用以及登记失败、断线、超时时，Hook stdout 保持为空并把裁决交还 ZCode 本地审批；空输出不表示自动批准。批准或拒绝只使用现有签名控制消息，`pendingRequestID` 属于签名正文并继续受重放保护。
 
 ## 多提供方额度
 

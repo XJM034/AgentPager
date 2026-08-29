@@ -24,17 +24,20 @@ public struct AuthorizedTaskControl: Equatable, Sendable {
     public var taskID: String
     public var action: ControlAction
     public var value: String?
+    public var pendingRequestID: String?
 
     public init(
         requestID: UUID,
         taskID: String,
         action: ControlAction,
-        value: String? = nil
+        value: String? = nil,
+        pendingRequestID: String? = nil
     ) {
         self.requestID = requestID
         self.taskID = taskID
         self.action = action
         self.value = value
+        self.pendingRequestID = pendingRequestID
     }
 }
 
@@ -62,19 +65,42 @@ public protocol CodexPermissionResolving: Sendable {
         sessionID: String,
         decision: CodexPermissionDecision
     ) throws
+
+    func resolve(
+        sessionID: String,
+        pendingRequestID: String,
+        decision: CodexPermissionDecision
+    ) throws
+}
+
+public extension CodexPermissionResolving {
+    func resolve(
+        sessionID: String,
+        pendingRequestID _: String,
+        decision: CodexPermissionDecision
+    ) throws {
+        try resolve(sessionID: sessionID, decision: decision)
+    }
 }
 
 public enum TaskCatalogInput: Sendable {
     case hook(CodexHookPayload, receivedAt: Date = .now)
     case claudeHook(ClaudeHookPayload, receivedAt: Date = .now)
-    case zcodeHook(ZCodeHookPayload, receivedAt: Date = .now)
+    case zcodeHook(
+        ZCodeHookPayload,
+        permissionState: ZCodePermissionRequestState? = nil,
+        receivedAt: Date = .now
+    )
     case rollout([CodexRolloutSignal])
     case synthetic(TaskSnapshot)
 }
 
 public struct TaskCatalog: Sendable {
     private var store: TaskStore
-    private var requestsByTaskID: [String: PendingRequest]
+    private var requestsByID: [String: PendingRequest]
+    private var mobileRequestIDs: Set<String>
+    private var recentTerminalZCodeRequestIDs: Set<String>
+    private var recentTerminalZCodeRequestOrder: [String]
     private(set) public var revision: UInt64
     private(set) public var restoredActiveTaskIDs: Set<String>
 
@@ -92,9 +118,13 @@ public struct TaskCatalog: Sendable {
         pendingRequests: [PendingRequest] = []
     ) {
         store = TaskStore(tasks: tasks)
-        requestsByTaskID = Dictionary(
-            uniqueKeysWithValues: pendingRequests.map { ($0.taskID, $0) }
-        )
+        requestsByID = [:]
+        for request in pendingRequests {
+            requestsByID[Self.storageKey(for: request)] = request
+        }
+        mobileRequestIDs = []
+        recentTerminalZCodeRequestIDs = []
+        recentTerminalZCodeRequestOrder = []
         revision = 0
         restoredActiveTaskIDs = Set(
             tasks.filter { task in
@@ -112,15 +142,19 @@ public struct TaskCatalog: Sendable {
     @discardableResult
     public mutating func accept(_ input: TaskCatalogInput) -> Bool {
         let previousTasks = store.tasks
-        let previousRequests = requestsByTaskID
+        let previousRequests = requestsByID
 
         switch input {
         case let .hook(hook, receivedAt):
             apply(hook, receivedAt: receivedAt)
         case let .claudeHook(hook, receivedAt):
             apply(hook, receivedAt: receivedAt)
-        case let .zcodeHook(hook, receivedAt):
-            apply(hook, receivedAt: receivedAt)
+        case let .zcodeHook(hook, permissionState, receivedAt):
+            apply(
+                hook,
+                permissionState: permissionState,
+                receivedAt: receivedAt
+            )
         case let .rollout(signals):
             for signal in signals.sorted(by: Self.signalOrder) {
                 apply(signal)
@@ -145,17 +179,42 @@ public struct TaskCatalog: Sendable {
         }
         return commitIfChanged(
             previousTasks: previousTasks,
-            previousRequests: requestsByTaskID
+            previousRequests: requestsByID
         )
     }
 
     @discardableResult
     public mutating func maintain(now: Date = .now) -> Bool {
         let previousTasks = store.tasks
-        let previousRequests = requestsByTaskID
+        let previousRequests = requestsByID
 
         normalize(now: now)
 
+        return commitIfChanged(
+            previousTasks: previousTasks,
+            previousRequests: previousRequests
+        )
+    }
+
+    @discardableResult
+    public mutating func completeZCodePermissionRequest(
+        _ requestID: String,
+        state: ZCodePermissionRequestState,
+        now: Date = .now
+    ) -> Bool {
+        guard state != .pending else { return false }
+        rememberTerminalZCodeRequest(requestID)
+        guard let request = requestsByID[requestID],
+              var task = store.tasks.first(where: { $0.id == request.taskID }) else {
+            return false
+        }
+        let previousTasks = store.tasks
+        let previousRequests = requestsByID
+        requestsByID.removeValue(forKey: requestID)
+        mobileRequestIDs.remove(requestID)
+        task.updatedAt = max(task.updatedAt, now)
+        reconcileZCodeApprovalState(taskID: task.id, task: &task)
+        store.upsert(task)
         return commitIfChanged(
             previousTasks: previousTasks,
             previousRequests: previousRequests
@@ -168,7 +227,7 @@ public struct TaskCatalog: Sendable {
         now: Date = .now
     ) -> Bool {
         let previousTasks = store.tasks
-        let previousRequests = requestsByTaskID
+        let previousRequests = requestsByID
         let unverifiedTaskIDs = restoredActiveTaskIDs.subtracting(verifiedActiveTaskIDs)
 
         _ = store.interruptActiveTasks(withIDs: unverifiedTaskIDs, now: now)
@@ -195,13 +254,23 @@ public struct TaskCatalog: Sendable {
         }
 
         let previousTasks = store.tasks
-        let previousRequests = requestsByTaskID
+        let previousRequests = requestsByID
         var updated = task
+
+        if task.source == .zcode,
+           control.action == .approve || control.action == .deny {
+            return performZCodePermissionControl(
+                control,
+                task: task,
+                permissionResolver: permissionResolver,
+                now: now
+            )
+        }
 
         switch control.action {
         case .approve:
             guard updated.capabilities.contains(.approve),
-                  requestsByTaskID[updated.id]?.kind == .approval else {
+                  legacyRequest(for: updated.id)?.kind == .approval else {
                 return unsupported(control, reason: "当前任务不能批准")
             }
             do {
@@ -213,14 +282,14 @@ public struct TaskCatalog: Sendable {
                     reason: "批准请求发送失败：\(error.localizedDescription)"
                 )
             }
-            requestsByTaskID.removeValue(forKey: updated.id)
+            removeRequests(forTaskID: updated.id)
             updated.lifecycle = .running
             updated.activity = .thinking
             updated.completedAt = nil
             updated.capabilities = []
         case .deny:
             guard updated.capabilities.contains(.deny),
-                  requestsByTaskID[updated.id]?.kind == .approval else {
+                  legacyRequest(for: updated.id)?.kind == .approval else {
                 return unsupported(control, reason: "当前任务不能拒绝")
             }
             do {
@@ -232,7 +301,7 @@ public struct TaskCatalog: Sendable {
                     reason: "拒绝请求发送失败：\(error.localizedDescription)"
                 )
             }
-            requestsByTaskID.removeValue(forKey: updated.id)
+            removeRequests(forTaskID: updated.id)
             updated.lifecycle = .interrupted
             updated.activity = nil
             updated.completedAt = now
@@ -268,8 +337,11 @@ public struct TaskCatalog: Sendable {
             revision: revision,
             tasks: store.tasks.sorted { $0.updatedAt > $1.updatedAt },
             focusedTaskID: focusedTaskIDOverride ?? store.focusedTask()?.id,
-            pendingRequests: requestsByTaskID.values.sorted {
-                $0.taskID < $1.taskID
+            pendingRequests: requestsByID.values.sorted {
+                if $0.taskID == $1.taskID {
+                    return ($0.requestID ?? "") < ($1.requestID ?? "")
+                }
+                return $0.taskID < $1.taskID
             }
         )
     }
@@ -278,7 +350,8 @@ public struct TaskCatalog: Sendable {
         store.purge(now: now)
         _ = store.purgeTerminalSubagents(now: now)
         let taskIDs = Set(store.tasks.map(\.id))
-        requestsByTaskID = requestsByTaskID.filter { taskIDs.contains($0.key) }
+        requestsByID = requestsByID.filter { taskIDs.contains($0.value.taskID) }
+        mobileRequestIDs.formIntersection(requestsByID.keys)
     }
 
     private mutating func apply(
@@ -294,16 +367,16 @@ public struct TaskCatalog: Sendable {
 
         switch hook.hookEventName {
         case .permissionRequest:
-            requestsByTaskID[hook.sessionID] = PendingRequest(
+            setLegacyRequest(PendingRequest(
                 taskID: hook.sessionID,
                 kind: .approval,
                 summary: hook.toolInput?.summary
-            )
+            ))
         case .stop:
-            requestsByTaskID.removeValue(forKey: hook.sessionID)
+            removeRequests(forTaskID: hook.sessionID)
         case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse:
             if task.lifecycle == .running {
-                requestsByTaskID.removeValue(forKey: hook.sessionID)
+                removeRequests(forTaskID: hook.sessionID)
             }
         }
         store.upsert(task)
@@ -322,27 +395,27 @@ public struct TaskCatalog: Sendable {
 
         switch hook.event {
         case .permissionRequest:
-            requestsByTaskID[hook.sessionID] = PendingRequest(
+            setLegacyRequest(PendingRequest(
                 taskID: hook.sessionID,
                 kind: .approval,
                 summary: ClaudeEventReducer.summary(from: hook.toolInput)
                     ?? hook.toolName
-            )
+            ))
         case .notification:
             if ClaudeEventReducer.isAnswerNotification(hook.notificationType) {
-                requestsByTaskID[hook.sessionID] = PendingRequest(
+                setLegacyRequest(PendingRequest(
                     taskID: hook.sessionID,
                     kind: .question,
                     summary: hook.title ?? hook.message
-                )
+                ))
             }
         case .stop, .sessionEnd, .permissionDenied:
-            requestsByTaskID.removeValue(forKey: hook.sessionID)
+            removeRequests(forTaskID: hook.sessionID)
         case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse,
              .postToolUseFailure, .preCompact, .subagentStart, .subagentStop,
              .stopFailure:
             if task.lifecycle == .running {
-                requestsByTaskID.removeValue(forKey: hook.sessionID)
+                removeRequests(forTaskID: hook.sessionID)
             }
         case nil:
             break
@@ -352,13 +425,14 @@ public struct TaskCatalog: Sendable {
 
     private mutating func apply(
         _ hook: ZCodeHookPayload,
+        permissionState: ZCodePermissionRequestState?,
         receivedAt: Date
     ) {
         let existing = store.tasks.first { $0.id == hook.sessionID }
         guard hook.event != nil || existing != nil else {
             return
         }
-        let task = ZCodeEventReducer.task(
+        var task = ZCodeEventReducer.task(
             from: hook,
             existing: existing,
             now: receivedAt
@@ -366,18 +440,52 @@ public struct TaskCatalog: Sendable {
 
         switch hook.event {
         case .permissionRequest:
-            requestsByTaskID[hook.sessionID] = PendingRequest(
+            guard let requestID = ZCodeEventReducer.safeRequestID(from: hook) else {
+                reconcileZCodeApprovalState(taskID: hook.sessionID, task: &task)
+                store.upsert(task)
+                return
+            }
+            if let permissionState, permissionState != .pending {
+                rememberTerminalZCodeRequest(requestID)
+            }
+            if recentTerminalZCodeRequestIDs.contains(requestID) {
+                requestsByID.removeValue(forKey: requestID)
+                mobileRequestIDs.remove(requestID)
+                reconcileZCodeApprovalState(taskID: hook.sessionID, task: &task)
+                store.upsert(task)
+                return
+            }
+            let mobileDecisionAvailable = permissionState == .pending
+            if mobileDecisionAvailable {
+                task.latestStep = ZCodeEventReducer.approvalSummary(
+                    for: ZCodeEventReducer.activity(for: hook.toolName),
+                    mobileDecisionAvailable: true
+                )
+            }
+            let request = PendingRequest(
                 taskID: hook.sessionID,
-                requestID: ZCodeEventReducer.safeRequestID(from: hook),
+                requestID: requestID,
                 kind: .approval,
                 summary: task.latestStep
             )
-        case .userPromptSubmit, .preToolUse, .postToolUse,
-             .postToolUseFailure, .stop:
-            requestsByTaskID.removeValue(forKey: hook.sessionID)
+            let key = Self.storageKey(for: request)
+            requestsByID[key] = request
+            if mobileDecisionAvailable {
+                mobileRequestIDs.insert(key)
+            }
+        case .postToolUse, .postToolUseFailure:
+            if let requestID = ZCodeEventReducer.safeRequestID(from: hook) {
+                requestsByID.removeValue(forKey: requestID)
+                mobileRequestIDs.remove(requestID)
+            }
+        case .userPromptSubmit, .stop:
+            removeRequests(forTaskID: hook.sessionID)
+        case .preToolUse:
+            break
         case .sessionStart, nil:
             break
         }
+        reconcileZCodeApprovalState(taskID: hook.sessionID, task: &task)
         store.upsert(task)
     }
 
@@ -498,23 +606,23 @@ public struct TaskCatalog: Sendable {
     ) {
         switch signal.requestKind {
         case .approval:
-            requestsByTaskID[task.id] = PendingRequest(
+            setLegacyRequest(PendingRequest(
                 taskID: task.id,
                 kind: .approval,
                 summary: signal.summary
-            )
+            ))
             // rollout 只能观察等待状态，不能授予真实批准能力。
             task.capabilities = task.capabilities.intersection([.approve, .deny])
         case .question:
-            requestsByTaskID[task.id] = PendingRequest(
+            setLegacyRequest(PendingRequest(
                 taskID: task.id,
                 kind: .question,
                 summary: signal.summary
-            )
+            ))
             task.capabilities = []
         case nil:
             if signal.lifecycle == .running || task.isTerminal {
-                requestsByTaskID.removeValue(forKey: task.id)
+                removeRequests(forTaskID: task.id)
                 task.capabilities = []
             }
         }
@@ -524,11 +632,118 @@ public struct TaskCatalog: Sendable {
         previousTasks: [TaskSnapshot],
         previousRequests: [String: PendingRequest]
     ) -> Bool {
-        guard previousTasks != store.tasks || previousRequests != requestsByTaskID else {
+        guard previousTasks != store.tasks || previousRequests != requestsByID else {
             return false
         }
         revision &+= 1
         return true
+    }
+
+    private mutating func performZCodePermissionControl(
+        _ control: AuthorizedTaskControl,
+        task: TaskSnapshot,
+        permissionResolver: any CodexPermissionResolving,
+        now: Date
+    ) -> TaskControlReceipt {
+        guard let pendingRequestID = control.pendingRequestID else {
+            return unsupported(control, reason: "ZCode 裁决缺少 pending request ID")
+        }
+        let decision: CodexPermissionDecision = control.action == .approve ? .allow : .deny
+        do {
+            try permissionResolver.resolve(
+                sessionID: task.id,
+                pendingRequestID: pendingRequestID,
+                decision: decision
+            )
+        } catch let error as ZCodePermissionResolutionError {
+            return TaskControlReceipt(
+                requestID: control.requestID,
+                result: error == .unavailable ? .rejected : .stale,
+                reason: error.localizedDescription
+            )
+        } catch {
+            return TaskControlReceipt(
+                requestID: control.requestID,
+                result: .rejected,
+                reason: "ZCode 裁决发送失败：\(error.localizedDescription)"
+            )
+        }
+
+        let previousTasks = store.tasks
+        let previousRequests = requestsByID
+        requestsByID.removeValue(forKey: pendingRequestID)
+        mobileRequestIDs.remove(pendingRequestID)
+        var updated = task
+        updated.updatedAt = max(updated.updatedAt, now)
+        reconcileZCodeApprovalState(taskID: task.id, task: &updated)
+        store.upsert(updated)
+        _ = commitIfChanged(
+            previousTasks: previousTasks,
+            previousRequests: previousRequests
+        )
+        return TaskControlReceipt(
+            requestID: control.requestID,
+            result: .accepted,
+            committedRevision: revision
+        )
+    }
+
+    private mutating func reconcileZCodeApprovalState(
+        taskID: String,
+        task: inout TaskSnapshot
+    ) {
+        let taskRequestKeys = requestsByID.compactMap { key, request in
+            request.taskID == taskID && request.kind == .approval ? key : nil
+        }
+        guard !taskRequestKeys.isEmpty else {
+            if task.lifecycle == .waitingApproval {
+                task.lifecycle = .running
+                task.activity = .thinking
+                task.latestStep = nil
+            }
+            task.capabilities = []
+            return
+        }
+        task.lifecycle = .waitingApproval
+        task.capabilities = taskRequestKeys.contains(where: mobileRequestIDs.contains)
+            ? [.approve, .deny]
+            : []
+    }
+
+    private mutating func setLegacyRequest(_ request: PendingRequest) {
+        requestsByID[Self.storageKey(for: request)] = request
+    }
+
+    private func legacyRequest(for taskID: String) -> PendingRequest? {
+        requestsByID[Self.legacyStorageKey(taskID)]
+    }
+
+    private mutating func removeRequests(forTaskID taskID: String) {
+        let keys = requestsByID.compactMap { key, request in
+            request.taskID == taskID ? key : nil
+        }
+        for key in keys {
+            requestsByID.removeValue(forKey: key)
+            mobileRequestIDs.remove(key)
+        }
+    }
+
+    private static func storageKey(for request: PendingRequest) -> String {
+        request.requestID ?? legacyStorageKey(request.taskID)
+    }
+
+    private static func legacyStorageKey(_ taskID: String) -> String {
+        "legacy:\(taskID)"
+    }
+
+    private mutating func rememberTerminalZCodeRequest(_ requestID: String) {
+        guard recentTerminalZCodeRequestIDs.insert(requestID).inserted else { return }
+        recentTerminalZCodeRequestOrder.append(requestID)
+        while recentTerminalZCodeRequestOrder.count >
+            ZCodePermissionTiming.terminalHistoryLimit {
+            let evicted = recentTerminalZCodeRequestOrder.removeFirst()
+            recentTerminalZCodeRequestIDs.remove(evicted)
+        }
     }
 
     private func unsupported(

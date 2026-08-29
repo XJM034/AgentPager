@@ -20,7 +20,7 @@ final class BridgeModel {
     private(set) var recentEvents: [String] = []
 
     private var catalog = PersistentTaskCatalog()
-    private var replayGuard = ReplayGuard()
+    private var controlAuthorizer = SignedTaskControlAuthorizer()
     private var pairingSecret = Data()
     private let hookConfiguration = CodexHookConfiguration()
     private let claudeHookConfiguration = ClaudeHookConfiguration()
@@ -54,11 +54,18 @@ final class BridgeModel {
                 String(data: try encoder.encode(payload), encoding: .utf8) ?? ""
             pairingText = pairingPayloadText
 
-            let hookServer = HookBridgeServer { [weak self] envelope in
-                Task { @MainActor in
-                    self?.handle(envelope)
+            let hookServer = HookBridgeServer(
+                eventHandler: { [weak self] envelope in
+                    Task { @MainActor in
+                        self?.handle(envelope)
+                    }
+                },
+                zcodeStateHandler: { [weak self] requestID, state in
+                    Task { @MainActor in
+                        self?.handleZCodePermissionState(requestID, state: state)
+                    }
                 }
-            }
+            )
             try hookServer.start()
             self.hookServer = hookServer
 
@@ -73,6 +80,7 @@ final class BridgeModel {
                         guard let self else { return }
                         let phoneConnected = count > self.phoneCount
                         self.phoneCount = count
+                        hookServer.setPhoneConnected(count > 0)
                         if phoneConnected {
                             self.refreshUsage()
                         } else {
@@ -324,8 +332,13 @@ final class BridgeModel {
             let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
             diagnosticSummary = task?.projectName ?? "Claude Code"
             lifecycleSummary = task?.lifecycle.rawValue ?? ""
-        case let .zcode(hook):
-            commit = catalog.accept(.zcodeHook(hook))
+        case let .zcode(hook, permissionState):
+            commit = catalog.accept(
+                .zcodeHook(
+                    hook,
+                    permissionState: permissionState
+                )
+            )
             let task = catalog.projection().tasks.first { $0.id == hook.sessionID }
             let lifecycle = task?.lifecycle ?? .idle
             diagnosticSummary = ZCodeDiagnosticEvent(
@@ -341,6 +354,20 @@ final class BridgeModel {
         if let commit {
             applyCatalogCommit(commit)
         }
+    }
+
+    private func handleZCodePermissionState(
+        _ requestID: String,
+        state: ZCodePermissionRequestState
+    ) {
+        guard state != .pending,
+              let commit = catalog.completeZCodePermissionRequest(
+                  requestID,
+                  state: state
+              ) else {
+            return
+        }
+        applyCatalogCommit(commit)
     }
 
     private func handleRolloutObservation() {
@@ -368,12 +395,16 @@ final class BridgeModel {
 
     private func handleControl(_ text: String) {
         guard let data = text.data(using: .utf8),
-              var request = try? JSONDecoder().decode(SignedControlEnvelope.self, from: data) else {
+              let request = try? JSONDecoder().decode(SignedControlEnvelope.self, from: data) else {
             return
         }
 
+        let control: AuthorizedTaskControl
         do {
-            try replayGuard.validate(request, secret: pairingSecret)
+            control = try controlAuthorizer.authorize(
+                request,
+                secret: pairingSecret
+            )
         } catch {
             sendAck(requestID: request.messageId, result: .rejected, reason: "签名或序号无效")
             return
@@ -388,15 +419,9 @@ final class BridgeModel {
             return
         }
         let result = catalog.perform(
-            AuthorizedTaskControl(
-                requestID: request.messageId,
-                taskID: request.payload.taskID,
-                action: request.payload.action,
-                value: request.payload.value
-            ),
+            control,
             permissionResolver: hookServer
         )
-        request.signature = ""
         if let commit = result.commit {
             applyCatalogCommit(commit)
         }

@@ -17,6 +17,8 @@
 
 ## 修改边界
 
+涉及 ZCode 任务、手机审批、GLM 顶栏或额度详情时，先读 [现行功能与验收边界](../docs/zcode-glm-integration.md)。
+
 - 亮度策略：`app/src/main/java/com/agentgrid/mobile/ScreenBrightnessPolicy.kt`
 - 设置状态与持久化：`app/src/main/java/com/agentgrid/mobile/AgentGridViewModel.kt`
 - 窗口亮度应用：`app/src/main/java/com/agentgrid/mobile/MainActivity.kt`

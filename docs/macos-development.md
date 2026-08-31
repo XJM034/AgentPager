@@ -2,6 +2,8 @@
 
 本文说明如何在本仓库维护 macOS AgentPager Bridge，并区分 Swift 逻辑测试、本地 App 打包、安装替换、真实 Hook 与手机端验收。当前机器的日期化工具链证据见 [2026-08-25 macOS 开发环境更新](updates/2026-08-25-macos-development-environment.md)。
 
+处理 ZCode 会话、手机审批或 GLM 额度时，先读 [现行功能与验收边界](zcode-glm-integration.md)，按其中的实现与测试入口定位；本文维护构建、安装及运行流程。
+
 ## 项目结构
 
 macOS 端是一个 Swift Package，而不是独立的 `.xcodeproj`：
@@ -9,9 +11,9 @@ macOS 端是一个 Swift Package，而不是独立的 `.xcodeproj`：
 | 位置 | 作用 |
 | --- | --- |
 | `macos/Package.swift` | Swift 工具版本、最低系统、产品与 Target 的事实来源 |
-| `macos/Sources/AgentGridCore/` | Hook、任务状态、协议、配对、持久化和本地服务器 |
+| `macos/Sources/AgentGridCore/` | Hook、任务状态、协议、配对、持久化、本地服务器和 GLM 额度适配与协调 |
 | `macos/Sources/AgentGridBridge/` | SwiftUI 菜单栏 App、界面和运行协调 |
-| `macos/Sources/AgentGridHooks/` | Codex/Claude Code 调用的 Hook 命令行程序 |
+| `macos/Sources/AgentGridHooks/` | Codex/Claude Code/ZCode 调用的 Hook 命令行程序 |
 | `macos/Tests/AgentGridCoreTests/` | 核心逻辑测试 |
 | `macos/Tests/AgentGridBridgeTests/` | Bridge 生产接线与呈现状态测试 |
 | `macos/AppInfo.plist` | App Bundle、最低系统、本地网络权限和图标声明 |
@@ -111,7 +113,7 @@ file "dist/AgentPager Bridge.app/Contents/MacOS/AgentPagerBridge"
 
 Bridge 正常启动后监听：
 
-- `49361`：Codex/Claude Code Hook 本地入口。
+- `49361`：Codex/Claude Code/ZCode Hook 本地入口。
 - `49362`：配对信息与 WebSocket 服务。
 
 本地合成端到端验证：
@@ -125,6 +127,7 @@ node scripts/e2e-local.mjs
 - 菜单栏窗口、二维码、状态和错误提示是否正确。
 - Codex Desktop 中 AgentPager Hook 是否已信任。
 - Claude Code 原有 Hook 配置是否被保留。
+- ZCode 新 Session 的 Hook、手机审批与配置恢复，以及 GLM 真实读数与手机展示；按现行功能说明区分合成测试、用户反馈和现场证据。
 - Android 手机能否在局域网中配对、保持在线并正确显示任务。
 - 日志轮询、长会话或持久化修改后的 CPU、内存和 macOS 诊断报告。
 

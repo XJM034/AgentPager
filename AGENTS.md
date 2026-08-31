@@ -17,6 +17,7 @@
 - Android 开发、预览、模拟器和真机流程：[docs/android-development.md](docs/android-development.md)。
 - macOS 工具链、测试、打包、安装和运行验证：[docs/macos-development.md](docs/macos-development.md)。
 - 长期定制分支、上游同步和 Entire Review 流程：[docs/custom-development-workflow.md](docs/custom-development-workflow.md)。
+- 处理 ZCode 会话、手机审批或 GLM 额度时，先读 [现行功能与验收边界](docs/zcode-glm-integration.md)，再按任务读取其中的代码、协议和历史证据。
 - 定制内容与已验证结果：`docs/updates/` 中最新的日期化记录。
 - Android 与 macOS 可分别直接维护；跨平台协议变化必须同时核对 `protocol/`、Android、macOS 和 Windows 实现。
 
@@ -27,7 +28,7 @@
 - 不要把本机 SDK 路径、签名文件、证书、APK、AAB、DMG、密钥或配对凭据提交到 Git。
 - AgentPager 当前通过可信局域网内的本地 Bridge 和 WebSocket 工作；不要擅自增加云后端、遥测或外部数据上传。
 - `alexx_custom` 是个人定制的长期维护分支；普通功能优化直接在该分支形成边界清楚的小提交，不因每项功能自动创建新分支。`upstream/main` 只代表作者主线，不是日常修改的 Review 基准。
-- 安装或卸载 Codex、Claude Code Hook 时必须保留用户已有配置，并保持可恢复备份。
+- 安装、修复或卸载 Codex、Claude Code、ZCode Hook 时必须保留用户已有配置，并保持可恢复备份。
 - 涉及相机、振动、通知、常亮、亮度、启动和 MIUI 后台行为时，模拟器结果不能代替 Redmi 真机验收。
 - 未经用户明确要求，不推送、发版、创建 Release、配置正式签名、提交 Apple 公证或提交上游 PR。
 - 保留 GPL-3.0、NOTICE 和第三方许可；公开分发定制 APK 或 macOS App/DMG 前按 GPL-3.0 提供对应源码并明确修改。
@@ -79,6 +80,8 @@
 
 ## 文档、交接与更新
 
+- 根目录 `AGENTS.md` 与 `CLAUDE.md` 保持独立文件、内容镜像；修改任一份时同步另一份，并用 `cmp -s AGENTS.md CLAUDE.md` 核对。
+- 大型功能或跨 Session/Ticket 开发在阶段收尾、需求变更获确认、因阻塞暂停，或提交后收到用户确认/验收反馈时，主动执行 [文档同步收尾清单](docs/custom-development-workflow.md)；无需另行提醒，文档未同步时须报告尚未收尾。
 - 新的稳定 Android/macOS 开发规则分别写入 `docs/android-development.md` 与 `docs/macos-development.md`；单次环境或功能变更写入 `docs/updates/YYYY-MM-DD-*.md`。
 - 本仓库当前没有长期活动队列；不要把已完成事项堆成永久待办。需要队列时，必须同时定义完成证据和归档位置。
 - 大任务结束或需换 Agent 时使用 `$handoff`，默认写入 `handoff/`。

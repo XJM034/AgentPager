@@ -1,6 +1,6 @@
 # macOS 子项目说明
 
-本目录是 AgentPager 的原生 macOS Bridge，使用 Swift、SwiftUI、Swift Package Manager 和 Network.framework。它负责菜单栏界面、Codex/Claude Code Hook、本地任务状态、局域网配对与 WebSocket 通信。
+本目录是 AgentPager 的原生 macOS Bridge，使用 Swift、SwiftUI、Swift Package Manager 和 Network.framework。它负责菜单栏界面、Codex/Claude Code/ZCode Hook、本地任务状态、局域网配对与 WebSocket 通信，以及可选 GLM 额度查询。
 
 ## 构建事实
 
@@ -12,9 +12,11 @@
 
 ## 修改边界
 
-- `Sources/AgentGridCore/`：任务模型、Hook、协议、配对、持久化和服务器核心逻辑。
+涉及 ZCode Hook、手机审批或 GLM 凭据、查询、刷新与降级时，先读 [现行功能与验收边界](../docs/zcode-glm-integration.md)。
+
+- `Sources/AgentGridCore/`：任务模型、Hook、协议、配对、持久化、服务器及 GLM 额度适配与协调逻辑。
 - `Sources/AgentGridBridge/`：菜单栏 App、运行协调、界面与视觉效果。
-- `Sources/AgentGridHooks/`：Codex 与 Claude Code 调用的 Hook 命令行入口。
+- `Sources/AgentGridHooks/`：Codex、Claude Code 与 ZCode 调用的 Hook 命令行入口。
 - `Tests/AgentGridCoreTests/`：核心逻辑测试。
 - `Tests/AgentGridBridgeTests/`：Bridge 生产接线与呈现状态测试。
 - `AppInfo.plist`：Bundle、最低系统和本地网络声明。
@@ -77,7 +79,7 @@ scripts/package-macos.sh
 
 - Hook 监听端口：49361；配对与 WebSocket 入口：49362。
 - Bridge 运行后可在仓库根目录执行 `node scripts/e2e-local.mjs`，验证合成任务的状态同步、反向审批、结束收敛和关闭帧存活。
-- 端到端脚本不能证明菜单栏视觉、Codex Desktop Hook 信任、Claude Code 真实配置、局域网发现或 Redmi 实机连接；这些必须按改动范围现场验收。
+- 端到端脚本不能证明菜单栏视觉、真实 Agent Hook、GLM 真实额度、局域网发现或 Redmi 实机连接；这些必须按改动范围现场验收。
 - 当前安装的 iOS 27 模拟器属于本机 Apple 开发环境，但本仓库没有 iOS App 目标，不能替代 macOS Bridge 或 Android 真机验证。
 
 ## 守则状态与文档更新

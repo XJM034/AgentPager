@@ -48,3 +48,9 @@ GitHub 原生 Issue Dependencies 可用时优先使用原生阻塞关系。工�
 ## Pull Requests
 
 PR 不作为默认的需求或 Triage 入口。未经用户明确要求，不创建、推送或处理 PR。
+
+## Ticket 收尾与文档
+
+跨 Session/Ticket 功能的每个阶段收尾、验收反馈补录及阻塞暂停，执行
+[文档同步收尾清单](../custom-development-workflow.md)。先把进度、需求差异和验证边界写回仓库，
+再按已有授权处理 GitHub；聊天总结或关闭子票不能代替文档同步与父规格验收。

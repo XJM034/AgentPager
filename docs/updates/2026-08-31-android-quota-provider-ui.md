@@ -53,3 +53,21 @@
 ## 用户确认与本地提交
 
 用户已确认压缩后的方案，并授权将本次代码与文档暂存、形成本地提交。本记录与两个 Android UI 文件及现行功能说明一并纳入该提交；不包含推送、发布或 Redmi 安装。上述窄屏、大字体和真实手机的验证缺口继续保留，用户对方案的认可不等于设备复验。
+
+## 后续授权：Redmi 真机安装与首页检查
+
+2026-08-31 用户另行授权安装到 USB 连接的 Redmi Note 7（Android 10 / API 29）。本次安装包含提交 `f907ce1` 的最终 UI；分支仍为 `alexx_custom`，未改动 Android 源码，也未提交或推送本次记录及工作区中另行进行的 Entire 配置修复。
+
+- 安装前运行 `scripts/android-doctor.sh` 通过；确认手机定制版为 Build 13，官方版为 Build 4。旧定制 APK 已备份在本地 `.git/android-install/20260831-redmi-build14/`，不进入 Git；这是安装包备份，不是应用数据备份。
+- 使用现有环境变量 `AGENTPAGER_VERSION_CODE=14`，以 JDK 17 运行 `testDebugUnitTest lintDebug assembleDebug` 成功。78 项 JVM 测试全部通过，Lint 0 error、34 warning。没有修改源码中的默认版本号。
+- 新包为 `AgentPager Custom`，`com.agentgrid.mobile.custom`，`0.3.0-custom` / Build 14，min SDK 29、target SDK 36；签名证书与手机旧版一致。通过 Android CLI 指定 USB 设备并携带 `-r` 覆盖安装，未卸载、清除数据或操作配对凭据。
+- 安装后读取手机 APK，其 SHA-256 与本次构建一致：`4c8db37db09ddee63f081ce0454ad73d6369472ba3c93ce60e4c94fc0584f4de`。定制版 UID 和首次安装时间不变；官方版版本与更新时间不变。
+- 主 Activity 已位于前台，进程正常；检查时当前进程没有 `AndroidRuntime` 的 `FATAL EXCEPTION`。原有配对可用，实际首页显示来自 Bridge 的任务与额度，不是合成预览。
+- 已人工查看真机横屏截图：青蓝 `CODEX / GLM` 标题与额度同行，General 简写为 `GEN` 且本次真实数据仅显示 `7d`，Spark 和 GLM 各显示 `5h / 7d`；固定按钮和任务内容可见，顶栏没有遮挡首条任务。
+- `android layout` 因 MIUI 缺少 `theme_compatibility.xml` 未能取得布局树，未反复重试；本次 UI 结论来自实际截图，不能声称完成布局树检查。未修改字体、旋转或系统设置，也未复验大字体、窄屏、长期额度刷新及硬件行为。
+
+截图保存在本机 Codex 可视化目录的 `redmi-build14-installed.png`，不纳入 Git，以免把真实任务内容带入仓库。此前“未安装 Redmi”的描述属于前一阶段；本节记录后续已授权的真机安装结果。
+
+## 真机用户反馈与推送授权
+
+安装后用户反馈“没啥问题”，确认当前 Redmi 首页效果，并授权暂存、提交及推送。本反馈作为本机 Build 14 的用户验收记录；不扩展为大字体、窄屏、长时间刷新或硬件行为的验证。安卓源码继续使用已验证的 `f907ce1`，不为补录反馈重写原提交。

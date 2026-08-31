@@ -38,7 +38,7 @@ BigModel 额度查询 → `UsageProviderSnapshot` → Android。Android 不保�
 - 旧 Key 需要授权时，输入新 Key 后的验证失败仍单独显示为“新 Key 错误”，不会被旧授权提示遮住；“授权读取”入口继续保留。只隐藏与钥匙串授权提示重复的通用错误。新 Key 验证并保存成功后，两类错误一并清除；验证失败不覆盖原 Key。
 - “授权读取”是用户主动入口；系统授权后先复查静默读取，再立即查询额度。系统中的“始终允许”可保留该应用的访问权限；仅“允许”可能不足以支持后台持续读取，复查失败时不能报告可用。授权没有十分钟的有效期。
 - 无法读取 Key 时不继续使用内存缓存的 Key；已有额度保留为陈旧数据，最后成功时间不前移；没有成功数据时显示不可用。Android 沿用现有 `stale_unavailable` / `unavailable` 状态，不新增协议字段。
-- 授权能否跨 App 更新复用取决于签名身份。临时签名每次构建可能变化；稳定签名的本机启用与真实账号持续刷新必须另行验收，不能以测试通过或不弹窗替代。见 [钥匙串修复记录](updates/2026-08-31-glm-keychain-authorization.md)。
+- 授权能否跨 App 更新复用取决于签名身份和钥匙串分区。临时签名及本机自签证书均可能按每版二进制指纹授权，不能把相同证书等同于更新免授权；Apple 团队签名与真实账号持续刷新仍需单独验收。见 [钥匙串修复记录](updates/2026-08-31-glm-keychain-authorization.md)及[分区权限诊断](updates/2026-08-31-macos-keychain-partition-signing.md)。
 - 有可信窗口时：顶栏按 `GENERAL → SPARK → GLM` 展示，GLM 包含 5 小时与每周剩余比例；详情可切换 `CODEX / GLM`。
 - 刷新失败、鉴权失败、套餐过期和额度耗尽分别表达；只有允许保留旧窗口的状态才显示最后可信值，并明确其陈旧/错误状态。缺失数据不伪造成 0% 或 100%。
 - `percentage` 是上游已用比例；`remainingAmount` 保留上游独立 `remaining`，不能用总额减已用量重算。`level` 是不透明可选字段，套餐名默认“GLM Coding Plan”。完整字段与时间语义见共享协议。
@@ -80,7 +80,7 @@ Windows 只保留协议解析与转发兼容；实际 Windows 验证仍按
 - GLM 独立 Key 路径与详情：[Issue #7](updates/2026-08-29-issue-7-glm-coding-plan-quota.md)、[可选连接收尾](updates/2026-08-29-issue-7-optional-glm-follow-up.md)、[Issue #8](updates/2026-08-29-issue-8-glm-quota-details.md)。
 - 合成端到端和现场范围：[Issue #9](updates/2026-08-29-issue-9-cross-platform-integration-acceptance.md)、[Issue #10](updates/2026-08-29-issue-10-final-zcode-redmi-acceptance.md)。#10 当轮未验证真实 GLM Key 路径，该历史事实保留。
 - 后续用户报告：[GLM 可用反馈及文档同步记录](updates/2026-08-31-zcode-glm-documentation-sync.md)。不能忽略此反馈，也不能把它提升为完整独立复验。
-- Mac 重复授权修复：[固定签名与真实刷新验收](updates/2026-08-31-glm-keychain-authorization.md)。Build 15 的重启与两个真实十分钟周期通过。Build 16 已安装，初次升级未自动沿用真实 GLM 权限；用户选择“始终允许”后额度恢复，同版本重启后查询与通信测试通过，短时观察无再次授权弹窗。下次升级的授权复用、Build 16 两个十分钟周期及 Redmi 画面仍待验证；签名相同不能替代真实权限验收。
+- Mac 重复授权修复：[早期授权修复验收](updates/2026-08-31-glm-keychain-authorization.md)及[分区诊断与 Apple 签名验收](updates/2026-08-31-macos-keychain-partition-signing.md)。Build 15、Build 16 均通过同版本重启及两个真实十分钟周期，但自签名的 Build 15 → 16 未沿用权限。后续经用户批准切换 Apple Development，Build 17 首次授权后，Build 17 → 18 真实升级及 Build 18 重启直接取得最新 GLM 额度。当前安装 Build 18，最终自动刷新记录为 15:29 → 15:39 → 15:49；覆盖升级、重启与两个周期的系统授权弹窗计数为 0。Redmi 画面和更长时间运行未复验。历史失败不能被隔离测试或相同签名结论覆盖。
 
 新验收应分别写明：代码/自动化、Agent 现场验证、用户反馈、未验证项。
 涉及真实额度时需记录脱敏的构建版本、两个窗口及重置时间对照、手机展示和刷新结果，

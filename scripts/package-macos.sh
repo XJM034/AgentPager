@@ -100,12 +100,18 @@ if [[ -z "$签名身份" ]]; then
 fi
 
 if [[ -n "$签名身份" ]]; then
-    # 使用稳定的开发者身份，避免每次打包后因临时签名变化而触发钥匙串授权。
+    # 固定自签证书只能稳定应用身份规则，不能稳定钥匙串分区授权。
     codesign --force --deep --options runtime --sign "$签名身份" "$应用目录"
     if [[ "$签名身份" == "-" ]]; then
         echo "已显式使用临时签名；更新后可能需要重新授权钥匙串"
     else
-        echo "已使用证书签名：$签名身份（后续更新需沿用同一身份）"
+        签名团队="$(codesign -d --verbose=4 "$应用目录" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+        if [[ -n "$签名团队" && "$签名团队" != "not set" ]] \
+            && codesign --verify --strict -R='anchor apple generic' "$应用目录" 2>/dev/null; then
+            echo "已使用 Apple 团队证书签名；跨版本钥匙串权限仍须以真实升级验收"
+        else
+            echo "已使用本机证书签名：$签名身份；此签名仍按版本指纹授权，更新后可能需要重新授权钥匙串"
+        fi
     fi
 else
     # 没有开发者证书的机器仍可本地构建，但首次启动可能需要确认钥匙串访问。

@@ -65,6 +65,8 @@ scripts/package-macos.sh
 
 签名优先使用显式环境变量，其次是本机固定签名标识文件，再尝试 Apple Development，最后才使用临时签名；选择规则与首次启用边界见 [macOS 开发流程](../docs/macos-development.md)。脚本不创建证书或改变系统信任；临时签名不能保证跨版本沿用钥匙串授权。它只更新 `dist/` 产物，不会自动替换 `/Applications/AgentPager Bridge.app`。若同一个 `dist` App 正在运行，脚本会先正常结束它并在打包后恢复运行。
 
+本机自签证书也按每版二进制指纹进行钥匙串分区授权，不等于跨版本免授权。签名先决条件可用 `scripts/inspect-macos-keychain-access.swift` 只读核对；隔离测试若没有分区 ACL，只能说明旧式数据库行为，不能替代真实升级验收。不得通过放宽条目权限或修改系统信任来消除弹窗。
+
 安装本地定制版前必须：
 
 1. 明确目标 App、版本、架构和签名身份。

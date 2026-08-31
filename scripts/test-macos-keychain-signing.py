@@ -2,6 +2,8 @@
 
 Requires Swift, codesign, security and OpenSSL 3. Never imports into the login
 keychain or changes trust settings. All private signing material is temporary.
+An unpartitioned legacy fixture cannot validate real login-keychain upgrades;
+the probe exits 2 for that coverage gap instead of reporting a false pass.
 """
 
 import hashlib
@@ -77,6 +79,26 @@ do {
     if CommandLine.arguments[2] == "write" { try store.save("synthetic-signing-probe-value") }
     let matched = try store.load() == "synthetic-signing-probe-value"
     print("\\(flavor): read matched=\\(matched)")
+    var item: SecKeychainItem?
+    let lookup = "agentpager-signing-probe".withCString { service in
+        "synthetic".withCString { account in
+            SecKeychainFindGenericPassword(
+                keychain, UInt32("agentpager-signing-probe".utf8.count), service,
+                UInt32("synthetic".utf8.count), account, nil, nil, &item
+            )
+        }
+    }
+    var hasPartitionACL = false
+    guard lookup == errSecSuccess, let item else { exit(7) }
+    var access: SecAccess?
+    guard SecKeychainItemCopyAccess(item, &access) == errSecSuccess, let access else { exit(7) }
+    var acls: CFArray?
+    guard SecAccessCopyACLList(access, &acls) == errSecSuccess else { exit(7) }
+    hasPartitionACL = (acls as? [SecACL] ?? []).contains {
+        (SecACLCopyAuthorizations($0) as? [String] ?? [])
+            .contains(kSecACLAuthorizationPartitionID as String)
+    }
+    print("\\(flavor): partitionACL=\\(hasPartitionACL)")
     if CommandLine.arguments[2] == "expect-denied" { exit(6) }
     exit(matched ? 0 : 3)
 } catch let error as GLMKeyAccessError {
@@ -98,8 +120,15 @@ do {
         report['same_designated_requirement'] = report['A_requirement'] == report['B_requirement']
         report['different_binaries'] = report['A_sha256'] != report['B_sha256']
         report['initial_write_and_read'] = run([str(d/'A'), str(kc), 'write']).strip()
+        report['partition_acl_covered'] = 'partitionACL=true' in report['initial_write_and_read']
         report['same_version_restart'] = run([str(d/'A'), str(kc), 'read']).strip()
-        report['updated_binary_read'] = run([str(d/'B'), str(kc), 'read']).strip()
+        if report['partition_acl_covered']:
+            # Self-signed certificates have no Apple team partition. A new binary
+            # must be denied, even when its designated requirement is identical.
+            report['self_signed_update_denied'] = run([str(d/'B'), str(kc), 'expect-denied']).strip()
+        else:
+            report['legacy_only_updated_binary_read'] = run([str(d/'B'), str(kc), 'read']).strip()
+            report['coverage_gap'] = 'Temporary keychain has no partition ACL; upgrade authorization is NOT verified.'
         run(['codesign', '--force', '--sign', '-', '--identifier', 'com.agentpager.signing-probe', str(d/'B')])
         report['changed_identity_denied_silently'] = run([str(d/'B'), str(kc), 'expect-denied']).strip()
     except Exception as error:
@@ -114,4 +143,6 @@ report['default_keychain_unchanged'] = before_default == run(['security', 'defau
 print(json.dumps(report,ensure_ascii=False,indent=2))
 required = ['same_designated_requirement', 'different_binaries', 'temporary_keychain_deleted',
             'user_search_list_unchanged', 'default_keychain_unchanged']
-raise SystemExit(1 if 'error' in report or not all(report.get(key) for key in required) else 0)
+if 'error' in report or not all(report.get(key) for key in required):
+    raise SystemExit(1)
+raise SystemExit(0 if report.get('partition_acl_covered') else 2)

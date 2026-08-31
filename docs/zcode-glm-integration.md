@@ -80,7 +80,7 @@ Windows 只保留协议解析与转发兼容；实际 Windows 验证仍按
 - GLM 独立 Key 路径与详情：[Issue #7](updates/2026-08-29-issue-7-glm-coding-plan-quota.md)、[可选连接收尾](updates/2026-08-29-issue-7-optional-glm-follow-up.md)、[Issue #8](updates/2026-08-29-issue-8-glm-quota-details.md)。
 - 合成端到端和现场范围：[Issue #9](updates/2026-08-29-issue-9-cross-platform-integration-acceptance.md)、[Issue #10](updates/2026-08-29-issue-10-final-zcode-redmi-acceptance.md)。#10 当轮未验证真实 GLM Key 路径，该历史事实保留。
 - 后续用户报告：[GLM 可用反馈及文档同步记录](updates/2026-08-31-zcode-glm-documentation-sync.md)。不能忽略此反馈，也不能把它提升为完整独立复验。
-- Mac 重复授权修复：[固定签名与真实刷新验收](updates/2026-08-31-glm-keychain-authorization.md)。Build 15 的重启与两个真实十分钟周期通过，观察期间系统授权弹窗为 0。后续已安装 Build 16，通信测试通过，但真实 GLM 条目未自动沿用权限，设置显示“需要钥匙串授权”；签名相同不能替代实际授权复用验收。Build 16 的额度恢复和 Redmi 画面待验证。
+- Mac 重复授权修复：[固定签名与真实刷新验收](updates/2026-08-31-glm-keychain-authorization.md)。Build 15 的重启与两个真实十分钟周期通过。Build 16 已安装，初次升级未自动沿用真实 GLM 权限；用户选择“始终允许”后额度恢复，同版本重启后查询与通信测试通过，短时观察无再次授权弹窗。下次升级的授权复用、Build 16 两个十分钟周期及 Redmi 画面仍待验证；签名相同不能替代真实权限验收。
 
 新验收应分别写明：代码/自动化、Agent 现场验证、用户反馈、未验证项。
 涉及真实额度时需记录脱敏的构建版本、两个窗口及重置时间对照、手机展示和刷新结果，

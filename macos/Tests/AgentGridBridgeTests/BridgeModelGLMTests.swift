@@ -160,6 +160,7 @@ func bridgeModelSeparatesAuthorizationFromQuotaRefresh() async {
     await waitUntil { model.glmKeyAccessIssue == .authorizationRequired }
     #expect(model.glmStatusPresentation == GLMStatusPresentation(text: "需要钥匙串授权", tone: .pending))
     #expect(model.glmLastSuccessfulAt == nil)
+    #expect(model.glmErrorText == nil)
     #expect(store.authorizationCount == 0)
 
     model.refreshGLMQuota()
@@ -171,6 +172,107 @@ func bridgeModelSeparatesAuthorizationFromQuotaRefresh() async {
     #expect(model.glmKeyAccessIssue == nil)
     #expect(model.glmStatusPresentation.text == "可用")
     #expect(model.glmLastSuccessfulAt != nil)
+}
+
+@MainActor
+@Test("新 Key 验证错误与旧 Key 授权提示同时显示，成功保存后一起清除", arguments: [
+    (GLMQuotaError.unauthorized, "鉴权失效（401）"),
+    (GLMQuotaError.forbidden, "访问被拒绝（403）"),
+    (GLMQuotaError.timedOut, "请求超时"),
+    (GLMQuotaError.unavailable, "连接暂不可用"),
+])
+func candidateFailureRemainsVisibleWhileStoredKeyNeedsAuthorization(
+    _ error: GLMQuotaError,
+    _ text: String
+) async {
+    let store = BridgeAuthorizationGLMKeyStore()
+    let fetcher = BridgeRejectOnceGLMFetcher(error: error)
+    let model = BridgeModel(
+        glmCoordinatorFactory: { handler in
+            GLMQuotaCoordinator(
+                keyStore: store,
+                quotaFetcher: fetcher,
+                scheduler: BridgeNoopGLMScheduler(),
+                onStateChange: handler
+            )
+        }
+    )
+    model.startGLMQuotaMonitoring()
+    await waitUntil { model.glmKeyAccessIssue == .authorizationRequired }
+    #expect(model.glmErrorText == nil)
+
+    model.saveGLMKey("synthetic-invalid-candidate")
+    await waitUntil { !model.glmOperationInProgress }
+    #expect(model.glmKeyAccessIssue == .authorizationRequired)
+    #expect(model.glmStatusPresentation.text == "需要钥匙串授权")
+    #expect(model.glmErrorText == text)
+    #expect(model.glmErrorLabel == "新 Key 错误")
+    #expect(model.recentEvents.first == "GLM Key 保存或验证失败")
+    #expect(model.glmLastSuccessfulAt == nil)
+    #expect(store.storedKey == "synthetic-key")
+    #expect(store.saveCount == 0)
+    #expect(store.authorizationCount == 0)
+
+    model.saveGLMKey("synthetic-valid-candidate")
+    await waitUntil { !model.glmOperationInProgress }
+    #expect(model.glmKeyAccessIssue == nil)
+    #expect(model.glmErrorText == nil)
+    #expect(model.glmStatusPresentation.text == "可用")
+    #expect(model.glmFailureSource == nil)
+    #expect(model.glmLastSuccessfulAt != nil)
+    #expect(store.storedKey == "synthetic-valid-candidate")
+    #expect(store.saveCount == 1)
+    #expect(store.authorizationCount == 0)
+}
+
+@MainActor
+@Test("普通额度刷新错误仍显示，后续刷新成功后清除")
+func quotaRefreshFailureRemainsVisible() async throws {
+    let store = BridgeMemoryGLMKeyStore()
+    try store.save("synthetic-key")
+    let fetcher = BridgeRejectOnceGLMFetcher(error: .timedOut)
+    let model = BridgeModel(glmCoordinatorFactory: { handler in
+        GLMQuotaCoordinator(
+            keyStore: store,
+            quotaFetcher: fetcher,
+            scheduler: BridgeNoopGLMScheduler(),
+            onStateChange: handler
+        )
+    })
+    model.startGLMQuotaMonitoring()
+    await waitUntil { model.glmValidationStatus == .failed }
+    #expect(model.glmKeyAccessIssue == nil)
+    #expect(model.glmErrorText == "请求超时")
+    #expect(model.glmErrorLabel == "脱敏错误")
+
+    model.refreshGLMQuota()
+    await waitUntil { !model.glmOperationInProgress }
+    #expect(model.glmErrorText == nil)
+    #expect(model.glmStatusPresentation.text == "可用")
+}
+
+@MainActor
+@Test("删除失败不被旧授权提示遮住，也不误标为新 Key 错误")
+func deletionFailureIsNotReportedAsCandidateFailure() async {
+    let store = BridgeAuthorizationGLMKeyStore(deleteFails: true)
+    let model = BridgeModel(glmCoordinatorFactory: { handler in
+        GLMQuotaCoordinator(
+            keyStore: store,
+            quotaFetcher: BridgeSuccessfulGLMFetcher(),
+            scheduler: BridgeNoopGLMScheduler(),
+            onStateChange: handler
+        )
+    })
+    model.startGLMQuotaMonitoring()
+    await waitUntil { model.glmKeyAccessIssue == .authorizationRequired }
+    model.deleteGLMKey()
+    await waitUntil { !model.glmOperationInProgress }
+    #expect(model.glmKeyAccessIssue == .authorizationRequired)
+    #expect(model.glmErrorText == "连接暂不可用")
+    #expect(model.glmErrorLabel == "脱敏错误")
+    #expect(model.recentEvents.first == "GLM Key 删除失败")
+    #expect(store.storedKey == "synthetic-key")
+    #expect(store.authorizationCount == 0)
 }
 
 @MainActor
@@ -311,15 +413,55 @@ private final class BridgeConfiguredGLMKeyStore: GLMKeyStore, @unchecked Sendabl
 
 private final class BridgeAuthorizationGLMKeyStore: GLMKeyStore, @unchecked Sendable {
     private let lock = NSLock()
+    private let deleteFails: Bool
     private var authorizations = 0
+    private var saves = 0
+    private var accessAllowed = false
+    private var key: String? = "synthetic-key"
+    init(deleteFails: Bool = false) { self.deleteFails = deleteFails }
     var authorizationCount: Int { lock.withLock { authorizations } }
+    var saveCount: Int { lock.withLock { saves } }
+    var storedKey: String? { lock.withLock { key } }
+    func exists() throws -> Bool { lock.withLock { key != nil } }
     func load() throws -> String? {
-        guard authorizationCount > 0 else { throw GLMKeyAccessError.authorizationRequired }
-        return "synthetic-key"
+        try lock.withLock {
+            guard accessAllowed else { throw GLMKeyAccessError.authorizationRequired }
+            return key
+        }
     }
-    func authorizeAccess() throws { lock.withLock { authorizations += 1 } }
-    func save(_ key: String) throws {}
-    func delete() throws {}
+    func authorizeAccess() throws {
+        lock.withLock {
+            authorizations += 1
+            accessAllowed = true
+        }
+    }
+    func save(_ key: String) throws {
+        lock.withLock {
+            self.key = key
+            saves += 1
+            accessAllowed = true
+        }
+    }
+    func delete() throws {
+        if deleteFails { throw CocoaError(.fileWriteUnknown) }
+        lock.withLock { key = nil }
+    }
+}
+
+private actor BridgeRejectOnceGLMFetcher: GLMQuotaFetching {
+    private var error: GLMQuotaError?
+
+    init(error: GLMQuotaError) { self.error = error }
+
+    func fetchQuota(using key: String) async throws -> UsageProviderSnapshot {
+        if let error {
+            self.error = nil
+            // Also exercise the coordinator's fallback for non-GLM errors.
+            if error == .unavailable { throw URLError(.cannotConnectToHost) }
+            throw error
+        }
+        return try await BridgeSuccessfulGLMFetcher().fetchQuota(using: key)
+    }
 }
 
 private actor BridgeSuccessfulGLMFetcher: GLMQuotaFetching {

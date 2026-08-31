@@ -35,6 +35,7 @@ BigModel 额度查询 → `UsageProviderSnapshot` → Android。Android 不保�
 - 无 Key：不发起 GLM 额度请求、不发送空 GLM provider；顶栏不显示 GLM 块，详情页显示“未启用”。
 - 有 Key：Bridge 启动、手机新连接、手动刷新及正常每 10 分钟轮询可触发查询；同一时间只运行一个请求，失败按协调器规则退避。
 - 钥匙串访问与上游 Key 鉴权分开表达。普通刷新只尝试静默读取；权限不足或钥匙串锁定时，设置显示“需要钥匙串授权”，不自动发起交互授权。每 10 分钟静默重试，解锁或权限恢复后可继续更新。
+- 旧 Key 需要授权时，输入新 Key 后的验证失败仍单独显示为“新 Key 错误”，不会被旧授权提示遮住；“授权读取”入口继续保留。只隐藏与钥匙串授权提示重复的通用错误。新 Key 验证并保存成功后，两类错误一并清除；验证失败不覆盖原 Key。
 - “授权读取”是用户主动入口；系统授权后先复查静默读取，再立即查询额度。系统中的“始终允许”可保留该应用的访问权限；仅“允许”可能不足以支持后台持续读取，复查失败时不能报告可用。授权没有十分钟的有效期。
 - 无法读取 Key 时不继续使用内存缓存的 Key；已有额度保留为陈旧数据，最后成功时间不前移；没有成功数据时显示不可用。Android 沿用现有 `stale_unavailable` / `unavailable` 状态，不新增协议字段。
 - 授权能否跨 App 更新复用取决于签名身份。临时签名每次构建可能变化；稳定签名的本机启用与真实账号持续刷新必须另行验收，不能以测试通过或不弹窗替代。见 [钥匙串修复记录](updates/2026-08-31-glm-keychain-authorization.md)。
@@ -79,7 +80,7 @@ Windows 只保留协议解析与转发兼容；实际 Windows 验证仍按
 - GLM 独立 Key 路径与详情：[Issue #7](updates/2026-08-29-issue-7-glm-coding-plan-quota.md)、[可选连接收尾](updates/2026-08-29-issue-7-optional-glm-follow-up.md)、[Issue #8](updates/2026-08-29-issue-8-glm-quota-details.md)。
 - 合成端到端和现场范围：[Issue #9](updates/2026-08-29-issue-9-cross-platform-integration-acceptance.md)、[Issue #10](updates/2026-08-29-issue-10-final-zcode-redmi-acceptance.md)。#10 当轮未验证真实 GLM Key 路径，该历史事实保留。
 - 后续用户报告：[GLM 可用反馈及文档同步记录](updates/2026-08-31-zcode-glm-documentation-sync.md)。不能忽略此反馈，也不能把它提升为完整独立复验。
-- Mac 重复授权修复：[固定签名与真实刷新验收](updates/2026-08-31-glm-keychain-authorization.md)。Build 15 已安装，重启与两个真实十分钟周期通过，观察期间系统授权弹窗为 0；Redmi 画面未复验。
+- Mac 重复授权修复：[固定签名与真实刷新验收](updates/2026-08-31-glm-keychain-authorization.md)。Build 15 的重启与两个真实十分钟周期通过，观察期间系统授权弹窗为 0。后续已安装 Build 16，通信测试通过，但真实 GLM 条目未自动沿用权限，设置显示“需要钥匙串授权”；签名相同不能替代实际授权复用验收。Build 16 的额度恢复和 Redmi 画面待验证。
 
 新验收应分别写明：代码/自动化、Agent 现场验证、用户反馈、未验证项。
 涉及真实额度时需记录脱敏的构建版本、两个窗口及重置时间对照、手机展示和刷新结果，

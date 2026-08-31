@@ -559,7 +559,7 @@ struct BridgeSettingsView: View {
                 accent: PixelTheme.text
             )
             if let error = model.glmErrorText {
-                InfoRow(label: "脱敏错误", value: error, accent: PixelTheme.red)
+                InfoRow(label: model.glmErrorLabel, value: error, accent: PixelTheme.red)
             }
             if let issue = model.glmKeyAccessIssue {
                 VStack(alignment: .leading, spacing: 10) {

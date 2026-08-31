@@ -88,3 +88,38 @@
 已按 `claude-agents-bootstrap` 核对并更新 `docs/macos-development.md`、`docs/zcode-glm-integration.md` 及镜像的 `macos/AGENTS.md` / `macos/CLAUDE.md`。根规则、Android、Windows、共享协议和历史验收事实保持不变。
 
 用户随后明确要求整理工作区并形成一个本地提交。提交前再次运行完整 `swift test`，170 Core 与 9 Bridge 测试全部通过；日志为被忽略的 `dist/glm-auth-precommit-tests.log`。此次提交不重新安装 App，也不执行推送。
+
+## Review 后续：避免旧授权提示遮住新 Key 错误
+
+用户批准修复 `15f09e8` 的 Review 发现后，仅调整内部错误来源、设置页展示、事件文案与相关测试。旧 Key 需要授权时，新 Key 返回 401、403、超时或普通连接失败，原来的界面会把这些错误全部隐藏。现在“新 Key 错误”与旧 Key 的“需要钥匙串授权”提示同时显示，授权入口保留；只有本次失败本身来自钥匙串访问时，才隐藏重复的通用错误。
+
+验证失败仍不会覆盖旧 Key；新 Key 验证并保存成功后，两类错误一并清除。普通刷新与删除失败保留各自的错误来源，避免误标成新 Key 失败。错误来源只用于 Mac 内部状态和固定脱敏文案，不加入手机协议，也不记录 Key 或原始错误。十分钟轮询、退避、钥匙串读写及固定签名流程未改变。
+
+本次验证：
+
+- 新增组合回归先在原实现上复现：401、403、超时与普通连接失败四个用例均因错误文本被隐藏而失败；修复后全部通过，并确认失败不写入旧 Key、不自动授权，成功保存后清除错误。
+- 完整 `cd macos && swift test`：182 项通过（170 Core、12 Bridge）。新增测试还覆盖普通刷新失败后恢复，以及删除失败不被授权提示遮住、不误标为新 Key 错误。
+- 使用生产 SwiftUI 设置视图与合成状态检查 680×520 原生窗口：401 错误、旧 Key 授权提示和“授权读取”按钮可同时看到；输入框、保存、刷新与删除按钮可滚动访问。
+- `git diff --check` 通过。日志为被忽略的 `dist/glm-error-presentation-{red,green,tests}.log`；原生截图为 `dist/glm-error-final-configuration-authorization.png`。
+
+完成上述代码修复时，尚未安装、提交或推送。原生截图与新增测试均不使用真实 GLM Key；未用真实账号制造 401 或再次操作登录钥匙串授权。上文 Build 15 的实际安装、真实刷新及无弹窗观察仅对应原提交；后续安装结果见下文。
+
+## 用户批准更新本机：Build 16
+
+用户确认本轮不涉及 Android 后，要求更新本机 Mac 并推送 GitHub。范围仍为 Mac 内部错误状态、设置页、测试和文档；Android、Windows、共享通信协议与额度轮询规则不变。
+
+2026-08-31 14:41:14（Asia/Shanghai）已将 `/Applications/AgentPager Bridge.app` 更新为 0.3.0 Build 16，Bundle `com.agentpager.bridge`，arm64。工具链为 Xcode 27.0 beta（27A5252f）、Swift 6.4、macOS SDK 27.0。Build 15 的完整备份位于 `~/Library/Application Support/AgentPager/Backups/2026-08-31-144113-0.3.0-build15/AgentPager Bridge.app`，原安装目录另保留为同目录 `installed-original.app`；备份逐文件哈希与原 App 一致。
+
+Build 16 沿用原固定证书，系统应用身份规则与 Build 15 相同；签名严格校验通过，安装目录与构建产物逐文件一致。主程序 SHA-256：`1603b1f916c38382c989a5a075bc74023c1301852259aa983279db91338ff1ef`。安装前后 Codex、Claude Code、ZCode 配置指纹一致，没有安装或修复 Hook，也没有重写 GLM Key。
+
+验证结果：
+
+- 再次完整运行 `swift test`，182 项通过（170 Core、12 Bridge）；release 打包成功。
+- 实际运行 PID 28896，49361、49362 正常监听。使用安装目录中的 Hook 执行 `node scripts/e2e-local.mjs`，状态同步、反向审批、结束收敛与关闭帧存活通过。
+- **真实 GLM 授权没有自动跨版本复用。** 安装后实际设置页显示“需要钥匙串授权”，最后成功为“—”，14:44 最近一次检查仍无法读取；本地手机接口快照为 `unavailable`。不能把相同签名规则或之前的隔离实验当成这次真实条目授权复用通过。
+- 系统日志在 14:41:16 记录一次新进程的钥匙串提示，14:41:22 记录用户选择 `always allow` / `allow`；日志本身未标明具体条目，不能据此声称 GLM 已授权。Agent 没有点击授权按钮或输入密码，已打开 GLM 设置并提示用户使用“授权读取”与系统“始终允许”。
+- 未验证 Build 16 授权后的真实额度恢复、两个十分钟自动周期、再次升级或 Redmi 画面。真实账号 401/403 错误仍仅以合成状态验证，不修改用户有效 Key 制造错误。
+
+本轮仍需保留上述实际授权限制，不承诺每次 App 更新都不再询问。正常后台刷新无固定的授权到期周期；签名相同与实际条目权限复用是两个需要分别验收的条件。
+
+脱敏证据在被忽略的 `dist/glm-error-build16-{preinstall,install}.json`、`dist/glm-error-build16-{tests,e2e,package}.log` 及系统授权事件日志中。回滚时正常退出 Build 16，恢复上述 Build 15 完整备份；不修改或清空钥匙串。

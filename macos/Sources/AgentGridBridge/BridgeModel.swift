@@ -146,6 +146,7 @@ final class BridgeModel {
     private(set) var glmValidationStatus = GLMValidationStatus.idle
     private(set) var glmDataHealth = GLMDataHealth.unconfigured
     private(set) var glmFailure: GLMQuotaError?
+    private(set) var glmFailureSource: GLMFailureSource?
     private(set) var glmLastSuccessfulAt: Date?
     private(set) var glmLastUpdatedAt: Date?
     private(set) var glmProvider: UsageProviderSnapshot?
@@ -577,8 +578,12 @@ final class BridgeModel {
     }
 
     var glmErrorText: String? {
-        guard glmKeyAccessIssue == nil else { return nil }
+        guard glmFailureSource != .keyAccess else { return nil }
         return glmFailure.map(GLMConnectionPresentation.errorText)
+    }
+
+    var glmErrorLabel: String {
+        glmFailureSource == .saveCandidate ? "新 Key 错误" : "脱敏错误"
     }
 
     private func handle(_ envelope: HookEnvelope) {
@@ -741,6 +746,7 @@ final class BridgeModel {
         glmValidationStatus = state.validationStatus
         glmDataHealth = state.health
         glmFailure = state.failure
+        glmFailureSource = state.failureSource
         glmLastSuccessfulAt = state.lastSuccessfulAt
         glmLastUpdatedAt = state.lastUpdatedAt
         glmProvider = state.provider
@@ -748,7 +754,16 @@ final class BridgeModel {
         case .succeeded:
             addEvent("GLM 额度已刷新")
         case .failed:
-            addEvent(state.keyAccessIssue == nil ? "GLM 额度验证失败" : "GLM 额度需要钥匙串授权")
+            switch state.failureSource {
+            case .keyAccess:
+                addEvent("GLM 额度需要钥匙串授权")
+            case .saveCandidate:
+                addEvent("GLM Key 保存或验证失败")
+            case .deleteKey:
+                addEvent("GLM Key 删除失败")
+            case .refresh, nil:
+                addEvent("GLM 额度验证失败")
+            }
         case .idle:
             break
         }

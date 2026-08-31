@@ -97,12 +97,21 @@ public enum GLMDataHealth: String, Equatable, Sendable {
     case exhausted
 }
 
+public enum GLMFailureSource: Equatable, Sendable {
+    case keyAccess
+    case saveCandidate
+    case refresh
+    case deleteKey
+}
+
 public struct GLMQuotaState: Equatable, Sendable {
     public var credentialStatus: GLMCredentialStatus
     public var keyAccessIssue: GLMKeyAccessError?
     public var validationStatus: GLMValidationStatus
     public var health: GLMDataHealth
     public var failure: GLMQuotaError?
+    /// The latest failure can be unrelated to an existing stored-Key access issue.
+    public var failureSource: GLMFailureSource?
     public var lastSuccessfulAt: Date?
     public var lastUpdatedAt: Date?
     public var provider: UsageProviderSnapshot?
@@ -113,6 +122,7 @@ public struct GLMQuotaState: Equatable, Sendable {
         validationStatus: GLMValidationStatus = .idle,
         health: GLMDataHealth? = nil,
         failure: GLMQuotaError? = nil,
+        failureSource: GLMFailureSource? = nil,
         lastSuccessfulAt: Date? = nil,
         lastUpdatedAt: Date? = nil,
         provider: UsageProviderSnapshot? = nil
@@ -122,6 +132,7 @@ public struct GLMQuotaState: Equatable, Sendable {
         self.validationStatus = validationStatus
         self.health = health ?? (credentialStatus == .configured ? .unavailable : .unconfigured)
         self.failure = failure
+        self.failureSource = failureSource
         self.lastSuccessfulAt = lastSuccessfulAt
         self.lastUpdatedAt = lastUpdatedAt
         self.provider = provider
@@ -277,7 +288,7 @@ public actor GLMQuotaCoordinator {
             )
             return false
         } catch {
-            await publishValidationFailure(.unavailable)
+            await publishValidationFailure(.unavailable, source: .deleteKey)
             return false
         }
     }
@@ -357,7 +368,10 @@ public actor GLMQuotaCoordinator {
         }
     }
 
-    private func publishValidationFailure(_ error: GLMQuotaError) async {
+    private func publishValidationFailure(
+        _ error: GLMQuotaError,
+        source: GLMFailureSource = .saveCandidate
+    ) async {
         // A locked/inaccessible keychain must not be misreported as an absent Key.
         let hasStoredKey = (try? keyStore.exists()) ?? (state.credentialStatus == .configured)
         state = GLMQuotaState(
@@ -366,6 +380,7 @@ public actor GLMQuotaCoordinator {
             validationStatus: .failed,
             health: hasStoredKey ? state.health : .unconfigured,
             failure: error,
+            failureSource: source,
             lastSuccessfulAt: state.lastSuccessfulAt,
             lastUpdatedAt: now(),
             provider: state.provider
@@ -402,6 +417,7 @@ public actor GLMQuotaCoordinator {
             validationStatus: .failed,
             health: health,
             failure: error,
+            failureSource: keyAccessIssue == nil ? .refresh : .keyAccess,
             lastSuccessfulAt: lastSuccessfulProvider?.capturedAt,
             lastUpdatedAt: updatedAt,
             provider: provider

@@ -194,8 +194,7 @@ struct BridgeMenuView: View {
 struct BridgeSettingsView: View {
     private enum Tab: String, CaseIterable {
         case pairing = "连接"
-        case hook = "Hook"
-        case glm = "GLM"
+        case configuration = "配置"
         case simulator = "模拟器"
         case diagnostics = "诊断"
     }
@@ -209,6 +208,7 @@ struct BridgeSettingsView: View {
     @State private var selection: Tab = .pairing
     @State private var pairingTextCopied = false
     @State private var glmKeyCandidate = ""
+    @State private var glmSettingsExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -243,10 +243,8 @@ struct BridgeSettingsView: View {
                 switch selection {
                 case .pairing:
                     pairingView
-                case .hook:
-                    hookView
-                case .glm:
-                    glmView
+                case .configuration:
+                    configurationView
                 case .simulator:
                     simulatorView
                 case .diagnostics:
@@ -347,10 +345,14 @@ struct BridgeSettingsView: View {
         .padding(30)
     }
 
-    private var hookView: some View {
+    private var configurationView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                SettingsTitle("Agent 生命周期 Hook")
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsTitle("Agent 配置")
+                    Text("按 Agent 管理会话监控、手机审批与可选额度连接。")
+                        .foregroundStyle(PixelTheme.muted)
+                }
                 PixelPanel {
                     VStack(alignment: .leading, spacing: 13) {
                         Text("Codex")
@@ -358,7 +360,7 @@ struct BridgeSettingsView: View {
                             .foregroundStyle(PixelTheme.cyan)
                         ZStack(alignment: .leading) {
                             InfoRow(
-                                label: "STATUS",
+                                label: "Hook 状态",
                                 value: model.hookInstalled ? "已安装" : "未安装",
                                 accent: model.hookInstalled ? PixelTheme.green : PixelTheme.amber
                             )
@@ -366,7 +368,7 @@ struct BridgeSettingsView: View {
                             .transition(hookStatusTransition)
                         }
                         .animation(hookStatusAnimation, value: model.hookInstalled)
-                        Text("实时采集开始、工具、批准、完成和 Token；安装会保留现有 Hook，并在改写前备份。")
+                        Text("通过 Hook 同步会话开始、工具调用、权限请求、完成状态和 Token 用量；安装会保留现有 Hook，并在改写前备份。")
                             .foregroundStyle(PixelTheme.muted)
                             .lineSpacing(4)
                         HStack(spacing: 10) {
@@ -385,7 +387,7 @@ struct BridgeSettingsView: View {
                             .foregroundStyle(PixelTheme.violet)
                         ZStack(alignment: .leading) {
                             InfoRow(
-                                label: "STATUS",
+                                label: "Hook 状态",
                                 value: model.claudeHookInstalled ? "已安装" : "未安装",
                                 accent: model.claudeHookInstalled ? PixelTheme.green : PixelTheme.amber
                             )
@@ -393,7 +395,7 @@ struct BridgeSettingsView: View {
                             .transition(hookStatusTransition)
                         }
                         .animation(hookStatusAnimation, value: model.claudeHookInstalled)
-                        Text("向 ~/.claude/settings.json 写入生命周期 Hook，覆盖开始、工具、权限、完成等事件；保留现有 Hook 并自动备份。")
+                        Text("通过 Hook 同步会话开始、工具调用、权限请求和完成状态；保留现有 Hook 并自动备份。")
                             .foregroundStyle(PixelTheme.muted)
                             .lineSpacing(4)
                         HStack(spacing: 10) {
@@ -410,9 +412,11 @@ struct BridgeSettingsView: View {
                         Text("ZCode")
                             .font(.pixel(13, weight: .bold))
                             .foregroundStyle(PixelTheme.cyan)
+                        Text("会话监控与手机审批")
+                            .font(.pixel(12, weight: .bold))
                         ZStack(alignment: .leading) {
                             InfoRow(
-                                label: "STATUS",
+                                label: "Hook 状态",
                                 value: model.zcodeHookInstalled
                                     ? "已安装"
                                     : (model.zcodeHookManaged ? "需修复" : "未安装"),
@@ -422,7 +426,7 @@ struct BridgeSettingsView: View {
                             .transition(hookStatusTransition)
                         }
                         .animation(hookStatusAnimation, value: model.zcodeHookInstalled)
-                        Text("向 ~/.zcode/cli/config.json 添加七类会话 Hook；完整 prompt、命令、响应和错误正文不会进入手机或普通诊断。每次实际改写前创建权限受限备份，无变化不制造备份。")
+                        Text("通过 Hook 同步会话状态与权限请求；完整提示词、命令、响应和错误正文不会进入手机或普通诊断。每次实际改写前创建权限受限备份，无变化不制造备份。")
                             .foregroundStyle(PixelTheme.muted)
                             .lineSpacing(4)
                         HStack(spacing: 10) {
@@ -446,11 +450,28 @@ struct BridgeSettingsView: View {
                                     .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
                             }
                         }
+                        Text("手机在线时可批准或拒绝本次工具请求；Bridge、手机或连接不可用以及等待超时时，交还 ZCode 本地审批。单次裁决不改写工具输入或永久权限；本轮停止后显示空闲，不误报完成。")
+                            .font(.pixel(10))
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                        PixelDivider()
+                        DisclosureGroup(isExpanded: $glmSettingsExpanded) {
+                            glmConfigurationSection
+                                .padding(.top, 13)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text(GLMConnectionPresentation.title)
+                                    .font(.pixel(12, weight: .bold))
+                                    .foregroundStyle(PixelTheme.cyan)
+                                Spacer(minLength: 0)
+                                Text(model.glmStatusPresentation.text)
+                                    .font(.pixel(10, weight: .bold))
+                                    .foregroundStyle(glmStatusAccent)
+                            }
+                        }
+                        .tint(PixelTheme.cyan)
                     }
                 }
-                Text("PermissionRequest 在手机在线时可批准或拒绝本次工具请求；Bridge、手机或连接不可用以及等待超时时会立即交还 ZCode 本地审批。单次裁决不会改写工具输入或永久权限。Stop 只显示空闲，不误报完成。")
-                    .font(.pixel(10))
-                    .foregroundStyle(PixelTheme.muted)
                 Spacer(minLength: 0)
             }
             .padding(28)
@@ -520,88 +541,78 @@ struct BridgeSettingsView: View {
         }
     }
 
-    private var glmView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                SettingsTitle(GLMConnectionPresentation.title)
-                PixelPanel {
-                    VStack(alignment: .leading, spacing: 13) {
-                        InfoRow(
-                            label: "连接状态",
-                            value: model.glmStatusPresentation.text,
-                            accent: glmStatusAccent
-                        )
-                        InfoRow(
-                            label: "最后成功",
-                            value: glmTimeText(model.glmLastSuccessfulAt),
-                            accent: PixelTheme.text
-                        )
-                        InfoRow(
-                            label: "最后更新",
-                            value: glmTimeText(model.glmLastUpdatedAt),
-                            accent: PixelTheme.text
-                        )
-                        if let error = model.glmErrorText {
-                            InfoRow(label: "脱敏错误", value: error, accent: PixelTheme.red)
-                        }
-                        Text(GLMConnectionPresentation.explanation)
-                            .foregroundStyle(PixelTheme.muted)
-                            .lineSpacing(4)
-                        SecureField("输入 Coding Plan Key", text: $glmKeyCandidate)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12, design: .monospaced))
-                            .padding(9)
-                            .background(PixelTheme.background)
-                            .overlay {
-                                Rectangle()
-                                    .stroke(PixelTheme.divider, lineWidth: 1)
-                            }
-                            .accessibilityLabel("GLM Coding Plan Key 安全输入")
-                        Text("候选 Key 会先通过额度接口验证；验证失败不会覆盖已经保存的有效 Key。Bridge 不会回显完整 Key。")
-                            .foregroundStyle(PixelTheme.muted)
-                            .lineSpacing(4)
-                        HStack(spacing: 10) {
-                            Button("保存并验证") {
-                                let candidate = glmKeyCandidate
-                                glmKeyCandidate = ""
-                                model.saveGLMKey(candidate)
-                            }
-                            .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
-                            .disabled(
-                                glmKeyCandidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    || model.glmOperationInProgress
-                            )
-                            Button("刷新额度") { model.refreshGLMQuota() }
-                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
-                                .disabled(
-                                    model.glmCredentialStatus != .configured
-                                        || model.glmOperationInProgress
-                                )
-                            Button("删除 Key") { model.deleteGLMKey() }
-                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
-                                .disabled(
-                                    model.glmCredentialStatus != .configured
-                                        || model.glmOperationInProgress
-                                )
-                        }
-                    }
-                }
-                PixelPanel {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("安全边界")
-                            .font(.pixel(12, weight: .bold))
-                            .foregroundStyle(PixelTheme.cyan)
-                        Text("Key 仅保存在 macOS 钥匙串；不会进入普通设置、日志、手机快照或任务持久化。额度每 10 分钟低频刷新，也会在 Bridge 启动和手机新连接时刷新。")
-                            .foregroundStyle(PixelTheme.muted)
-                            .lineSpacing(4)
-                        Text("KEYCHAIN · com.agentpager.bridge.glm-coding-plan / coding-plan-key")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(PixelTheme.muted)
-                    }
-                }
-                Spacer(minLength: 0)
+    private var glmConfigurationSection: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            InfoRow(
+                label: "连接状态",
+                value: model.glmStatusPresentation.text,
+                accent: glmStatusAccent
+            )
+            InfoRow(
+                label: "最后成功",
+                value: glmTimeText(model.glmLastSuccessfulAt),
+                accent: PixelTheme.text
+            )
+            InfoRow(
+                label: "最后更新",
+                value: glmTimeText(model.glmLastUpdatedAt),
+                accent: PixelTheme.text
+            )
+            if let error = model.glmErrorText {
+                InfoRow(label: "脱敏错误", value: error, accent: PixelTheme.red)
             }
-            .padding(28)
+            Text(GLMConnectionPresentation.explanation)
+                .foregroundStyle(PixelTheme.muted)
+                .lineSpacing(4)
+            SecureField("输入 Coding Plan Key", text: $glmKeyCandidate)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .padding(9)
+                .background(PixelTheme.background)
+                .overlay {
+                    Rectangle()
+                        .stroke(PixelTheme.divider, lineWidth: 1)
+                }
+                .accessibilityLabel("GLM Coding Plan Key 安全输入")
+            Text("候选 Key 会先通过额度接口验证；验证失败不会覆盖已经保存的有效 Key。Bridge 不会回显完整 Key。")
+                .foregroundStyle(PixelTheme.muted)
+                .lineSpacing(4)
+            HStack(spacing: 10) {
+                Button("保存并验证") {
+                    let candidate = glmKeyCandidate
+                    glmKeyCandidate = ""
+                    model.saveGLMKey(candidate)
+                }
+                .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                .disabled(
+                    glmKeyCandidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || model.glmOperationInProgress
+                )
+                Button("刷新额度") { model.refreshGLMQuota() }
+                    .buttonStyle(PixelButtonStyle(accent: PixelTheme.violet))
+                    .disabled(
+                        model.glmCredentialStatus != .configured
+                            || model.glmOperationInProgress
+                    )
+                Button("删除 Key") { model.deleteGLMKey() }
+                    .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                    .disabled(
+                        model.glmCredentialStatus != .configured
+                            || model.glmOperationInProgress
+                    )
+            }
+            PixelDivider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("安全边界")
+                    .font(.pixel(12, weight: .bold))
+                    .foregroundStyle(PixelTheme.cyan)
+                Text("Key 仅保存在 macOS 钥匙串；不会进入普通设置、日志、手机快照或任务持久化。额度每 10 分钟低频刷新，也会在 Bridge 启动和手机新连接时刷新。")
+                    .foregroundStyle(PixelTheme.muted)
+                    .lineSpacing(4)
+                Text("KEYCHAIN · com.agentpager.bridge.glm-coding-plan / coding-plan-key")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(PixelTheme.muted)
+            }
         }
     }
 

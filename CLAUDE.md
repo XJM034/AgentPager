@@ -62,6 +62,7 @@
   `android skills add --agent=codex,claude-code --project=. android-cli`
 - Skill 是否被新会话加载，需要用新会话实际验证；文件存在不等于当前会话已经重新加载。
 - `entire-review` 的项目软链接由外部 Skill 管理仓库维护，不得通过 `.agents/skills/entire-review` 或 `.claude/skills/entire-review` 反向编辑规范源。Hooks 已配置，日常开发不主动运行、建议或反复提醒 Review；只有用户主动唤起该 Skill 时，才按开发流程文档核对审查范围、活动 Session 和 checkpoint。
+- Entire 评审预检只走 `python3 -B scripts/entire-review-readonly.py`，禁止把 `entire doctor` 或其他维护命令当作只读检查；缺少 checkpoint 时降级审查，不现场修复追踪。保护边界及验收见 [安全流程](docs/entire-review-safety.md)。
 - `$claude-agents-bootstrap` 的规范来源是本项目之外受管理的 `xjm034-skill` Skill 源仓库，本仓库不保存它的项目副本；调用时使用当前会话实际加载的运行时副本，不要把源文件存在误当成已经加载。
 
 ## Agent skills

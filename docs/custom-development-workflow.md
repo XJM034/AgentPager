@@ -85,16 +85,17 @@ Matt 的 `handoff` 用于可携带上下文，不能替代仓库现行文档，�
 
 两套 Skill 入口是外部管理的软链接；不得直接编辑 `.agents/skills/entire-review/**` 或 `.claude/skills/entire-review/**`，因为这会沿软链接修改规范源。安装或修复 Entire Hook 时必须保留 AgentPager 及其他既有 Hook，并先保存可恢复备份。
 
-准备进行带 Session 上下文的审查时，先只读核对：
+准备审查时，只使用项目的纯读取入口。明确本次提交范围及 Session ID，不自动选择“最新 Session”：
 
 ```bash
-entire status
-entire agent list
-ACCESSIBLE=1 entire doctor
-entire session current --json
+python3 -B scripts/entire-review-readonly.py preflight --base HEAD^ --head HEAD --session <session-id>
 ```
 
-只有项目已启用、目标宿主已安装并受信、当前 Session 被追踪，或待审提交含 `Entire-Checkpoint:` trailer 时，才能声称审查包含 Session 意图。条件不完整时仍可按明确提交范围审查实际 diff，但必须标注为 `diff-only`，不能假装读取了 checkpoint 上下文。
+`HEAD^ → HEAD` 仅适用于最新单个提交，其他范围按前文规则替换。入口不会调用 Entire CLI，也不会删除过期 Session。`doctor` 是维护/清理命令，绝不是只读体检；Review 不运行 `doctor`、`clean`、`resume`、`attach` 或任何 rewind。CLI 的普通 Session 读取也可能顺带清理旧状态，不把命令名称中的“status/info/list”当作无副作用保证。
+
+Hook 已安装、受信、存在活动 Session、提交有关联 checkpoint 是不同条件。必须实际读取目标提交的 checkpoint，并核对 Session ID、转录首条 `session_meta.id`、工作区与修改范围，才能声称审查包含对应 Session 意图。没有 checkpoint 时仍按明确范围完成 `diff-only` 审查；不得为补证据伪造 checkpoint、改写历史提交，或清理 Session。
+
+读取已提交的 checkpoint 使用 `python3 -B scripts/entire-review-readonly.py checkpoint <checkpoint-id>`；详细使用、保护边界、隔离验证与恢复流程见 [Entire Review 安全流程](entire-review-safety.md)。Skill 上游正文若提供不同的 CLI 命令或默认主线范围，本项目的只读入口和用户指定范围优先。
 
 ## Review 由用户主动唤起
 

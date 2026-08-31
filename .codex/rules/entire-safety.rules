@@ -1,0 +1,14 @@
+# Supplemental command policy. The primary review entry is the pure reader.
+# These rules do not turn full-access shells/interpreters into a security sandbox.
+prefix_rule(
+    pattern = [["entire", "/opt/homebrew/bin/entire", "/opt/homebrew/Caskroom/entire/0.7.7/entire"], ["doctor", "clean", "resume", "attach", "rewind"]],
+    decision = "forbidden",
+    justification = "Entire maintenance may delete session evidence. Use scripts/entire-review-readonly.py for review; maintenance requires a separate backed-up recovery procedure.",
+    match = ["entire doctor", "entire clean --all", "/opt/homebrew/bin/entire doctor"],
+    not_match = ["entire hooks codex stop", "entire version"],
+)
+prefix_rule(
+    pattern = [["entire", "/opt/homebrew/bin/entire", "/opt/homebrew/Caskroom/entire/0.7.7/entire"], "checkpoint", "rewind"],
+    decision = "forbidden",
+    justification = "Checkpoint rewind changes repository/session state and is not a review operation.",
+)

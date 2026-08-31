@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'if ! command -v entire >/dev/null 2>&1; then exit 0; fi; exec entire hooks codex post-tool-use'",
+            "command": "python3 -B \"$(git rev-parse --show-toplevel)/scripts/entire-codex-hook.py\" post-tool-use",
             "timeout": 30
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'if ! command -v entire >/dev/null 2>&1; then printf \"%s\\n\" \"{\\\"systemMessage\\\":\\\"Entire CLI is enabled but not installed or not on PATH. Installation guide: https://docs.entire.io/cli/installation#installation-methods\\\"}\"; exit 0; fi; exec entire hooks codex session-start'",
+            "command": "python3 -B \"$(git rev-parse --show-toplevel)/scripts/entire-codex-hook.py\" session-start",
             "timeout": 30
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'if ! command -v entire >/dev/null 2>&1; then exit 0; fi; exec entire hooks codex stop'",
+            "command": "python3 -B \"$(git rev-parse --show-toplevel)/scripts/entire-codex-hook.py\" stop",
             "timeout": 30
           }
         ]
@@ -42,8 +42,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'if ! command -v entire >/dev/null 2>&1; then exit 0; fi; exec entire hooks codex user-prompt-submit'",
+            "command": "python3 -B \"$(git rev-parse --show-toplevel)/scripts/entire-codex-hook.py\" user-prompt-submit",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": null,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -B \"$(git rev-parse --show-toplevel)/scripts/entire-maintenance-guard.py\"",
+            "timeout": 10
           }
         ]
       }

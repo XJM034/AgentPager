@@ -20,6 +20,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +65,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -89,6 +91,7 @@ import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.SubagentSnapshot
 import com.agentgrid.mobile.domain.TaskCapability
 import com.agentgrid.mobile.domain.TaskControlIntent
+import com.agentgrid.mobile.domain.TaskDashboardProjector
 import com.agentgrid.mobile.domain.TaskSnapshot
 import com.agentgrid.mobile.domain.UsageSnapshot
 import com.agentgrid.mobile.domain.UsageProviderSnapshot
@@ -289,6 +292,8 @@ private fun TaskTerminal(
     }
     var expandedTaskID by remember { mutableStateOf<String?>(null) }
     var settingsVisible by remember { mutableStateOf(false) }
+    var topControlsHeightPx by remember { mutableStateOf(0) }
+    val taskTopInset = with(LocalDensity.current) { topControlsHeightPx.toDp() } + 2.dp
     val visibleTasks = projection.visibleTasks
     val enteringVisibleTaskIDs = projection.enteringVisibleTaskIDs
     val taskListAnchorHeightPx = with(LocalDensity.current) {
@@ -347,6 +352,7 @@ private fun TaskTerminal(
             onToggleSettings = { settingsVisible = !settingsVisible },
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .onSizeChanged { topControlsHeightPx = it.height }
                 .zIndex(2f),
         )
 
@@ -369,7 +375,9 @@ private fun TaskTerminal(
                     )
                 ).using(SizeTransform(clip = false))
             },
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(top = if (showDashboard) 0.dp else taskTopInset),
             label = "任务态与状态态切换",
         ) { isDashboardVisible ->
             if (isDashboardVisible) {
@@ -500,13 +508,24 @@ private fun TopControls(
     onToggleSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val sections = UsagePresentation.topQuotaSections(usage, usageProviders)
     Row(
-        modifier = modifier.padding(top = 10.dp, end = 18.dp),
+        modifier = modifier.padding(start = 18.dp, top = 6.dp, end = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        UsagePresentation.topQuotaItems(usage, usageProviders).forEach { item ->
-            UsageBank(item)
+        if (sections.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                sections.forEach { section ->
+                    UsageProviderBank(section)
+                }
+            }
         }
         Box(
             modifier = Modifier
@@ -571,19 +590,66 @@ private fun ViewSwitchIcon(showTaskIcon: Boolean) {
 }
 
 @Composable
-private fun UsageBank(item: TopQuotaItem) {
+private fun UsageProviderBank(section: TopQuotaSection) {
+    Row(
+        modifier = Modifier
+            .background(AgentGridColors.Surface)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                section.title,
+                color = AgentGridColors.Cyan,
+                fontSize = 8.sp,
+                lineHeight = 9.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp,
+                maxLines = 1,
+            )
+            section.items.firstOrNull { it.statusText != null }?.let { item ->
+                Text(
+                    item.statusText.orEmpty(),
+                    color = glmHealthToneColor(item.statusTone),
+                    fontSize = 7.sp,
+                    lineHeight = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            section.items.forEachIndexed { index, item ->
+                if (index > 0) {
+                    Box(
+                        Modifier.width(1.dp).height(16.dp).background(AgentGridColors.Divider),
+                    )
+                }
+                UsageBank(item, section.title, section.showGroupTitles)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UsageBank(item: TopQuotaItem, providerTitle: String, showGroupTitle: Boolean) {
     val group = item.group
     val windows = group.windows.sortedBy { it.windowMinutes }.take(2)
     if (windows.isEmpty()) return
     val title = UsagePresentation.quotaTitle(group)
     Row(
         modifier = Modifier
-            .width(if (windows.size > 1) 174.dp else 92.dp)
-            .height(28.dp)
-            .background(AgentGridColors.Surface)
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
-                    append(title)
+                    append(providerTitle)
+                    if (showGroupTitle) append("，$title")
                     item.statusText?.let { append("，$it") }
                     windows.forEach { window ->
                         append("，${window.label} 剩余 ")
@@ -591,14 +657,13 @@ private fun UsageBank(item: TopQuotaItem) {
                         append('%')
                     }
                 }
-            }
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        if (showGroupTitle) {
             Text(
-                title,
+                UsagePresentation.compactQuotaTitle(group),
                 color = when (UsagePresentation.quotaAccent(group)) {
                     QuotaAccent.VIOLET -> AgentGridColors.Violet
                     QuotaAccent.CYAN -> AgentGridColors.Cyan
@@ -608,29 +673,12 @@ private fun UsageBank(item: TopQuotaItem) {
                 lineHeight = 8.sp,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 0.25.sp,
+                maxLines = 1,
             )
-            item.statusText?.let { status ->
-                Text(
-                    status,
-                    color = glmHealthToneColor(item.statusTone),
-                    fontSize = 7.sp,
-                    lineHeight = 7.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
         }
-        windows.forEachIndexed { index, window ->
-            if (index > 0) {
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(16.dp)
-                        .background(AgentGridColors.Divider),
-                )
-            }
+        windows.forEach { window ->
             UsageGauge(
                 window = window,
-                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -648,21 +696,21 @@ private fun UsageGauge(
         else -> AgentGridColors.Cyan
     }
     Column(
-        modifier = modifier,
+        modifier = modifier.widthIn(min = 52.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                window.label,
+                UsagePresentation.compactWindowLabel(window),
                 color = AgentGridColors.Muted,
                 fontSize = 8.sp,
                 lineHeight = 10.sp,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 0.25.sp,
+                maxLines = 1,
             )
             Text(
                 "$remaining%",
@@ -671,12 +719,13 @@ private fun UsageGauge(
                 lineHeight = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.25.sp,
+                maxLines = 1,
             )
         }
         LinearProgressIndicator(
             progress = { remaining / 100f },
             modifier = Modifier
-                .fillMaxWidth()
+                .width(52.dp)
                 .height(2.dp),
             color = color,
             trackColor = AgentGridColors.Divider,
@@ -1383,7 +1432,7 @@ private fun ZCodeWaitingApprovalPreview() {
 }
 
 @Preview(
-    name = "顶部额度 · General Spark GLM",
+    name = "顶部额度 · CODEX 与 GLM 分组",
     widthDp = 720,
     heightDp = 64,
     showBackground = true,
@@ -1428,8 +1477,8 @@ private fun NoGLMQuotaPreview() {
 }
 
 @Preview(
-    name = "顶部额度 · 窄屏三提供方",
-    widthDp = 650,
+    name = "顶部额度 · 360dp 横滑与固定按钮",
+    widthDp = 360,
     heightDp = 64,
     showBackground = true,
     backgroundColor = 0xFF03070B,
@@ -1440,6 +1489,95 @@ private fun NarrowAllQuotaProvidersPreview() {
         usage = previewCodexUsage(),
         providers = listOf(previewGLMProvider()),
     )
+}
+
+@Preview(
+    name = "顶部额度 · GLM 陈旧读数",
+    widthDp = 650,
+    heightDp = 80,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun StaleQuotaProvidersPreview() {
+    QuotaTopControlsPreview(
+        usage = previewCodexUsage(),
+        providers = listOf(previewGLMProvider().copy(status = "stale_timeout")),
+    )
+}
+
+@Preview(
+    name = "顶部额度 · 大字体与 100%",
+    widthDp = 720,
+    heightDp = 80,
+    fontScale = 1.5f,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun LargeFontQuotaProvidersPreview() {
+    QuotaTopControlsPreview(
+        usage = previewCodexUsage(),
+        providers = listOf(previewGLMProvider()),
+    )
+}
+
+@Preview(
+    name = "顶部额度 · 无额度",
+    widthDp = 360,
+    heightDp = 64,
+    showBackground = true,
+    backgroundColor = 0xFF03070B,
+)
+@Composable
+private fun EmptyQuotaProvidersPreview() {
+    QuotaTopControlsPreview(usage = null, providers = emptyList())
+}
+
+@Preview(
+    name = "主页 · 横屏额度与五条任务",
+    widthDp = 800,
+    heightDp = 360,
+    showBackground = true,
+)
+@Composable
+private fun QuotaTaskTerminalPreview() {
+    val now = System.currentTimeMillis()
+    val task = TaskSnapshot(
+        id = "quota-layout-preview",
+        source = AgentSource.CODEX_CLI,
+        projectName = "AgentPager",
+        title = "AgentPager · 检查额度显示",
+        lifecycle = AgentLifecycle.RUNNING,
+        activity = AgentActivity.READING,
+        latestStep = "检查额度分组与布局",
+        startedAt = now - 300_000,
+        updatedAt = now,
+    )
+    AgentGridTheme {
+        TaskTerminal(
+            state = AgentGridUiState(
+                linkState = LinkState.CONNECTED,
+                taskProjection = TaskDashboardProjector.project(
+                    tasks = listOf(task) + (2..5).map { index ->
+                        task.copy(id = "quota-task-$index", title = "AgentPager · 查看任务 $index")
+                    },
+                    preferredFocusedTaskID = task.id,
+                    previous = null,
+                    now = now,
+                ).copy(automaticallyExpandedTaskID = task.id),
+                usage = previewCodexUsage(),
+                usageProviders = listOf(previewGLMProvider()),
+            ),
+            onUnpair = {},
+            onControl = {},
+            onFocus = {},
+            onToggleDashboard = {},
+            onActiveTaskBrightnessChange = {},
+            onIdleBrightnessChange = {},
+            onExitTerminal = {},
+        )
+    }
 }
 
 @Composable
@@ -1471,8 +1609,7 @@ private fun previewCodexUsage() = UsageSnapshot(
         QuotaGroup(
             id = "codex",
             windows = listOf(
-                previewUsageWindow("5H", 300, 78.0),
-                previewUsageWindow("WEEK", 10_080, 64.0),
+                previewUsageWindow("WEEK", 10_080, 95.0),
             ),
         ),
         QuotaGroup(
@@ -1490,11 +1627,12 @@ private fun previewGLMProvider() = UsageProviderSnapshot(
     id = "glm",
     displayName = "GLM",
     planName = "GLM Coding Plan",
+    status = "available",
     quotaGroups = listOf(
         QuotaGroup(
             id = "credit",
             windows = listOf(
-                previewUsageWindow("5H", 300, 95.0),
+                previewUsageWindow("5H", 300, 100.0),
                 previewUsageWindow("WEEK", 10_080, 99.0),
             ),
         ),

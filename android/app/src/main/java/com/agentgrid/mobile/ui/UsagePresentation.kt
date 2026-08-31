@@ -4,6 +4,7 @@ import com.agentgrid.mobile.domain.DailyUsagePoint
 import com.agentgrid.mobile.domain.QuotaGroup
 import com.agentgrid.mobile.domain.UsageSnapshot
 import com.agentgrid.mobile.domain.UsageProviderSnapshot
+import com.agentgrid.mobile.domain.UsageWindow
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -122,6 +123,12 @@ internal data class TopQuotaItem(
     val statusTone: GLMHealthTone? = null,
 )
 
+internal data class TopQuotaSection(
+    val title: String,
+    val items: List<TopQuotaItem>,
+    val showGroupTitles: Boolean,
+)
+
 internal object UsagePresentation {
     val defaultQuotaTab = QuotaProviderTab.CODEX
     val quotaProviderTabs = QuotaProviderTab.entries
@@ -166,6 +173,28 @@ internal object UsagePresentation {
     fun quotaTitle(group: QuotaGroup): String = quotaPresentation(group).title
 
     fun quotaAccent(group: QuotaGroup): QuotaAccent = quotaPresentation(group).accent
+
+    // Provider headings belong only to the compact home strip; detail names stay intact.
+    fun topQuotaSections(
+        usage: UsageSnapshot?,
+        providers: List<UsageProviderSnapshot> = emptyList(),
+    ): List<TopQuotaSection> {
+        val items = topQuotaItems(usage, providers).filter { it.group.windows.isNotEmpty() }
+        val (glm, codex) = items.partition { it.group.id.equals("glm", ignoreCase = true) }
+        return buildList {
+            if (codex.isNotEmpty()) add(TopQuotaSection("CODEX", codex, showGroupTitles = true))
+            if (glm.isNotEmpty()) add(TopQuotaSection("GLM", glm, showGroupTitles = false))
+        }
+    }
+
+    fun compactQuotaTitle(group: QuotaGroup): String =
+        if (isGeneralQuota(group)) "GEN" else quotaTitle(group)
+
+    fun compactWindowLabel(window: UsageWindow): String = when (window.windowMinutes) {
+        300 -> "5h"
+        10_080 -> "7d"
+        else -> window.label
+    }
 
     fun topQuotaItems(
         usage: UsageSnapshot?,

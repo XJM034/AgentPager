@@ -7,6 +7,7 @@ protocol GLMQuotaCoordinating: Sendable {
     func refresh() async
     func waitUntilIdle() async
     func saveCandidate(_ candidate: String) async -> Bool
+    func authorizeStoredKey() async -> Bool
     func deleteKey() async -> Bool
 }
 
@@ -32,8 +33,12 @@ enum GLMConnectionPresentation {
     static func status(
         credential: GLMCredentialStatus,
         validation: GLMValidationStatus,
-        health: GLMDataHealth? = nil
+        health: GLMDataHealth? = nil,
+        keyAccessIssue: GLMKeyAccessError? = nil
     ) -> GLMStatusPresentation {
+        if keyAccessIssue != nil {
+            return GLMStatusPresentation(text: "需要钥匙串授权", tone: .pending)
+        }
         let resolvedHealth = health ?? (
             credential == .configured ? GLMDataHealth.unavailable : .unconfigured
         )
@@ -54,6 +59,15 @@ enum GLMConnectionPresentation {
             GLMStatusPresentation(text: "套餐已过期", tone: .failure)
         case .exhausted:
             GLMStatusPresentation(text: "额度耗尽", tone: .failure)
+        }
+    }
+
+    static func keyAccessText(_ issue: GLMKeyAccessError) -> String {
+        switch issue {
+        case .authorizationRequired:
+            "后台读取已暂停，已有额度仅供参考。无需重新输入 Key；点击“授权读取”，在系统提示中选择“始终允许”。"
+        case .authorizationNotPersistent:
+            "本次授权未保留，后台仍无法读取 Key。请再次点击“授权读取”，在系统提示中选择“始终允许”。"
         }
     }
 
@@ -128,6 +142,7 @@ final class BridgeModel {
     private(set) var zcodeHookInstalled = false
     private(set) var zcodeHookManaged = false
     private(set) var glmCredentialStatus = GLMCredentialStatus.unconfigured
+    private(set) var glmKeyAccessIssue: GLMKeyAccessError?
     private(set) var glmValidationStatus = GLMValidationStatus.idle
     private(set) var glmDataHealth = GLMDataHealth.unconfigured
     private(set) var glmFailure: GLMQuotaError?
@@ -542,16 +557,28 @@ final class BridgeModel {
         }
     }
 
+    func authorizeGLMKeyAccess() {
+        guard !glmOperationInProgress else { return }
+        glmOperationInProgress = true
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.glmQuotaCoordinator.authorizeStoredKey()
+            self.glmOperationInProgress = false
+        }
+    }
+
     var glmStatusPresentation: GLMStatusPresentation {
         GLMConnectionPresentation.status(
             credential: glmCredentialStatus,
             validation: glmValidationStatus,
-            health: glmDataHealth
+            health: glmDataHealth,
+            keyAccessIssue: glmKeyAccessIssue
         )
     }
 
     var glmErrorText: String? {
-        glmFailure.map(GLMConnectionPresentation.errorText)
+        guard glmKeyAccessIssue == nil else { return nil }
+        return glmFailure.map(GLMConnectionPresentation.errorText)
     }
 
     private func handle(_ envelope: HookEnvelope) {
@@ -710,6 +737,7 @@ final class BridgeModel {
 
     private func applyGLMState(_ state: GLMQuotaState) {
         glmCredentialStatus = state.credentialStatus
+        glmKeyAccessIssue = state.keyAccessIssue
         glmValidationStatus = state.validationStatus
         glmDataHealth = state.health
         glmFailure = state.failure
@@ -720,7 +748,7 @@ final class BridgeModel {
         case .succeeded:
             addEvent("GLM 额度已刷新")
         case .failed:
-            addEvent("GLM 额度验证失败")
+            addEvent(state.keyAccessIssue == nil ? "GLM 额度验证失败" : "GLM 额度需要钥匙串授权")
         case .idle:
             break
         }

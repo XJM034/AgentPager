@@ -561,6 +561,19 @@ struct BridgeSettingsView: View {
             if let error = model.glmErrorText {
                 InfoRow(label: "脱敏错误", value: error, accent: PixelTheme.red)
             }
+            if let issue = model.glmKeyAccessIssue {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(GLMConnectionPresentation.keyAccessText(issue))
+                        .foregroundStyle(PixelTheme.text)
+                        .lineSpacing(4)
+                    Button("授权读取") { model.authorizeGLMKeyAccess() }
+                        .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                        .disabled(model.glmOperationInProgress)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(PixelTheme.surface)
+            }
             Text(GLMConnectionPresentation.explanation)
                 .foregroundStyle(PixelTheme.muted)
                 .lineSpacing(4)
@@ -607,6 +620,9 @@ struct BridgeSettingsView: View {
                     .font(.pixel(12, weight: .bold))
                     .foregroundStyle(PixelTheme.cyan)
                 Text("Key 仅保存在 macOS 钥匙串；不会进入普通设置、日志、手机快照或任务持久化。额度每 10 分钟低频刷新，也会在 Bridge 启动和手机新连接时刷新。")
+                    .foregroundStyle(PixelTheme.muted)
+                    .lineSpacing(4)
+                Text("自动刷新不会弹出授权框。选择“始终允许”后，正常使用无需定期授权；钥匙串锁定、权限撤销或临时签名版本更新后，可能需要再次主动授权。")
                     .foregroundStyle(PixelTheme.muted)
                     .lineSpacing(4)
                 Text("KEYCHAIN · com.agentpager.bridge.glm-coding-plan / coding-plan-key")

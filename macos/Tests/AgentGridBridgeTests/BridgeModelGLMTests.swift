@@ -143,6 +143,37 @@ func validatedKeyDoesNotLeaveBridgeModel() async throws {
 }
 
 @MainActor
+@Test("钥匙串授权不足在设置中提示，只有授权按钮触发授权并恢复新额度")
+func bridgeModelSeparatesAuthorizationFromQuotaRefresh() async {
+    let store = BridgeAuthorizationGLMKeyStore()
+    let model = BridgeModel(
+        glmCoordinatorFactory: { handler in
+            GLMQuotaCoordinator(
+                keyStore: store,
+                quotaFetcher: BridgeSuccessfulGLMFetcher(),
+                scheduler: BridgeNoopGLMScheduler(),
+                onStateChange: handler
+            )
+        }
+    )
+    model.startGLMQuotaMonitoring()
+    await waitUntil { model.glmKeyAccessIssue == .authorizationRequired }
+    #expect(model.glmStatusPresentation == GLMStatusPresentation(text: "需要钥匙串授权", tone: .pending))
+    #expect(model.glmLastSuccessfulAt == nil)
+    #expect(store.authorizationCount == 0)
+
+    model.refreshGLMQuota()
+    await waitUntil { !model.glmOperationInProgress }
+    #expect(store.authorizationCount == 0)
+    model.authorizeGLMKeyAccess()
+    await waitUntil { !model.glmOperationInProgress }
+    #expect(store.authorizationCount == 1)
+    #expect(model.glmKeyAccessIssue == nil)
+    #expect(model.glmStatusPresentation.text == "可用")
+    #expect(model.glmLastSuccessfulAt != nil)
+}
+
+@MainActor
 @Test("BridgeModel 阻塞中的 GLM 查询不阻塞真实 Hook 与 WebSocket 服务")
 func blockedGLMQueryDoesNotBlockHookOrWebSocket() async throws {
     let quota = BridgeBlockingGLMFetcher()
@@ -231,6 +262,8 @@ private actor BridgeGLMCoordinatorSpy: GLMQuotaCoordinating {
 
     func saveCandidate(_ candidate: String) -> Bool { true }
 
+    func authorizeStoredKey() -> Bool { true }
+
     func deleteKey() -> Bool { true }
 
     func waitFor(startCount: Int, refreshCount: Int) async {
@@ -272,6 +305,19 @@ private final class BridgeMemoryGLMKeyStore: GLMKeyStore, @unchecked Sendable {
 
 private final class BridgeConfiguredGLMKeyStore: GLMKeyStore, @unchecked Sendable {
     func load() throws -> String? { "integration-test-key" }
+    func save(_ key: String) throws {}
+    func delete() throws {}
+}
+
+private final class BridgeAuthorizationGLMKeyStore: GLMKeyStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var authorizations = 0
+    var authorizationCount: Int { lock.withLock { authorizations } }
+    func load() throws -> String? {
+        guard authorizationCount > 0 else { throw GLMKeyAccessError.authorizationRequired }
+        return "synthetic-key"
+    }
+    func authorizeAccess() throws { lock.withLock { authorizations += 1 } }
     func save(_ key: String) throws {}
     func delete() throws {}
 }

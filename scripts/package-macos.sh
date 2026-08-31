@@ -85,6 +85,14 @@ if [[ -n "${AGENTPAGER_VERSION_CODE:-}" ]]; then
 fi
 
 签名身份="${AGENTPAGER_CODESIGN_IDENTITY:-${AGENTGRID_CODESIGN_IDENTITY:-}}"
+本地签名标识文件="$HOME/Library/Application Support/AgentPager/signing-identity.sha1"
+if [[ -z "$签名身份" && -f "$本地签名标识文件" ]]; then
+    签名身份="$(tr -d '[:space:]' < "$本地签名标识文件")"
+    if [[ ! "$签名身份" =~ '^[[:xdigit:]]{40}$' ]]; then
+        echo "AgentPager 本地签名标识格式无效，已停止打包；不会静默降级为临时签名" >&2
+        exit 1
+    fi
+fi
 if [[ -z "$签名身份" ]]; then
     签名身份="$(security find-identity -v -p codesigning 2>/dev/null \
         | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' \
@@ -94,11 +102,15 @@ fi
 if [[ -n "$签名身份" ]]; then
     # 使用稳定的开发者身份，避免每次打包后因临时签名变化而触发钥匙串授权。
     codesign --force --deep --options runtime --sign "$签名身份" "$应用目录"
-    echo "已使用稳定签名：$签名身份"
+    if [[ "$签名身份" == "-" ]]; then
+        echo "已显式使用临时签名；更新后可能需要重新授权钥匙串"
+    else
+        echo "已使用证书签名：$签名身份（后续更新需沿用同一身份）"
+    fi
 else
     # 没有开发者证书的机器仍可本地构建，但首次启动可能需要确认钥匙串访问。
     codesign --force --deep --sign - "$应用目录"
-    echo "未找到 Apple Development 证书，已使用临时签名"
+    echo "未找到 Apple Development 证书，已使用临时签名；更新后可能需要重新授权钥匙串"
 fi
 
 if (( 需要恢复运行 )); then

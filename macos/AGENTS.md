@@ -63,7 +63,7 @@ scripts/package-macos.sh
 
 该命令默认生成当前架构的 `dist/AgentPager Bridge.app`；设置 `AGENTPAGER_UNIVERSAL=1` 才构建通用二进制。`scripts/package-dmg.sh` 生成 DMG。`AGENTPAGER_VERSION_NAME` 与 `AGENTPAGER_VERSION_CODE` 可覆盖本地包版本。
 
-打包脚本会优先使用本机 Apple Development 身份，否则使用临时签名。它只更新 `dist/` 产物，不会自动替换 `/Applications/AgentPager Bridge.app`。若同一个 `dist` App 正在运行，脚本会先正常结束它并在打包后恢复运行。
+签名优先使用显式环境变量，其次是本机固定签名标识文件，再尝试 Apple Development，最后才使用临时签名；选择规则与首次启用边界见 [macOS 开发流程](../docs/macos-development.md)。脚本不创建证书或改变系统信任；临时签名不能保证跨版本沿用钥匙串授权。它只更新 `dist/` 产物，不会自动替换 `/Applications/AgentPager Bridge.app`。若同一个 `dist` App 正在运行，脚本会先正常结束它并在打包后恢复运行。
 
 安装本地定制版前必须：
 

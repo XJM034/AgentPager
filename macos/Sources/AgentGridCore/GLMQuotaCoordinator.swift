@@ -2,7 +2,10 @@ import Foundation
 
 public protocol GLMKeyStore: Sendable {
     func exists() throws -> Bool
+    /// Background reads must never present system authentication UI.
     func load() throws -> String?
+    /// Only call in response to an explicit user action.
+    func authorizeAccess() throws
     func save(_ key: String) throws
     func delete() throws
 }
@@ -11,6 +14,15 @@ public extension GLMKeyStore {
     func exists() throws -> Bool {
         try load() != nil
     }
+
+    func authorizeAccess() throws {
+        _ = try load()
+    }
+}
+
+public enum GLMKeyAccessError: Error, Equatable, Sendable {
+    case authorizationRequired
+    case authorizationNotPersistent
 }
 
 public protocol GLMScheduledTask: Sendable {
@@ -87,6 +99,7 @@ public enum GLMDataHealth: String, Equatable, Sendable {
 
 public struct GLMQuotaState: Equatable, Sendable {
     public var credentialStatus: GLMCredentialStatus
+    public var keyAccessIssue: GLMKeyAccessError?
     public var validationStatus: GLMValidationStatus
     public var health: GLMDataHealth
     public var failure: GLMQuotaError?
@@ -96,6 +109,7 @@ public struct GLMQuotaState: Equatable, Sendable {
 
     public init(
         credentialStatus: GLMCredentialStatus,
+        keyAccessIssue: GLMKeyAccessError? = nil,
         validationStatus: GLMValidationStatus = .idle,
         health: GLMDataHealth? = nil,
         failure: GLMQuotaError? = nil,
@@ -104,6 +118,7 @@ public struct GLMQuotaState: Equatable, Sendable {
         provider: UsageProviderSnapshot? = nil
     ) {
         self.credentialStatus = credentialStatus
+        self.keyAccessIssue = keyAccessIssue
         self.validationStatus = validationStatus
         self.health = health ?? (credentialStatus == .configured ? .unavailable : .unconfigured)
         self.failure = failure
@@ -162,6 +177,29 @@ public actor GLMQuotaCoordinator {
     }
 
     @discardableResult
+    public func authorizeStoredKey() async -> Bool {
+        await waitUntilIdle()
+        guard !requestInFlight else { return false }
+        scheduledTask?.cancel()
+        scheduledTask = nil
+        do {
+            try keyStore.authorizeAccess()
+        } catch let issue as GLMKeyAccessError {
+            await publishRefreshFailure(
+                .unavailable, revision: configurationRevision, keyAccessIssue: issue
+            )
+            return false
+        } catch {
+            await publishRefreshFailure(.unavailable, revision: configurationRevision)
+            return false
+        }
+        // Fetch through the normal silent path, rather than retaining an authorized Key in memory.
+        refresh()
+        await waitUntilIdle()
+        return state.keyAccessIssue == nil && state.validationStatus == .succeeded
+    }
+
+    @discardableResult
     public func saveCandidate(_ candidate: String) async -> Bool {
         let candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty else {
@@ -194,6 +232,16 @@ public actor GLMQuotaCoordinator {
             await onStateChange(state)
             scheduleNext(after: Self.pollingInterval)
             return true
+        } catch let issue as GLMKeyAccessError {
+            requestInFlight = false
+            if (try? keyStore.exists()) == false {
+                await publishValidationFailure(.unavailable)
+            } else {
+                await publishRefreshFailure(
+                    .unavailable, revision: configurationRevision, keyAccessIssue: issue
+                )
+            }
+            return false
         } catch let error as GLMQuotaError {
             requestInFlight = false
             await publishValidationFailure(error)
@@ -223,6 +271,11 @@ public actor GLMQuotaCoordinator {
             )
             await onStateChange(state)
             return true
+        } catch let issue as GLMKeyAccessError {
+            await publishRefreshFailure(
+                .unavailable, revision: configurationRevision, keyAccessIssue: issue
+            )
+            return false
         } catch {
             await publishValidationFailure(.unavailable)
             return false
@@ -250,6 +303,9 @@ public actor GLMQuotaCoordinator {
         let key: String?
         do {
             key = try keyStore.load()
+        } catch let issue as GLMKeyAccessError {
+            await publishRefreshFailure(.unavailable, revision: revision, keyAccessIssue: issue)
+            return
         } catch {
             await publishRefreshFailure(.unavailable, revision: revision)
             return
@@ -302,9 +358,11 @@ public actor GLMQuotaCoordinator {
     }
 
     private func publishValidationFailure(_ error: GLMQuotaError) async {
-        let hasStoredKey = (try? keyStore.exists()) == true
+        // A locked/inaccessible keychain must not be misreported as an absent Key.
+        let hasStoredKey = (try? keyStore.exists()) ?? (state.credentialStatus == .configured)
         state = GLMQuotaState(
             credentialStatus: hasStoredKey ? .configured : .unconfigured,
+            keyAccessIssue: hasStoredKey ? state.keyAccessIssue : nil,
             validationStatus: .failed,
             health: hasStoredKey ? state.health : .unconfigured,
             failure: error,
@@ -316,9 +374,13 @@ public actor GLMQuotaCoordinator {
         scheduleNext(after: hasStoredKey ? backoffInterval() : Self.pollingInterval)
     }
 
-    private func publishRefreshFailure(_ error: GLMQuotaError, revision: Int) async {
+    private func publishRefreshFailure(
+        _ error: GLMQuotaError,
+        revision: Int,
+        keyAccessIssue: GLMKeyAccessError? = nil
+    ) async {
         guard revision == configurationRevision, !Task.isCancelled else { return }
-        consecutiveFailures += 1
+        if keyAccessIssue == nil { consecutiveFailures += 1 }
         let updatedAt = now()
         let failurePresentation = error.failurePresentation
         let trusted = failurePresentation.retainsTrustedQuota
@@ -336,6 +398,7 @@ public actor GLMQuotaCoordinator {
         )
         state = GLMQuotaState(
             credentialStatus: .configured,
+            keyAccessIssue: keyAccessIssue,
             validationStatus: .failed,
             health: health,
             failure: error,
@@ -344,7 +407,7 @@ public actor GLMQuotaCoordinator {
             provider: provider
         )
         await onStateChange(state)
-        scheduleNext(after: backoffInterval())
+        scheduleNext(after: keyAccessIssue == nil ? backoffInterval() : Self.pollingInterval)
     }
 
     private func backoffInterval() -> TimeInterval {

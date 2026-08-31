@@ -49,7 +49,10 @@ public enum PairingSecretStore {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
+        let status = KeychainAccess.serialized {
+            SecItemCopyMatching(query as CFDictionary, &result)
+        }
+        guard status == errSecSuccess else {
             return nil
         }
         return result as? Data
@@ -61,11 +64,13 @@ public enum PairingSecretStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        SecItemDelete(base as CFDictionary)
-        var item = base
-        item[kSecValueData as String] = data
-        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else {
-            throw CocoaError(.fileWriteUnknown)
+        try KeychainAccess.serialized {
+            SecItemDelete(base as CFDictionary)
+            var item = base
+            item[kSecValueData as String] = data
+            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else {
+                throw CocoaError(.fileWriteUnknown)
+            }
         }
     }
 }

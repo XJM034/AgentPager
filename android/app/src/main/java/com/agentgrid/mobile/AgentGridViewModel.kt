@@ -46,7 +46,6 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
         application.getSharedPreferences("agentgrid-settings", Application.MODE_PRIVATE)
     private val mutableState = MutableStateFlow(
         AgentGridUiState(
-            terminalMode = preferences.getBoolean("terminal-mode", true),
             activeTaskBrightness = ScreenBrightnessPolicy.sanitizeActiveBrightness(
                 preferences.getFloat(
                     "active-task-brightness",
@@ -146,10 +145,11 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
         dashboardTransitionJob = null
         val projection = mutableState.value.taskProjection.togglingDashboard()
         mutableState.value = mutableState.value.copy(taskProjection = projection)
+        scheduleDashboardTransition(projection)
     }
 
     fun setTerminalMode(enabled: Boolean) {
-        preferences.edit { putBoolean("terminal-mode", enabled) }
+        // 专用模式仅属于本次前台使用；下次打开 App 默认重新全屏。
         mutableState.value = mutableState.value.copy(terminalMode = enabled)
     }
 
@@ -173,8 +173,7 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
     private fun scheduleDashboardTransition(projection: TaskDashboardProjection) {
         dashboardTransitionJob?.cancel()
         dashboardTransitionJob = null
-        if (projection.manualDashboardOverride != null) return
-        val transitionAt = projection.nextDashboardAt ?: return
+        val transitionAt = projection.nextRefreshAt ?: return
         dashboardTransitionJob = viewModelScope.launch {
             delay((transitionAt - System.currentTimeMillis()).coerceAtLeast(0L))
             val refreshed = TaskDashboardProjector.project(

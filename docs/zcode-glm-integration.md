@@ -19,8 +19,12 @@
 
 ## ZCode 会话与权限
 
+- Android 的 ZCode 会话只保留彩色来源标签，不显示右侧重复的灰色“ZCode”；Codex 的 Terminal / ChatGPT.app 标签保留。
 - 七类 Hook 为 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、PermissionRequest、PostToolUseFailure、Stop。
-- `Stop → idle` 是非终态，不设置完成时间或完成未读提醒；同 Session 后续输入可回到 `running`。
+- Bridge 的 `Stop → idle` 是非终态，不设置完成时间或完成未读提醒；同 Session 后续输入可回到 `running`。Android 将最近 90 秒的 idle 显示为绿色“本轮已完成”，完成时间使用 Stop 的更新时间，音效沿用完成状态的单次提示；这不表示整个 Session 永久结束，也不改变 Bridge 状态或协议。
+- Android 不展示 ZCode 的 `starting`、`offline` 与已超过 90 秒的 `idle`。完成反馈保留 90 秒后自动收起；即使其他任务在运行或手动切换看板也会按时清理，没有其他任务时回到看板。重复快照不延长完成反馈，同 Session 后续输入可立即重新显示运行状态。
+- Android 的 Codex Desktop / CLI 任务只展示主任务，不显示子代理列表，也不因子代理活动自动展开；主任务步骤、审批、完成状态和未读提醒保留。Claude Code 的子代理显示规则保持原样。
+- Android 隐藏 Codex 后台记忆整理：来源为 Codex Desktop / CLI、项目名为 `memories`，且 prompt 或标题以 `Memory Writing Agent:`（允许 Markdown 标题符号）开头。过滤涵盖运行和完成状态，不占焦点或触发提示音；普通 memories 项目任务保留。此规则只控制手机展示，不关闭 Codex 的记忆功能。
 - 工具失败保持 `running`，不把单次工具失败解释为整个会话失败。
 - 标题由首个 prompt 映射为固定安全类别；完整 prompt、命令、工具输入输出、完整路径或原始错误不进入手机快照。
 - 手机只裁决本次权限请求。请求身份、签名、并发、重复答复和超时语义以

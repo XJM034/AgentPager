@@ -5,13 +5,14 @@ import com.agentgrid.mobile.domain.AgentLifecycle
 import com.agentgrid.mobile.domain.AgentSource
 import com.agentgrid.mobile.domain.TaskSnapshot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ZCodeTaskPresentationTest {
     @Test
     fun `ZCode 复用现有徽标活动和空闲状态语言`() {
         assertEquals("ZCode", agentBadge(AgentSource.ZCODE))
-        assertEquals("ZCode", agentOriginLabel(AgentSource.ZCODE))
+        assertNull(agentOriginLabel(AgentSource.ZCODE))
         assertEquals("正在思考", activityText(AgentActivity.THINKING))
         assertEquals("正在协作", activityText(AgentActivity.DELEGATING))
         assertEquals("空闲", statusText(AgentLifecycle.IDLE))

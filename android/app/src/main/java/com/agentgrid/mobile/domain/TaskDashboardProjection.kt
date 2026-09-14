@@ -11,6 +11,7 @@ data class TaskDashboardProjection(
     val manualDashboardOverride: Boolean?,
     val nextDashboardAt: Long?,
     internal val terminalStates: Map<String, Boolean>,
+    val nextRefreshAt: Long? = nextDashboardAt,
 ) {
     val focusedTask: TaskSnapshot?
         get() = orderedTasks.firstOrNull { it.id == focusedTaskID }
@@ -79,7 +80,38 @@ object TaskDashboardProjector {
         require(idleDelayMillis >= 0) { "任务结束等待时间不能为负数" }
         require(visibleLimit > 0) { "可见任务数量必须大于零" }
 
-        val orderedTasks = normalize(tasks).sortedWith(taskComparator)
+        // 先按 ID 取最新状态，再筛选展示；否则旧 running 会盖过最新 idle。
+        val normalizedTasks = normalize(tasks)
+        val orderedTasks = normalizedTasks
+            .filterNot { it.isCodexMemoryTask }
+            .mapNotNull { task ->
+                if (task.source == AgentSource.ZCODE) {
+                    when (task.lifecycle) {
+                        AgentLifecycle.STARTING, AgentLifecycle.OFFLINE -> return@mapNotNull null
+                        AgentLifecycle.IDLE -> {
+                            // Bridge 的 idle 表示本轮 Stop；保留绿色完成反馈，再隐藏旧会话。
+                            if (task.updatedAt + idleDelayMillis <= now) return@mapNotNull null
+                            return@mapNotNull task.copy(
+                                lifecycle = AgentLifecycle.SUCCEEDED,
+                                completedAt = task.updatedAt,
+                                activity = null,
+                                latestStep = "本轮已完成",
+                                capabilities = emptySet(),
+                            )
+                        }
+                        else -> Unit
+                    }
+                }
+                // 只裁剪手机展示副本，保留 Bridge 原始状态与主任务完成语义。
+                if (task.source == AgentSource.CODEX_CLI ||
+                    task.source == AgentSource.CODEX_DESKTOP
+                ) {
+                    task.copy(subagents = emptyList())
+                } else {
+                    task
+                }
+            }
+            .sortedWith(taskComparator)
         val visibleTaskIDs = orderedTasks
             .take(visibleLimit)
             .map { it.id }
@@ -94,7 +126,7 @@ object TaskDashboardProjector {
             val wasTerminal = previous.terminalStates[task.id]
             wasTerminal == null || (wasTerminal && !task.isTerminal)
         }
-        val effectiveManualOverride = if (hasNewTask) {
+        val effectiveManualOverride = if (hasNewTask || orderedTasks.isEmpty()) {
             null
         } else {
             manualDashboardOverride
@@ -130,8 +162,25 @@ object TaskDashboardProjector {
             manualDashboardOverride = effectiveManualOverride,
             nextDashboardAt = nextDashboardAt,
             terminalStates = terminalStates,
+            // 即使其它任务仍运行或用户手动切换视图，也要准时清理 ZCode 完成行。
+            nextRefreshAt = listOfNotNull(
+                nextDashboardAt.takeIf { effectiveManualOverride == null },
+                normalizedTasks.asSequence()
+                    .filter { it.source == AgentSource.ZCODE && it.lifecycle == AgentLifecycle.IDLE }
+                    .map { it.updatedAt + idleDelayMillis }
+                    .filter { it > now }
+                    .minOrNull(),
+            ).minOrNull(),
         )
     }
+
+    private val TaskSnapshot.isCodexMemoryTask: Boolean
+        get() = (source == AgentSource.CODEX_CLI || source == AgentSource.CODEX_DESKTOP) &&
+            projectName.equals("memories", ignoreCase = true) &&
+            listOfNotNull(userPrompt, title.substringAfter(" · ", title)).any {
+                it.trimStart { char -> char.isWhitespace() || char == '#' }
+                    .startsWith("Memory Writing Agent:", ignoreCase = true)
+            }
 
     private fun normalize(tasks: List<TaskSnapshot>): List<TaskSnapshot> =
         tasks.withIndex()

@@ -19,7 +19,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.attributes = window.attributes.apply {
             screenBrightness = ScreenBrightnessPolicy.brightnessFor(
                 lifecycle = viewModel.state.value.focusedTask?.lifecycle,
@@ -62,9 +61,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 从桌面或最近任务返回时也恢复全屏，不沿用上一次临时退出状态。
+        viewModel.setTerminalMode(true)
+        enterTerminalMode()
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // singleTask 在已有窗口上再次打开时可能不会重新调用 onStart。
+        viewModel.setTerminalMode(true)
+        enterTerminalMode()
         importPairing(intent)
     }
 
@@ -76,11 +85,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enterTerminalMode() {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 

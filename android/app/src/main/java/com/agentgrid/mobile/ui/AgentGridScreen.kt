@@ -797,9 +797,12 @@ private fun TaskRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (shouldShowTokenSummary(task)) {
+                    val zcodeRoundCompleted = task.source == AgentSource.ZCODE &&
+                        task.lifecycle == AgentLifecycle.SUCCEEDED
                     Text(
-                        "TOKEN  ${tokenDetailsText(task)}",
-                        color = AgentGridColors.Cyan.copy(alpha = rowAlpha),
+                        if (zcodeRoundCompleted) "本轮已完成" else "TOKEN  ${tokenDetailsText(task)}",
+                        color = (if (zcodeRoundCompleted) AgentGridColors.Green else AgentGridColors.Cyan)
+                            .copy(alpha = rowAlpha),
                         fontSize = 10.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -945,11 +948,9 @@ private fun TaskMeta(task: TaskSnapshot, alpha: Float) {
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MetaTag(agentBadge(task.source), agentBadgeColor(task.source), alpha)
-            MetaTag(
-                agentOriginLabel(task.source),
-                AgentGridColors.Muted,
-                alpha,
-            )
+            agentOriginLabel(task.source)?.let { origin ->
+                MetaTag(origin, AgentGridColors.Muted, alpha)
+            }
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1328,7 +1329,9 @@ private fun AgentSourceCompatibilityPreview() {
             listOf(AgentSource.ZCODE, AgentSource.UNKNOWN).forEach { source ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     MetaTag(agentBadge(source), agentBadgeColor(source), 1f)
-                    MetaTag(agentOriginLabel(source), AgentGridColors.Muted, 1f)
+                    agentOriginLabel(source)?.let { origin ->
+                        MetaTag(origin, AgentGridColors.Muted, 1f)
+                    }
                 }
             }
         }
@@ -1336,7 +1339,7 @@ private fun AgentSourceCompatibilityPreview() {
 }
 
 @Preview(
-    name = "ZCode 核心会话活动",
+    name = "ZCode 活跃与本轮完成",
     widthDp = 360,
     heightDp = 320,
     showBackground = true,
@@ -1344,6 +1347,7 @@ private fun AgentSourceCompatibilityPreview() {
 )
 @Composable
 private fun ZCodeCoreSessionActivityPreview() {
+    val now = System.currentTimeMillis()
     val base = TaskSnapshot(
         id = "zcode-preview",
         source = AgentSource.ZCODE,
@@ -1351,8 +1355,8 @@ private fun ZCodeCoreSessionActivityPreview() {
         title = "AgentPager · 检查 Hook 会话监控",
         lifecycle = AgentLifecycle.STARTING,
         activity = AgentActivity.THINKING,
-        startedAt = 1,
-        updatedAt = 2,
+        startedAt = now - 30_000,
+        updatedAt = now,
     )
     val tasks = listOf(
         base,
@@ -1371,17 +1375,29 @@ private fun ZCodeCoreSessionActivityPreview() {
             lifecycle = AgentLifecycle.IDLE,
             activity = null,
         ),
+        base.copy(
+            id = "zcode-old-idle",
+            lifecycle = AgentLifecycle.IDLE,
+            updatedAt = now - 120_000,
+        ),
     )
+
+    val visibleTasks = TaskDashboardProjector.project(
+        tasks = tasks,
+        preferredFocusedTaskID = null,
+        previous = null,
+        now = now,
+    ).visibleTasks
 
     AgentGridTheme {
         Column(modifier = Modifier.background(AgentGridColors.Background)) {
-            tasks.forEachIndexed { index, task ->
+            visibleTasks.forEachIndexed { index, task ->
                 TaskRow(
                     task = task,
                     pending = emptyList(),
                     expanded = false,
                     dimmed = false,
-                    showDivider = index < tasks.lastIndex,
+                    showDivider = index < visibleTasks.lastIndex,
                     onClick = {},
                     onControl = {},
                 )
@@ -1535,7 +1551,7 @@ private fun EmptyQuotaProvidersPreview() {
 }
 
 @Preview(
-    name = "主页 · 横屏额度与五条任务",
+    name = "主页 · 隐藏空闲 ZCode 与 Codex 子代理",
     widthDp = 800,
     heightDp = 360,
     showBackground = true,
@@ -1551,6 +1567,16 @@ private fun QuotaTaskTerminalPreview() {
         lifecycle = AgentLifecycle.RUNNING,
         activity = AgentActivity.READING,
         latestStep = "检查额度分组与布局",
+        subagents = listOf(
+            SubagentSnapshot(
+                id = "hidden-child",
+                path = "/root/child",
+                displayName = "不应显示的子代理",
+                lifecycle = AgentLifecycle.RUNNING,
+                startedAt = now - 30_000,
+                updatedAt = now,
+            ),
+        ),
         startedAt = now - 300_000,
         updatedAt = now,
     )
@@ -1559,7 +1585,28 @@ private fun QuotaTaskTerminalPreview() {
             state = AgentGridUiState(
                 linkState = LinkState.CONNECTED,
                 taskProjection = TaskDashboardProjector.project(
-                    tasks = listOf(task) + (2..5).map { index ->
+                    tasks = listOf(
+                        task,
+                        task.copy(
+                            id = "hidden-zcode-idle",
+                            source = AgentSource.ZCODE,
+                            title = "不应显示 · 验证请求",
+                            lifecycle = AgentLifecycle.IDLE,
+                            updatedAt = now - 120_000,
+                        ),
+                        task.copy(
+                            id = "hidden-zcode-starting",
+                            source = AgentSource.ZCODE,
+                            title = "不应显示 · 新请求",
+                            lifecycle = AgentLifecycle.STARTING,
+                        ),
+                        task.copy(
+                            id = "hidden-memory",
+                            projectName = "memories",
+                            title = "memories · ## Memory Writing Agent: Phase 2 (",
+                            userPrompt = "## Memory Writing Agent: Phase 2 (Consolidation)",
+                        ),
+                    ) + (2..5).map { index ->
                         task.copy(id = "quota-task-$index", title = "AgentPager · 查看任务 $index")
                     },
                     preferredFocusedTaskID = task.id,
@@ -1698,11 +1745,11 @@ private fun agentBadgeColor(source: AgentSource): Color = when (source) {
     else -> AgentGridColors.Blue
 }
 
-internal fun agentOriginLabel(source: AgentSource): String = when (source) {
+internal fun agentOriginLabel(source: AgentSource): String? = when (source) {
     AgentSource.CODEX_DESKTOP -> "ChatGPT.app"
     AgentSource.CODEX_CLI -> "Terminal"
     AgentSource.CLAUDE_CODE -> "Claude Code"
-    AgentSource.ZCODE -> "ZCode"
+    AgentSource.ZCODE -> null
     AgentSource.UNKNOWN -> "未知来源"
 }
 

@@ -164,6 +164,8 @@ android skills add --agent=codex,claude-code --project=. android-cli
 
 ## 已知边界
 
+- App 每次启动或从后台回到前台默认恢复专用全屏，隐藏状态栏和导航栏并恢复常亮；边缘滑动仍可临时呼出系统栏。设置中的“退出专用模式”只在本次前台使用期间有效，不再保存为下次启动偏好。既有亮度、配对和其他设置不受影响；此窗口行为必须在 Redmi 真机复验。
+
 - 当前没有 `androidTest` 设备自动化测试。
 - 模拟器无法证明 Redmi 的亮度和 MIUI 行为。
 - 普通分支没有自动 CI。

@@ -94,8 +94,9 @@ class TaskDashboardProjectionTest {
     }
 
     @Test
-    fun `审批任务优先自动展开否则展开活跃 Subagent`() {
+    fun `审批任务优先自动展开否则仍允许 Claude 活跃子代理展开`() {
         val delegated = task("delegated", AgentLifecycle.RUNNING, 30).copy(
+            source = AgentSource.CLAUDE_CODE,
             subagents = listOf(
                 SubagentSnapshot(
                     id = "subagent",
@@ -192,7 +193,7 @@ class TaskDashboardProjectionTest {
     }
 
     @Test
-    fun `ZCode 任务复用现有排序焦点和非终态空闲策略`() {
+    fun `ZCode 空闲会话不占任务列表且运行会话保持焦点`() {
         val running = TaskSnapshot(
             id = "zcode-running",
             source = AgentSource.ZCODE,
@@ -210,10 +211,156 @@ class TaskDashboardProjectionTest {
 
         val projection = project(listOf(idle, running))
 
-        assertEquals(listOf("zcode-running", "zcode-idle"), projection.orderedTasks.map { it.id })
+        assertEquals(listOf("zcode-running"), projection.orderedTasks.map { it.id })
         assertEquals("zcode-running", projection.focusedTaskID)
         assertFalse(projection.dashboardVisible)
         assertNull(projection.nextDashboardAt)
+    }
+
+    @Test
+    fun `ZCode 未开始空闲离线不占前五也不抢远端焦点`() {
+        val hidden = listOf(AgentLifecycle.STARTING, AgentLifecycle.IDLE, AgentLifecycle.OFFLINE)
+            .map { task(it.name, it, NOW - 100_000).copy(source = AgentSource.ZCODE) }
+        val running = task("main", AgentLifecycle.RUNNING, 10)
+        val projection = TaskDashboardProjector.project(
+            snapshot = StateSnapshotPayload(hidden + running, focusedTaskID = hidden.first().id),
+            previous = null,
+            now = NOW,
+        )
+
+        assertEquals(listOf("main"), projection.visibleTaskIDs)
+        assertEquals("main", projection.focusedTaskID)
+        assertTrue(project(hidden).dashboardVisible)
+    }
+
+    @Test
+    fun `ZCode 本轮停止显示绿色完成九十秒并能在同一会话继续`() {
+        val running = task("zcode", AgentLifecycle.RUNNING, NOW - 10).copy(source = AgentSource.ZCODE)
+        val first = project(listOf(running))
+        val idle = running.copy(lifecycle = AgentLifecycle.IDLE, updatedAt = NOW)
+        val stopped = project(listOf(running, idle), previous = first)
+        val completed = requireNotNull(stopped.focusedTask)
+        assertEquals(AgentLifecycle.SUCCEEDED, completed.lifecycle)
+        assertEquals(NOW, completed.completedAt)
+        assertEquals("本轮已完成", completed.latestStep)
+        assertFalse(stopped.dashboardVisible)
+        assertEquals(NOW + 90_000, stopped.nextRefreshAt)
+        assertEquals(NOW + 90_000, stopped.nextDashboardAt)
+        assertEquals(AgentLifecycle.IDLE, idle.lifecycle)
+
+        val repeated = TaskDashboardProjector.project(
+            listOf(idle), null, stopped, now = NOW + 30_000,
+        )
+        assertEquals(NOW + 90_000, repeated.nextRefreshAt)
+        val expired = TaskDashboardProjector.project(
+            listOf(idle), null, repeated, now = NOW + 90_000,
+        )
+        assertTrue(expired.orderedTasks.isEmpty())
+        assertTrue(expired.dashboardVisible)
+        assertNull(expired.nextRefreshAt)
+
+        val resumed = project(listOf(running.copy(updatedAt = NOW + 1)), previous = stopped)
+        assertEquals(AgentLifecycle.RUNNING, resumed.focusedTask?.lifecycle)
+        assertFalse(resumed.dashboardVisible)
+        assertNull(resumed.nextRefreshAt)
+    }
+
+    @Test
+    fun `其它任务运行或手动切换看板仍调度 ZCode 完成行清理`() {
+        val idle = task("zcode", AgentLifecycle.IDLE, NOW).copy(source = AgentSource.ZCODE)
+        val main = task("main", AgentLifecycle.RUNNING, NOW)
+        val mixed = project(listOf(idle, main))
+        assertNull(mixed.nextDashboardAt)
+        assertEquals(NOW + 90_000, mixed.nextRefreshAt)
+        val manual = TaskDashboardProjector.project(
+            listOf(idle, main), null, mixed.togglingDashboard(), now = NOW + 1,
+        )
+        assertTrue(manual.dashboardVisible)
+        assertEquals(NOW + 90_000, manual.nextRefreshAt)
+        val expired = TaskDashboardProjector.project(
+            listOf(idle, main), null, manual, now = NOW + 90_000,
+        )
+        assertEquals(listOf("main"), expired.visibleTaskIDs)
+        assertTrue(expired.dashboardVisible)
+        assertNull(expired.nextRefreshAt)
+    }
+
+    @Test
+    fun `ZCode 完成提示音只播放一次收起时不再播放`() {
+        val tracker = TaskSoundTracker()
+        val running = task("zcode", AgentLifecycle.RUNNING, NOW - 10).copy(source = AgentSource.ZCODE)
+        val first = project(listOf(running))
+        assertNull(tracker.nextCue(first.orderedTasks))
+        val idle = running.copy(lifecycle = AgentLifecycle.IDLE, updatedAt = NOW)
+        val stopped = project(listOf(idle), previous = first)
+        assertEquals(ArcadeSoundCue.TASK_COMPLETE, tracker.nextCue(stopped.orderedTasks))
+        assertNull(tracker.nextCue(project(listOf(idle), previous = stopped).orderedTasks))
+        val expired = TaskDashboardProjector.project(listOf(idle), null, stopped, now = NOW + 90_000)
+        assertNull(tracker.nextCue(expired.orderedTasks))
+    }
+
+    @Test
+    fun `Codex memories 后台整理任务隐藏且普通 memories 项目不误删`() {
+        for (source in listOf(AgentSource.CODEX_CLI, AgentSource.CODEX_DESKTOP)) {
+            val memory = task("memory", AgentLifecycle.RUNNING, NOW).copy(
+                source = source, projectName = "memories",
+                title = "memories · ## Memory Writing Agent: Phase 2 (",
+                userPrompt = "## Memory Writing Agent: Phase 2 (Consolidation)",
+            )
+            val ordinary = memory.copy(
+                id = "ordinary", title = "memories · 修复搜索功能", userPrompt = "修复搜索功能",
+            )
+            val sameWordsElsewhere = memory.copy(id = "elsewhere", projectName = "my-app")
+            val projection = TaskDashboardProjector.project(
+                StateSnapshotPayload(listOf(memory, ordinary, sameWordsElsewhere), focusedTaskID = memory.id),
+                previous = null, now = NOW,
+            )
+            assertEquals(setOf("ordinary", "elsewhere"), projection.visibleTaskIDs.toSet())
+            assertFalse(projection.focusedTaskID == memory.id)
+            assertTrue(project(listOf(memory.copy(userPrompt = null))).dashboardVisible)
+            assertTrue(project(listOf(memory.copy(lifecycle = AgentLifecycle.SUCCEEDED))).orderedTasks.isEmpty())
+            assertFalse(project(listOf(memory.copy(source = AgentSource.CLAUDE_CODE))).orderedTasks.isEmpty())
+        }
+    }
+
+    @Test
+    fun `ZCode 审批和回答仍显示并自动展开`() {
+        for (lifecycle in listOf(AgentLifecycle.WAITING_APPROVAL, AgentLifecycle.WAITING_ANSWER)) {
+            val waiting = task("zcode", lifecycle, 10).copy(source = AgentSource.ZCODE)
+            val projection = project(listOf(waiting))
+            assertEquals(waiting, projection.focusedTask)
+            assertEquals("zcode", projection.urgentTaskID)
+            assertEquals("zcode", projection.automaticallyExpandedTaskID)
+            assertFalse(projection.dashboardVisible)
+        }
+    }
+
+    @Test
+    fun `Codex 两种来源隐藏所有子代理但保留主任务进度审批和完成提醒`() {
+        for (source in listOf(AgentSource.CODEX_CLI, AgentSource.CODEX_DESKTOP)) {
+            val child = SubagentSnapshot(
+                id = "child", path = "/root/child", displayName = "child",
+                lifecycle = AgentLifecycle.RUNNING, startedAt = 1, updatedAt = 2,
+            )
+            val main = task("main", AgentLifecycle.RUNNING, 10).copy(
+                source = source, latestStep = "主任务正在执行", subagents = listOf(child),
+            )
+            val projection = project(listOf(main))
+            assertEquals(main.copy(subagents = emptyList()), projection.focusedTask)
+            assertTrue(projection.visibleTasks.single().subagents.isEmpty())
+            assertNull(projection.automaticallyExpandedTaskID)
+            assertEquals(1, main.subagents.size)
+
+            val approval = main.copy(lifecycle = AgentLifecycle.WAITING_APPROVAL)
+            assertEquals("main", project(listOf(approval)).automaticallyExpandedTaskID)
+            val done = main.copy(
+                lifecycle = AgentLifecycle.SUCCEEDED, completedAt = NOW, isUnread = true,
+                subagents = listOf(child.copy(lifecycle = AgentLifecycle.SUCCEEDED)),
+            )
+            val completed = project(listOf(done), previous = projection)
+            assertEquals(done.copy(subagents = emptyList()), completed.focusedTask)
+            assertEquals(NOW + 90_000, completed.nextDashboardAt)
+        }
     }
 
     private fun project(

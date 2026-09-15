@@ -33,6 +33,8 @@
 
 ## GLM 数据来源与展示
 
+2026-09-15 Mac 轻量化继续保留 Codex General / Spark、GLM 的当前剩余额度、重置时间和刷新入口。Mac 默认停止生成 90 天用量及费用估算，Android 代码、当前额度呈现和 GLM 查询链路未修改。实现与验证边界见 [Mac 轻量化记录](updates/2026-09-15-macos-lightweight-memory.md)。
+
 现行链路：Mac Bridge 设置中的“配置 → ZCode → GLM 额度连接（可选）” → 系统钥匙串中的独立 Key →
 BigModel 额度查询 → `UsageProviderSnapshot` → Android。Android 不保存或接收 GLM Key。
 

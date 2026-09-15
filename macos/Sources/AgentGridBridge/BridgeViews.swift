@@ -6,7 +6,6 @@ struct BridgeMenuView: View {
     let model: BridgeModel
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var coreChangedAt = Date.now
     @State private var menuAppeared = false
 
     var body: some View {
@@ -15,8 +14,7 @@ struct BridgeMenuView: View {
                 ZStack {
                     PixelCoreView(
                         lifecycle: serviceLifecycle,
-                        activity: nil,
-                        changedAt: coreChangedAt
+                        activity: nil
                     )
                     .id(serviceLifecycle)
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
@@ -148,9 +146,6 @@ struct BridgeMenuView: View {
         }
         .onDisappear {
             resetMenuEntrance()
-        }
-        .onChange(of: serviceLifecycle) {
-            coreChangedAt = .now
         }
     }
 
@@ -491,7 +486,6 @@ struct BridgeSettingsView: View {
                     PixelCoreView(
                         lifecycle: previewTask.lifecycle,
                         activity: previewTask.activity,
-                        changedAt: previewTask.updatedAt,
                         compact: false
                     )
                     .frame(width: 72, height: 72)

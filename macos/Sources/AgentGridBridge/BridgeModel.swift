@@ -111,9 +111,7 @@ struct BridgeRuntimeConfiguration: Sendable {
         startsBackgroundMaintenance: Bool = true,
         zcodeDecisionTimeoutMilliseconds: Int =
             ZCodePermissionTiming.bridgeDecisionTimeoutMilliseconds,
-        usageLoader: @escaping @Sendable () -> UsageSnapshot? = {
-            CodexUsageLoader().load()
-        }
+        usageLoader: (@Sendable () -> UsageSnapshot?)? = nil
     ) {
         precondition(hookPort != webSocketPort)
         precondition(zcodeDecisionTimeoutMilliseconds > 0)
@@ -125,7 +123,10 @@ struct BridgeRuntimeConfiguration: Sendable {
         self.observesLocalEnvironment = observesLocalEnvironment
         self.startsBackgroundMaintenance = startsBackgroundMaintenance
         self.zcodeDecisionTimeoutMilliseconds = zcodeDecisionTimeoutMilliseconds
-        self.usageLoader = usageLoader
+        // 每个 Bridge 复用同一额度缓存，未变化的日志无需再次解析。
+        self.usageLoader = usageLoader ?? { [loader = CodexUsageLoader()] in
+            loader.load()
+        }
     }
 }
 

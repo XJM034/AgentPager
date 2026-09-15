@@ -2,6 +2,27 @@ import Foundation
 import Testing
 @testable import AgentGridCore
 
+@Test("轻量额度刷新保留剩余比例和重置时间，不生成历史用量")
+func usageLoaderDefaultsToCurrentQuotas() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let now = Date.now
+    let timestamp = ISO8601DateFormatter().string(from: now)
+    let contents = """
+    {"timestamp":"\(timestamp)","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":800,"output_tokens":200,"total_tokens":1000}},"rate_limits":{"limit_id":"codex","primary":{"used_percent":25,"window_minutes":300,"resets_at":1789488000},"secondary":{"used_percent":60,"window_minutes":10080,"resets_at":1790000000}}}}
+    {"timestamp":"\(timestamp)","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex_bengalfox","limit_name":"Spark","primary":{"used_percent":10,"window_minutes":300,"resets_at":1789488000}}}}
+    """
+    try Data(contents.utf8).write(to: root.appendingPathComponent("rollout-lightweight.jsonl"))
+    let result = try #require(CodexUsageLoader().load(fromRootURL: root, now: now))
+    #expect(result.windows.map(\.remainingPercentage) == [75, 40])
+    #expect(result.windows.first?.resetsAt == Date(timeIntervalSince1970: 1789488000))
+    #expect(result.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"])
+    #expect(result.quotaGroups.last?.windows.first?.remainingPercentage == 90)
+    #expect(result.dailyUsage.isEmpty)
+}
+
 @Test("用量解析器读取双窗口和剩余比例")
 func usageLoaderParsesWindows() throws {
     let root = FileManager.default.temporaryDirectory
@@ -163,7 +184,7 @@ func usageLoaderAggregatesDailyTokenDeltas() throws {
         ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
     )
     let snapshot = try #require(
-        CodexUsageLoader().load(
+        CodexUsageLoader(includeHistory: true).load(
             fromRootURL: root,
             now: now,
             calendar: calendar
@@ -202,7 +223,7 @@ func usageLoaderReturnsHistoryWithoutQuotaWindows() throws {
         ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
     )
     let snapshot = try #require(
-        CodexUsageLoader().load(
+        CodexUsageLoader(includeHistory: true).load(
             fromRootURL: root,
             now: now,
             calendar: calendar
@@ -237,7 +258,7 @@ func usageLoaderReadsLargeSessionTail() throws {
         ISO8601DateFormatter().date(from: "2026-07-26T12:00:00Z")
     )
     let snapshot = try #require(
-        CodexUsageLoader().load(
+        CodexUsageLoader(includeHistory: true).load(
             fromRootURL: root,
             now: now,
             calendar: calendar

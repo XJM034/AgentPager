@@ -22,6 +22,12 @@ macOS 端是一个 Swift Package，而不是独立的 `.xcodeproj`：
 
 当前 Package 声明 Swift tools 6.2、最低 macOS 14，包含 `AgentGridCore`、`AgentGridBridge` 和 `AgentGridHooks` 三个产品，以及 `AgentGridCoreTests`、`AgentGridBridgeTests` 两个测试 Target。以后如代码或清单发生变化，以 `Package.swift` 和实际命令输出为准。
 
+## 常驻轻量化行为
+
+Mac Bridge 默认保留任务监控、手机审批、配对与连接，以及 Codex General / Spark 和 GLM 的当前剩余额度、重置时间与既有刷新机制。状态图标使用静态像素帧；后台不统计 90 天用量，也不启动 CodexBar 估算费用。Android 无需更新；手机仍显示当前额度，历史统计区可能显示暂无用量。
+
+`BridgeRuntimeConfiguration` 为每个 Bridge 复用同一个 `CodexUsageLoader`。额度缓存随文件大小和修改时间更新，扫描逐文件释放临时对象；默认 `includeHistory: false`。历史解析仅保留显式调用兼容能力，不属于常驻运行路径。日期化测量与本地安装状态见 [2026-09-15 Mac 轻量化](updates/2026-09-15-macos-lightweight-memory.md)。
+
 ## 1. 每次开发先核实工具链
 
 ```bash

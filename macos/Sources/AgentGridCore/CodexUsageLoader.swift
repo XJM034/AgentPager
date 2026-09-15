@@ -16,7 +16,12 @@ public final class CodexUsageLoader: @unchecked Sendable {
     private let quotaCacheLock = NSLock()
     private var quotaCache: [String: QuotaCacheEntry] = [:]
 
-    public init() {}
+    private let includeHistory: Bool
+
+    /// 常驻 Bridge 默认只读取额度；历史统计仅供显式调用。
+    public init(includeHistory: Bool = false) {
+        self.includeHistory = includeHistory
+    }
 
     public static var defaultRootURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -93,7 +98,7 @@ public final class CodexUsageLoader: @unchecked Sendable {
             now: now,
             calendar: calendar
         )
-        guard let codexBarUsage = CodexBarCostLoader.load(
+        guard includeHistory, let codexBarUsage = CodexBarCostLoader.load(
             historyDays: Self.historyDayCount,
             fileManager: fileManager
         ) else {
@@ -127,6 +132,18 @@ public final class CodexUsageLoader: @unchecked Sendable {
         now: Date,
         calendar: Calendar
     ) -> UsageSnapshot? {
+        // 后台 Task 不保证及时回收 Foundation 的临时对象。
+        autoreleasepool {
+            loadSnapshot(fromRootURLs: rootURLs, fileManager: fileManager, now: now, calendar: calendar)
+        }
+    }
+
+    private func loadSnapshot(
+        fromRootURLs rootURLs: [URL],
+        fileManager: FileManager,
+        now: Date,
+        calendar: Calendar
+    ) -> UsageSnapshot? {
         let candidates = Self.candidates(
             fromRootURLs: rootURLs,
             fileManager: fileManager
@@ -141,11 +158,11 @@ public final class CodexUsageLoader: @unchecked Sendable {
         )
         let quotaGroups = Self.latestQuotaGroups(from: quotaSnapshots)
         let quotaSnapshot = Self.preferredLegacySnapshot(from: quotaSnapshots)
-        let dailyUsage = Self.dailyUsage(
+        let dailyUsage = includeHistory ? Self.dailyUsage(
             from: candidates,
             now: now,
             calendar: calendar
-        )
+        ) : []
         guard quotaSnapshot != nil || !dailyUsage.isEmpty else {
             return nil
         }
@@ -246,7 +263,7 @@ public final class CodexUsageLoader: @unchecked Sendable {
         let size = (try? handle.seekToEnd()) ?? 0
         let tailSize = min(size, 512 * 1_024)
         try? handle.seek(toOffset: size - tailSize)
-        guard let data = try? handle.readToEnd(),
+        guard let data = try? handle.read(upToCount: Int(tailSize)),
               let contents = String(data: data, encoding: .utf8) else {
             return []
         }
@@ -281,7 +298,9 @@ public final class CodexUsageLoader: @unchecked Sendable {
 
         var snapshots: [UsageSnapshot] = []
         for candidate in recentCandidates {
-            snapshots.append(contentsOf: latestSnapshots(from: candidate))
+            // 每个文件解析后立即回收字符串/JSON 临时对象，限制扫描峰值。
+            let fileSnapshots = autoreleasepool { latestSnapshots(from: candidate) }
+            snapshots.append(contentsOf: fileSnapshots)
         }
         return snapshots
     }

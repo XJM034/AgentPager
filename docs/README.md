@@ -4,6 +4,8 @@
 
 ## 入口
 
+- [2026-09-15 Mac 轻量化与内存验证](updates/2026-09-15-macos-lightweight-memory.md)：保留剩余额度与核心同步，静态图标、额度缓存和分文件临时内存回收。
+
 - [ZCode / GLM 现行功能与验收边界](zcode-glm-integration.md)：会话、手机审批、独立 Key 额度查询、无重复 Key 目标和分层验证证据；处理这些功能时先读。
 - [Android Agent 开发环境](android-development.md)：工具、服务、预览、模拟器、真机、构建和调试流程。
 - [macOS AgentPager Bridge 开发环境](macos-development.md)：Xcode/Swift、测试、打包、签名、安装、回滚和运行验收。

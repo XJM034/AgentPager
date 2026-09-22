@@ -1,6 +1,6 @@
 # #16 新 Session 完整 prompt
 
-复制下方内容开始新的开发 Session；票据状态以开工时回读为准。
+2026-09-22 16:25 回读：#15 CLOSED，#13 OPEN；#16 OPEN / ready-for-agent / 无评论，唯一依赖 #15 已 closed。实现 `d4b758a`，真实验收/文档 `b81e74e`。复制下方内容开始新的开发 Session；票据状态以开工时回读为准。
 
 ```text
 请使用 $mattpocock-skills:implement 实施 AgentPager 开发票 #16。

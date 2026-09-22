@@ -323,8 +323,8 @@ private fun TaskTerminal(
             expandedTaskID = automaticallyExpandedTask.id
         }
     }
-    LaunchedEffect(tasks.map { Triple(it.id, it.lifecycle, it.isMuted) }) {
-        soundTracker.nextCue(tasks, soundEnabled)?.let(sound::play)
+    LaunchedEffect(state.snapshotGeneration, tasks.map { Triple(it.id, it.lifecycle, it.isMuted) }) {
+        soundTracker.nextCue(tasks, soundEnabled, state.snapshotGeneration)?.let(sound::play)
     }
 
     Box(

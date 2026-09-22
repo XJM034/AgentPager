@@ -97,7 +97,8 @@ public enum TaskCatalogInput: Sendable {
 }
 
 public struct TaskCatalog: Sendable {
-    private var paseoRevisions: [String: (connectionID: String, revision: UInt64)] = [:]
+    private var paseoLastSeen: [String: Date] = [:]
+    private var paseoRevisions: [String: (connectionID: String, startedAt: Double, revision: UInt64)] = [:]
     private var store: TaskStore
     private var requestsByID: [String: PendingRequest]
     private var mobileRequestIDs: Set<String>
@@ -162,14 +163,27 @@ public struct TaskCatalog: Sendable {
                 apply(signal)
             }
         case let .paseoDiscovery(discovery, receivedAt):
-            if let discovered = discovery.task(now: receivedAt) {
-                if let connection = discovery.connectionID, let revision = discovery.revision {
-                    if let previous = paseoRevisions[discovered.id],
-                       previous.connectionID == connection, previous.revision >= revision { break }
-                    paseoRevisions[discovered.id] = (connection, revision)
+            guard discovery.hasValidIdentity else { break }
+            if let connection = discovery.connectionID, let revision = discovery.revision {
+                let startedAt = discovery.connectionStartedAt ?? 0
+                if let previous = paseoRevisions[discovery.hostID] {
+                    if startedAt < previous.startedAt { break }
+                    if previous.connectionID == connection && previous.revision >= revision { break }
                 }
+                guard paseoRevisions[discovery.hostID] != nil || paseoRevisions.count < 200 else { break }
+                paseoRevisions[discovery.hostID] = (connection, startedAt, revision)
+            }
+            if discovery.archived {
+                store.remove(id: discovery.taskID)
+                paseoLastSeen.removeValue(forKey: discovery.taskID)
+                break
+            }
+            if let discovered = discovery.task(now: receivedAt) {
+                paseoLastSeen[discovered.id] = receivedAt
                 if let original = store.tasks.first(where: { $0.id == discovered.id }) {
                     var existing = original
+                    // Recovery is a current fact, not a new completion or a fresh timer.
+                    if discovery.baseline == true && original.isTerminal && discovered.lifecycle == .idle { break }
                     if discovery.revision != nil || existing.lifecycle == .starting {
                         existing.lifecycle = discovered.lifecycle
                         existing.activity = discovery.activity
@@ -224,6 +238,21 @@ public struct TaskCatalog: Sendable {
         let previousTasks = store.tasks
         let previousRequests = requestsByID
 
+        for var task in store.tasks where task.source == .omp {
+            let lastSeen = paseoLastSeen[task.id] ?? task.updatedAt
+            if now.timeIntervalSince(lastSeen) >= 45,
+               [.starting, .running, .waitingApproval, .waitingAnswer, .idle].contains(task.lifecycle) {
+                task.lifecycle = .offline
+                task.activity = nil
+                task.latestStep = nil
+                task.completedAt = nil
+                task.isUnread = false
+                task.updatedAt = now
+                store.upsert(task)
+            }
+        }
+        let retained = Set(store.tasks.map(\.id))
+        paseoLastSeen = paseoLastSeen.filter { retained.contains($0.key) }
         normalize(now: now)
 
         return commitIfChanged(

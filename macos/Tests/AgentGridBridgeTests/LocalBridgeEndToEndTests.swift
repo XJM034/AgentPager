@@ -838,6 +838,98 @@ func paseoCreatedSessionReachesPhone() async throws {
 }
 
 @MainActor
+@Test("omp 恢复与分支无需 created，归档不再占用手机目录")
+func paseoRecoveryReachesPhone() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let ports = try paseoTestPorts()
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        hookPort: ports[0], webSocketPort: ports[1], advertisedHost: "127.0.0.1",
+        pairingSecretLoader: { Data(repeating: 15, count: 32) },
+        taskPersistence: TaskSnapshotPersistence(fileURL: directory.appendingPathComponent("tasks.json")),
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, usageLoader: { nil },
+        paseoIngress: PaseoIngressConfiguration(port: ports[2], token: String(repeating: "b", count: 64))
+    ), glmCoordinatorFactory: { handler in
+        GLMQuotaCoordinator(keyStore: IntegrationMemoryGLMKeyStore(),
+            quotaFetcher: IntegrationSequencedGLMFetcher(results: []),
+            scheduler: IntegrationNoopGLMScheduler(), onStateChange: handler)
+    })
+    var phone: LocalWebSocketClient!
+    let process = Process()
+    let input = Pipe()
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("integrations/paseo-omp/test/turn-fixture.mjs")
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", fixture.path, String(ports[2]), String(repeating: "b", count: 64)]
+    process.standardInput = input
+    let output = Pipe()
+    process.standardOutput = output
+    process.standardError = FileHandle.nullDevice
+    defer {
+        try? input.fileHandleForWriting.close()
+        if process.isRunning { process.terminate() }
+        phone?.close()
+        model.stop()
+    }
+    try process.run()
+    let ready = try output.fileHandleForReading.read(upToCount: 6)
+    #expect(ready == Data("ready\n".utf8))
+    model.start()
+    try await waitForPaseoTestPort(ports[1])
+    try await waitForPaseoTestPort(ports[2])
+    phone = LocalWebSocketClient(port: ports[1])
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    try input.fileHandleForWriting.write(contentsOf: Data("sync\n".utf8))
+    let initial = try await nextSnapshot(from: phone) { $0.tasks.count == 1 }
+    let identity = try #require(initial.tasks.first?.id)
+    #expect(initial.tasks.first?.lifecycle == .idle)
+    try input.fileHandleForWriting.write(contentsOf: Data("import\n".utf8))
+    let imported = try await nextSnapshot(from: phone) { $0.tasks.count == 2 }
+    #expect(Set(imported.tasks.map(\.id)).count == 2)
+    #expect(imported.tasks.allSatisfy { $0.lifecycle == .idle && $0.completedAt == nil })
+    #expect(imported.tasks.contains { $0.id == identity })
+    try input.fileHandleForWriting.write(contentsOf: Data("archive\n".utf8))
+    let archived = try await nextSnapshot(from: phone) { $0.tasks.count == 1 }
+    #expect(archived.tasks.first?.id == identity)
+    try input.fileHandleForWriting.write(contentsOf: Data("silent-start\n".utf8))
+    let recovered = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(recovered.tasks.first?.id == identity)
+    #expect(recovered.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("silent-idle\n".utf8))
+    let idle = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .idle }
+    #expect(idle.tasks.first?.id == identity)
+    #expect(idle.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("callback-fast\n".utf8))
+    let fast = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(fast.tasks.first?.id == identity)
+    try input.fileHandleForWriting.write(contentsOf: Data("new-generation\n".utf8))
+    let generation = try await nextSnapshot(from: phone) { $0.tasks.first?.activity == .reading }
+    #expect(generation.tasks.first?.id == identity)
+    try input.fileHandleForWriting.write(contentsOf: Data("recovery-hazards\n".utf8))
+    let raced = try await nextSnapshot(from: phone) { snapshot in
+        #expect(snapshot.tasks.count == 1)
+        #expect(snapshot.tasks.first?.lifecycle == .running)
+        return snapshot.tasks.first?.activity == .editing
+    }
+    #expect(raced.tasks.first?.id == identity)
+    try input.fileHandleForWriting.write(contentsOf: Data("resource-recovery\n".utf8))
+    let resourceRecovered = try await nextSnapshot(from: phone) { $0.tasks.first?.activity == .browsing }
+    #expect(resourceRecovered.tasks.first?.id == identity)
+    let reconnectedPhone = LocalWebSocketClient(port: ports[1])
+    defer { reconnectedPhone.close() }
+    let reconnected = try await nextSnapshot(from: reconnectedPhone) { !$0.tasks.isEmpty }
+    #expect(reconnected.tasks == resourceRecovered.tasks)
+    try input.fileHandleForWriting.write(contentsOf: Data("busy-snapshot\n".utf8))
+    let busy = try await nextSnapshot(from: phone) { $0.tasks.count == 2 }
+    #expect(busy.tasks.first { $0.id == identity }?.lifecycle == .running)
+    if let capture = ProcessInfo.processInfo.environment["AGENTPAGER_CAPTURE_OMP_RECOVERY"] {
+        try Data(protocolText([initial, imported, archived, recovered, idle, fast, generation, raced, reconnected]).utf8)
+            .write(to: URL(fileURLWithPath: capture))
+    }
+}
+
+@MainActor
 @Test("omp 真实适配入口在同一卡片同步运行与思考")
 func paseoTurnProgressReachesPhone() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

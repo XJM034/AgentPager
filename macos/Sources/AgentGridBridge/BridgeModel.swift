@@ -178,6 +178,7 @@ final class BridgeModel {
         }
     }
     private var rolloutObservation = CodexRolloutObservation()
+    private var paseoMaintenance: Task<Void, Never>?
     private var paseoServer: PaseoIngressServer?
     private var hookServer: HookBridgeServer?
     private var webSocketServer: WebSocketServer?
@@ -281,6 +282,13 @@ final class BridgeModel {
             }
             do { try server.start(); paseoServer = server }
             catch { addEvent("Paseo 接入暂不可用") }
+            paseoMaintenance = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled, let self else { return }
+                    if let commit = self.catalog.maintain() { self.applyCatalogCommit(commit) }
+                }
+            }
         }
 
         if runtimeConfiguration.observesLocalEnvironment {
@@ -333,6 +341,8 @@ final class BridgeModel {
         usageLoadTask = nil
         usageRefreshTask = nil
         rolloutTask = nil
+        paseoMaintenance?.cancel()
+        paseoMaintenance = nil
         paseoServer?.stop()
         paseoServer = nil
         hookServer?.stop()

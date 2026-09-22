@@ -236,3 +236,49 @@ private final class RecordingPermissionResolver:
         }
     }
 }
+
+@Test("omp 适配层失联超时为 offline，恢复保留身份且不产生完成")
+func paseoLeaseExpiresWithoutCompletion() throws {
+    let now = Date(timeIntervalSince1970: 1000)
+    let data = Data(#"{"hostID":"lease-host","agentID":"main","provider":"omp","projectName":"Project","titleCategory":"","status":"running","archived":false,"connectionID":"first","revision":1}"#.utf8)
+    let discovery = try JSONDecoder().decode(PaseoDiscovery.self, from: data)
+    var catalog = TaskCatalog()
+    catalog.accept(.paseoDiscovery(discovery, receivedAt: now))
+    catalog.maintain(now: now.addingTimeInterval(46))
+    let offline = try #require(catalog.projection().tasks.first)
+    #expect(offline.lifecycle == .offline)
+    #expect(offline.completedAt == nil)
+    #expect(!offline.isUnread)
+    let recovery = Data(String(decoding: data, as: UTF8.self).replacingOccurrences(of: "\"revision\":1", with: "\"revision\":2").utf8)
+    catalog.accept(.paseoDiscovery(try JSONDecoder().decode(PaseoDiscovery.self, from: recovery), receivedAt: now.addingTimeInterval(47)))
+    let restored = try #require(catalog.projection().tasks.first)
+    #expect(restored.id == offline.id)
+    #expect(restored.startedAt == offline.startedAt)
+    #expect(restored.lifecycle == .running)
+    #expect(restored.completedAt == nil)
+}
+
+@Test("omp 旧归档不能删除更新状态，重复恢复快照不延长完成")
+func paseoRecoveryEnvelopeOrdering() throws {
+    func input(_ status: String, revision: Int, archived: Bool = false, baseline: Bool = false, connection: String = "first", epoch: Double = 1000) throws -> PaseoDiscovery {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "hostID": "ordering", "agentID": "main", "provider": "omp", "projectName": "Project",
+            "titleCategory": "", "status": status, "archived": archived,
+            "connectionID": connection, "connectionStartedAt": epoch, "revision": revision, "baseline": baseline,
+        ])
+        return try JSONDecoder().decode(PaseoDiscovery.self, from: data)
+    }
+    let now = Date.now
+    var catalog = TaskCatalog()
+    catalog.accept(.paseoDiscovery(try input("running", revision: 2), receivedAt: now))
+    catalog.accept(.paseoDiscovery(try input("idle", revision: 1, archived: true), receivedAt: now))
+    #expect(catalog.projection().tasks.count == 1)
+    catalog.accept(.paseoDiscovery(try input("succeeded", revision: 3), receivedAt: now))
+    let finished = catalog.projection().tasks.first
+    catalog.accept(.paseoDiscovery(try input("idle", revision: 4, baseline: true), receivedAt: now.addingTimeInterval(15)))
+    #expect(catalog.projection().tasks.first?.completedAt == finished?.completedAt)
+    #expect(catalog.projection().tasks.first?.lifecycle == .succeeded)
+    catalog.accept(.paseoDiscovery(try input("running", revision: 1, connection: "restarted", epoch: 2000), receivedAt: now.addingTimeInterval(16)))
+    catalog.accept(.paseoDiscovery(try input("succeeded", revision: 99), receivedAt: now.addingTimeInterval(17)))
+    #expect(catalog.projection().tasks.first?.lifecycle == .running)
+}

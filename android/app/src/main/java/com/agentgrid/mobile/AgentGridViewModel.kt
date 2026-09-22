@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 data class AgentGridUiState(
     val pairing: PairingSummary? = null,
     val linkState: LinkState = LinkState.DISCONNECTED,
+    val snapshotGeneration: Long = 0,
     val taskProjection: TaskDashboardProjection = TaskDashboardProjection.empty(),
     val usage: UsageSnapshot? = null,
     val usageProviders: List<UsageProviderSnapshot> = emptyList(),
@@ -89,6 +90,7 @@ class AgentGridViewModel(application: Application) : AndroidViewModel(applicatio
                 mutableState.value = mutableState.value.copy(
                     pairing = session.pairing,
                     linkState = session.link,
+                    snapshotGeneration = session.snapshotGeneration,
                     taskProjection = projection,
                     usage = session.snapshot.usage,
                     usageProviders = session.snapshot.usageProviders.orEmpty(),

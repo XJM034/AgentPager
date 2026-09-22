@@ -77,6 +77,7 @@ data class PhoneSessionState(
     val pairing: PairingSummary? = null,
     val link: LinkState = LinkState.DISCONNECTED,
     val snapshot: StateSnapshotPayload = StateSnapshotPayload(emptyList()),
+    val snapshotGeneration: Long = 0,
     val controls: Map<String, ControlDelivery> = emptyMap(),
     val problem: PhoneSessionProblem? = null,
 )
@@ -155,6 +156,7 @@ internal class DefaultPhoneSession(
     private var stopped = false
     private var retryCount = 0
     private var reconnectJob: Job? = null
+    private var awaitingSnapshotBaseline = true
     private var lastSnapshotSentAt = Long.MIN_VALUE
     private var lastSnapshotMessageID: String? = null
     private val timeoutJobs = mutableMapOf<String, Job>()
@@ -319,6 +321,9 @@ internal class DefaultPhoneSession(
         mutex.withLock {
             when (event) {
                 TransportEvent.Opened -> {
+                    awaitingSnapshotBaseline = true
+                    lastSnapshotSentAt = Long.MIN_VALUE
+                    lastSnapshotMessageID = null
                     retryCount = 0
                     reconnectJob?.cancel()
                     reconnectJob = null
@@ -369,8 +374,10 @@ internal class DefaultPhoneSession(
                 lastSnapshotMessageID = envelope.messageId
                 mutableState.value = mutableState.value.copy(
                     snapshot = snapshot,
+                    snapshotGeneration = mutableState.value.snapshotGeneration + if (awaitingSnapshotBaseline) 1 else 0,
                     problem = null,
                 )
+                awaitingSnapshotBaseline = false
             }
 
             "control.ack" -> {

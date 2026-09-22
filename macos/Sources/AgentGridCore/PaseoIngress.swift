@@ -37,8 +37,10 @@ public struct PaseoDiscovery: Decodable, Sendable {
     let status: String
     let archived: Bool
     let connectionID: String?
+    let connectionStartedAt: Double?
     let revision: UInt64?
     let activity: AgentActivity?
+    let baseline: Bool?
 
     var safeStep: String? {
         switch status {
@@ -55,10 +57,13 @@ public struct PaseoDiscovery: Decodable, Sendable {
         return "paseo:omp:" + SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
     }
 
+    var hasValidIdentity: Bool {
+        provider == "omp" && !hostID.isEmpty && hostID.utf8.count <= 128 &&
+            !agentID.isEmpty && agentID.utf8.count <= 128
+    }
+
     func task(now: Date) -> TaskSnapshot? {
-        guard provider == "omp", !archived,
-              !hostID.isEmpty, hostID.utf8.count <= 128,
-              !agentID.isEmpty, agentID.utf8.count <= 128 else { return nil }
+        guard hasValidIdentity, !archived else { return nil }
         let lifecycle: AgentLifecycle
         switch status {
         case "idle": lifecycle = .idle

@@ -16,14 +16,17 @@ enum class ArcadeSoundCue {
  */
 class TaskSoundTracker {
     private var initialized = false
+    private var generation: Long? = null
     private var previousLifecycles = emptyMap<String, AgentLifecycle>()
 
     fun nextCue(
         tasks: List<TaskSnapshot>,
         soundEnabled: Boolean = true,
+        snapshotGeneration: Long = 0,
     ): ArcadeSoundCue? {
         val currentLifecycles = tasks.associate { it.id to it.lifecycle }
-        if (!initialized) {
+        if (!initialized || generation != snapshotGeneration) {
+            generation = snapshotGeneration
             initialized = true
             previousLifecycles = currentLifecycles
             return null

@@ -26,6 +26,7 @@ export default function contribute(server: PluginServerContext) {
     authHeader: config.paseoAuthHeader,
     clientId: `agentpager-${config.hostID}`,
     connectTimeoutMs: 5000,
+    reconnect: { enabled: true, baseDelayMs: 1500, maxDelayMs: 30000 },
     suppressSendErrors: true,
     logger: { debug() {}, info() {}, warn() {}, error() {} },
   });

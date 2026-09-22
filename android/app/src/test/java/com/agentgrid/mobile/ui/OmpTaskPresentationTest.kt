@@ -16,6 +16,27 @@ import org.junit.Test
 
 class OmpTaskPresentationTest {
     @Test
+    fun `实际恢复快照保留分支身份清理归档且不制造完成提醒`() {
+        val fixture = listOf(File("../../protocol/fixtures/paseo-omp-recovery.json"),
+            File("../protocol/fixtures/paseo-omp-recovery.json")).first { it.exists() }
+        val snapshots = Json { ignoreUnknownKeys = true }
+            .decodeFromString<List<StateSnapshotPayload>>(fixture.readText())
+        val identity = snapshots.first().tasks.single().id
+        val tracker = TaskSoundTracker()
+        var projection: TaskDashboardProjection? = null
+        snapshots.forEach { snapshot ->
+            projection = TaskDashboardProjector.project(snapshot, projection, snapshot.tasks.maxOf { it.updatedAt })
+            assertTrue(projection!!.visibleTasks.any { it.id == identity })
+            assertNotEquals(ArcadeSoundCue.TASK_COMPLETE, tracker.nextCue(snapshot.tasks))
+            assertNull(tracker.nextCue(snapshot.tasks))
+            assertTrue(snapshot.tasks.all { it.completedAt == null && it.capabilities.isEmpty() })
+        }
+        assertEquals(2, snapshots[1].tasks.map { it.id }.toSet().size)
+        assertEquals(listOf(identity), snapshots[2].tasks.map { it.id })
+        assertNull(TaskSoundTracker().nextCue(snapshots.last().tasks))
+    }
+
+    @Test
     fun `真实 Bridge 请求与异常快照展示安全文案且沿用提醒静音`() {
         val fixture = listOf(File("../../protocol/fixtures/paseo-omp-attention.json"),
             File("../protocol/fixtures/paseo-omp-attention.json")).first { it.exists() }

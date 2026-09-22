@@ -310,17 +310,43 @@ class PhoneSessionTest {
     @Test
     fun `实际 Bridge omp 轮次请求及异常序列经手机连接接收且保持身份`() = runTest {
         val fixture = connectedFixture()
-        val snapshots = listOf("paseo-omp-turns.json", "paseo-omp-attention.json").flatMap {
+        val snapshots = listOf("paseo-omp-turns.json", "paseo-omp-attention.json", "paseo-omp-recovery.json").flatMap {
             json.decodeFromString<List<StateSnapshotPayload>>(protocolFixture(it))
         }
         snapshots.forEachIndexed { index, snapshot ->
             val envelope = StateEnvelope(version = 1, messageId = "omp-$index",
-                type = "state.snapshot", sentAt = snapshot.tasks.single().updatedAt, payload = snapshot)
+                type = "state.snapshot", sentAt = index.toLong(), payload = snapshot)
             fixture.transport.emit(TransportEvent.TextReceived(json.encodeToString(envelope)))
             runCurrent()
             assertEquals(snapshot, fixture.session.state.value.snapshot)
             assertEquals(null, fixture.session.state.value.problem)
         }
+        fixture.close()
+    }
+
+    @Test
+    fun `手机重连的首个完成快照建立基线且下一轮仍提醒`() = runTest {
+        val fixture = connectedFixture()
+        val snapshots = json.decodeFromString<List<StateSnapshotPayload>>(protocolFixture("paseo-omp-turns.json"))
+        val tracker = com.agentgrid.mobile.TaskSoundTracker()
+        suspend fun receive(index: Int, serial: Long): com.agentgrid.mobile.ArcadeSoundCue? {
+            val envelope = StateEnvelope(version = 1, messageId = "reconnect-$serial",
+                type = "state.snapshot", sentAt = serial, payload = snapshots[index])
+            fixture.transport.emit(TransportEvent.TextReceived(json.encodeToString(envelope)))
+            runCurrent()
+            val state = fixture.session.state.value
+            return tracker.nextCue(state.snapshot.tasks, snapshotGeneration = state.snapshotGeneration)
+        }
+        assertEquals(null, receive(1, 100))
+        fixture.transport.emit(TransportEvent.Failed("离线"))
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        fixture.transport.emit(TransportEvent.Opened)
+        runCurrent()
+        assertEquals(null, receive(3, 101))
+        assertEquals(null, receive(3, 102))
+        assertEquals(com.agentgrid.mobile.ArcadeSoundCue.TASK_ACKNOWLEDGE, receive(4, 103))
         fixture.close()
     }
 

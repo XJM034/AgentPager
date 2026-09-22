@@ -2,45 +2,46 @@
 
 ## 1. 当前任务目标
 
-本 Session 仅实施 #15（父 #13）：已有 omp 卡片正常轮次进度、工具活动、完成及下一轮。实现、验收、审查、文档与本地提交完成后按授权关闭 #15；不推送、不发布、不关闭父 #13、不实施 #16–#18。
+本 Session 仅实施 #16（父 #13）：Paseo–omp 原生工具审批/一般问答与失败/取消的只读监控。实现、验收、审查、恢复和文档已完成；按用户授权关闭子票并回读。无推送、发布、父票关闭或 #17/#18 实施。
 
 ## 2. 当前进展
 
-实现提交 `d4b758a`，真实验收/文档提交 `b81e74e`，基准 `c92b017`，分支 `alexx_custom`。#14 已通过 a2b7d70 / fc5a135 / c92b017 完成并关闭，不再补办。#15 已完成 TDD、真实隔离 Paseo → 插件 → Bridge → Android 验收及恢复，具体证据在 `docs/updates/2026-09-22-paseo-omp-turn-progress.md`，不要把首次代码提交时的“待授权”当成最终缺口。
+固定基准 `72dffd318449a63a05801509a7e9451d644ce208`，分支 `alexx_custom`。实现 `689770a`，并发刷新修复 `d725129`，阶段审查记录 `988d21b`，真实采样及终态修复 `56f7c6d`，迟到活动门禁修复 `27d858a`。最终证据见 `docs/updates/2026-09-22-paseo-omp-attention-outcomes.md`。#14/#15 已完成关闭，不补办。
 
-Swift 串行全套 191、Android 单元 90 + Lint + Debug 构建、SDK 类型检查、Windows Core 7 项全部通过。双轴初审发现的同毫秒旧轮、初始子任务、重复查找及订阅回收问题已修复复验。证据复审发现的一处模型工具状态歧义也已核实修正。
+最终 Swift 177 Core + 15 Bridge、Android 91 单元 + Lint + Debug、SDK 类型检查、Windows Core 7 全通过。固定基准双轴独立复审：Standards 0、Spec 0 剩余代码发现。受控全请求序列贯通实际插件/Bridge/Android；真实 GLM question/取消与工具失败后继续、Codex 正常执行另有证据。
 
 ## 3. 关键上下文
 
-- 原有未提交 `CONTEXT.md`、研究/讨论/规格/拆票目录及 docs/README.md 原始 6 行索引仍保留，不全量暂存。
-- 用户明确授权本 Session 隔离真实安装、最小模型调用及模拟器恢复；该授权不自动扩大成下张票的真实操作授权。
-- 使用独立私有 Paseo home / loopback 四端口，官方插件安装与公开 SDK 0.8.0，omp 18.2.8；不改日常 daemon、/Applications 或 Redmi。
-- Android `.custom`，临时 Build 23 已恢复 Build 20，原文件集合与 SHA-256 完全一致。测试设置文件已移除，隔离插件/服务/采样器/模拟器均已停止，四端口关闭。
+- 原有未提交 CONTEXT.md、调研/讨论/规格/拆票及 docs/README.md 原始 6 行索引保留，不全量暂存。
+- 本 Session 用户“允许”仅授权本票隔离目标、模型小调用和可恢复模拟器升级；不跨票授权。
+- Paseo 0.8.0 / omp 18.2.8，独立私有 home 和四端口；无日常 daemon、/Applications 或 Redmi 修改。
+- 两套隔离环境都已停止；Build 24 恢复原 Build 20，APK 与两份原数据文件 SHA-256 和集合完全相同；四端口关闭，adb 无设备。
 - Swift6.4 / Xcode27 / SDK27；Android JDK17 / Gradle8.13 / SDK36。
 
 ## 4. 关键发现
 
-- 稳定身份仅由主机命名空间与 agent ID 决定。公开目录、timeline 和同轮 turn_ended + 权威 idle/无 activeTurn 联合归约，工具结束不能单独代表成功。
-- 公开父关系标签 `labels["paseo.parent-agent-id"]` 可过滤初始子会话，实时 created 同时使用 parentAgentId。#14 当时的限制说明是历史事实，不要继续当作当前缺口。
-- 发送队列保留状态转换，跨轮事件防护包含同毫秒旧轮；关闭/归档回收订阅仅是资源管理，不是 #16/#17 手机语义交付。
-- 两条真实会话、四轮：Codex 首轮 + 同会话切换 GLM 后两轮，另一 GLM 首轮。卡片 ID/startedAt 稳定。GLM bash failed 后继续编辑执行正常完成；Codex 实际后台续跑未提前成功。
-- 提醒精确次数/旧事件/子任务由受控真实 Bridge + Android 接缝验证；模型正常路径、重复内容更新、静音、设置与呈现另有真实证据。不能互相冒充。
+- 以公开 pendingPermissions 的 ID 集合为事实；resolved 回调刷新全集，不直接按事件清空。合并重叠刷新避免丢失最新状态。
+- 工具请求 waitingApproval，其余 question/plan/mode/other/未知 waitingAnswer；安全文案、空能力集合，不传问题/参数，不发送审批指令或修改 Full Access。
+- 权威 idle/error 且无 activeTurn 时使用 awaitingOutcome 阻止所有发布路径，包括迟到 timeline；同轮真实 turn_ended 才映射 succeeded 或 interrupted，新轮解除门禁。
+- 第一套实测发现虚假 running，首次修复又经独立审查发现 timeline 旁路；最终红绿测试和第二套真实原生取消均确认消除。不要将首次采样误认为最终修复证据。
+- 两套共四轮模型调用。第二套 Codex 仅空会话；审批/并发/整轮失败为受控输入，不冒充模型生成。
 
 ## 5. 未完成事项
 
-#15 实现、验收、审查和恢复无遗留；已于 2026-09-22 16:25:07 关闭 completed，回读 CLOSED。#16 唯一原生依赖 #15 已 closed，现可开工。父 #13 仍需 #16–#18 范围验收，不由本票代办。
+#16 的实现、验收、审查、恢复无遗留；票据关闭时间与回读见下方最终关闭记录。父 #13 尚需 #17/#18 各自交付。
 
-下一张 #16：等待审批/问答、失败/取消的只读监控；不新增手机批准、拒绝、回答、停止或重试。Redmi 硬件提醒、MIUI 后台、正式安装管理及长期运行不在 #15 验证范围。
+未验证真实工具审批、真实整轮失败、原生问题实际回答；按 #16 明确受控验收完成这些分支。Redmi 硬件、MIUI、正式安装、长期性能及 Windows 桌面未验证。全面恢复为 #17，组合验收/正式启用为 #18。
 
 ## 6. 建议接手路径
 
-- 先读 Git 状态、AGENTS、docs/README.md、CONTEXT.md、本文件、#15 最终阶段记录、Paseo 开发接入说明，再拉取 #16/#13 最新完整正文/评论/标签/依赖。
-- 优先复用 integrations/paseo-omp/server/discovery.mjs 与公开 SDK、Swift `paseoTurnProgressReachesPhone`、Android `OmpTaskPresentationTest` / `PhoneSessionTest`；受控上游 fixture 与真实采样摘要不可混称。
-- #16 本次读取为 OPEN / ready-for-agent / 无评论，仅依赖 #15；以新 Session 实际回读为准。完整启动 prompt 存放于 `docs/updates/2026-09-22-paseo-omp-16-session-prompt.md`。
+- 先检查 Git 状态，读索引、CONTEXT、当前接入说明及 #16 最终记录；回读 #17/#13 全文、评论、标签和原生依赖。
+- #17 最近为 OPEN / ready-for-agent / 无评论，仅依赖 #15 CLOSED，不人为增加 #16 阻塞依赖。
+- 优先复用 discovery.mjs、Swift LocalBridgeEndToEndTests、Android OmpTaskPresentationTest / PhoneSessionTest。
+- 完整可复制 prompt：`docs/updates/2026-09-22-paseo-omp-17-session-prompt.md`。
 
 ## 7. 风险与注意事项
 
-首次 Swift 并行全套遇到既有进程超时/Bridge 就绪竞争，串行全套已通过；不要省略该事实或扩大为新功能失败。全面重连由 #17 交付。无手机共享字段或枚举新增，Windows 仅 Core 兼容测试，无 Windows 桌面运行。正式环境的安装/重启/真实模型或审批操作必须遵守项目当次授权边界，不读取输出凭据。
+全套一次出现未修改的 BridgeModelGLMTests:250–251 瞬态失败，随后全套复跑及最终修复后全套均通过。没有共享手机协议字段/枚举变化，Windows 只做 Core 兼容。不要将代码审查代替真实接线，不输出配对或模型凭据，不沿用前票真实操作授权。
 
 下一位 Agent 的第一步建议：
-运行 `git status --short --branch` 并回读 #16 的原生阻塞关系，确认 #15 已 CLOSED 后只实施 #16，不补办 #14/#15 收尾。
+运行 `git status --short --branch` 并回读 #17 原生依赖，确认 #15 已 CLOSED 后只实施 #17；不要补办 #14–#16 收尾。

@@ -1,0 +1,168 @@
+{
+  "codeCommit": "27d858a",
+  "environment": "second isolated Paseo 0.8.0 / omp 18.2.8 / Bridge / Android medium_phone Build 24",
+  "provenance": {
+    "GLM-Check": "real GLM 5.3 question and native Paseo cancellation",
+    "Codex-Check": "empty real session; no model call in second environment",
+    "TurnTest": "controlled public SDK events through actual adapter"
+  },
+  "cancelAt": 1790068256785,
+  "transitions": [
+    {
+      "at": 1790067609488,
+      "project": "GLM-Check",
+      "lifecycle": "idle",
+      "step": null
+    },
+    {
+      "at": 1790067609488,
+      "project": "Codex-Check",
+      "lifecycle": "idle",
+      "step": null
+    },
+    {
+      "at": 1790067609555,
+      "project": "TurnTest",
+      "lifecycle": "idle",
+      "step": null
+    },
+    {
+      "at": 1790067609993,
+      "project": "GLM-Check",
+      "lifecycle": "running",
+      "step": null
+    },
+    {
+      "at": 1790067613001,
+      "project": "GLM-Check",
+      "lifecycle": "waitingAnswer",
+      "step": "请回到 Paseo 处理待确认事项"
+    },
+    {
+      "at": 1790067657531,
+      "project": "TurnTest",
+      "lifecycle": "running",
+      "step": null
+    },
+    {
+      "at": 1790067657532,
+      "project": "TurnTest",
+      "lifecycle": "succeeded",
+      "step": null
+    },
+    {
+      "at": 1790067657533,
+      "project": "TurnTest",
+      "lifecycle": "running",
+      "step": null
+    },
+    {
+      "at": 1790067657535,
+      "project": "TurnTest",
+      "lifecycle": "waitingAnswer",
+      "step": "请回到 Paseo 处理待确认事项"
+    },
+    {
+      "at": 1790068182338,
+      "project": "TurnTest",
+      "lifecycle": "idle",
+      "step": null
+    },
+    {
+      "at": 1790068182340,
+      "project": "TurnTest",
+      "lifecycle": "running",
+      "step": null
+    },
+    {
+      "at": 1790068182345,
+      "project": "TurnTest",
+      "lifecycle": "succeeded",
+      "step": null
+    },
+    {
+      "at": 1790068182345,
+      "project": "TurnTest",
+      "lifecycle": "running",
+      "step": null
+    },
+    {
+      "at": 1790068182347,
+      "project": "TurnTest",
+      "lifecycle": "waitingAnswer",
+      "step": "请回到 Paseo 处理待确认事项"
+    },
+    {
+      "at": 1790068258304,
+      "project": "GLM-Check",
+      "lifecycle": "interrupted",
+      "step": "本轮已取消"
+    },
+    {
+      "at": 1790068258812,
+      "project": "TurnTest",
+      "lifecycle": "interrupted",
+      "step": "本轮已取消"
+    }
+  ],
+  "catalogAudit": [
+    {
+      "at": 1790067624737,
+      "name": "GLM-Check",
+      "status": "running",
+      "activeTurn": true,
+      "updatedAt": "2026-09-22T09:00:12.983Z",
+      "requests": [
+        "question"
+      ]
+    },
+    {
+      "at": 1790067624738,
+      "name": "Codex-Check",
+      "status": "idle",
+      "activeTurn": false,
+      "updatedAt": "2026-09-22T09:00:07.246Z",
+      "requests": []
+    },
+    {
+      "at": 1790068258297,
+      "name": "GLM-Check",
+      "status": "idle",
+      "activeTurn": false,
+      "updatedAt": "2026-09-22T09:10:58.293Z",
+      "requests": []
+    },
+    {
+      "at": 1790068328285,
+      "name": "Codex-Check",
+      "status": "closed",
+      "activeTurn": false,
+      "updatedAt": "2026-09-22T09:00:07.246Z",
+      "requests": []
+    },
+    {
+      "at": 1790068328289,
+      "name": "GLM-Check",
+      "status": "closed",
+      "activeTurn": false,
+      "updatedAt": "2026-09-22T09:10:58.293Z",
+      "requests": []
+    }
+  ],
+  "stableIdentity": true,
+  "noRunningBetweenWaitingAndCanceled": true,
+  "noPhoneActionCapabilities": true,
+  "privacyMarkersAbsent": true,
+  "restoration": {
+    "restoredBuild": 20,
+    "apkSha256Matches": true,
+    "dataFileSetAndSha256Match": true,
+    "dataFileCount": 2,
+    "portsClosed": {
+      "paseo": true,
+      "hook": true,
+      "phone": true,
+      "ingress": true
+    }
+  }
+}

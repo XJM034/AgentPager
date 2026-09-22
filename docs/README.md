@@ -31,3 +31,6 @@
 - ZCode/GLM 行为变化同步到现行功能说明；历史 PRD、调研和单次验收记录保留当时范围，不替代当前代码与明确批准的需求。
 - 代码与文档冲突时先核实代码和运行结果，再修正文档。
 - 需要跨任务连续工作时使用 `handoff/`，不要把临时交接内容长期堆在这里。
+
+- [Paseo–omp #16 原生请求与异常轮次最终验收](updates/2026-09-22-paseo-omp-attention-outcomes.md)：只读等待、失败/取消、双轴审查、真实隔离验证及恢复。
+- [Paseo–omp #17 下一 Session 完整 prompt](updates/2026-09-22-paseo-omp-17-session-prompt.md)。

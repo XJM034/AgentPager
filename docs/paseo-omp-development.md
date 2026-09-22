@@ -1,8 +1,8 @@
 # Paseo–omp 开发接入
 
-当前阶段：#14、#15 均已完成本票实现、自动化、审查和真实隔离 Paseo / Android 验收。#15 已验证两个模型的运行、工具活动、正常完成、同会话模型切换与下一轮，详见 [#15 阶段记录](updates/2026-09-22-paseo-omp-turn-progress.md#同-session-补充真实验收)。
+当前阶段：#14、#15、#16 均已完成各票实现、自动化、审查和同 Session 隔离 Paseo / Android 验收。#16 的受控请求全序列、真实原生问答/取消和恢复证据见 [#16 最终记录](updates/2026-09-22-paseo-omp-attention-outcomes.md#最终复验恢复与边界)。#15 已验证两个模型的运行、工具活动、正常完成、同会话模型切换与下一轮，详见 [#15 阶段记录](updates/2026-09-22-paseo-omp-turn-progress.md#同-session-补充真实验收)。
 
-#14 已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的异常、全面重连和正式安装管理仍分别由 #16–#18 交付。
+#14 已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的全面重连和正式安装管理仍分别由 #17/#18 交付。
 
 ## 行为与边界
 
@@ -88,3 +88,11 @@ Swift 的 `paseoCreatedSessionReachesPhone` 用受控公开 SDK/生命周期输�
 沿用上述独立环境和恢复方式；实际模型调用必须取得当次目标及验证目的的授权。通过公开 `ref.timeline.subscribe` 观察活动，用 `ref.send` 在合成测试目录执行最小读取、写入及短暂执行，`ref.waitForFinish` 后核对公开状态与手机快照。分别核对 Codex / GLM；通过 Paseo 原生模型选择器切换同会话，再发送下一轮，核对卡片 ID / startedAt 不变。需要原生模型选择器时，仅对隔离 home 开启本地 Web UI，不改变日常 daemon。
 
 #15 使用临时 Build 23、两条会话与四轮真实调用；总开关、任务静音、重复内容更新和亮度设置的具体证据与限制见阶段记录。模拟器恢复 Build 20 后已逐文件校验；旧 #14 的 Build 22 / 无模型调用记录仍是其当时的事实。
+
+## #16 原生请求与异常结果
+
+公开 pendingPermissions 以 request.id 集合为当前事实；permission_requested / permission_resolved 触发合并刷新，重叠刷新仍读取最新权威状态。只要仍有请求就保持等待：全为 tool 使用工具审批提示，question / plan / mode / other / 未知类别统一保守提示。仅发送安全类别，手机不获得审批或回答能力。
+
+请求清空时仅在实际运行中恢复；已 idle/error 且无 activeTurn 的已知轮次等待 turn_ended，统一发送门禁同时阻止迟到 timeline 伪造运行。failed/canceled 映射既有 interrupted，分别显示失败和取消文案；单次工具错误仍只是活动。新轮次恢复正常跟踪，重复/旧结束不能覆盖新状态。
+
+`paseoAttentionReachesPhone` 在实际插件 → TCP Bridge → 手机 WebSocket 覆盖请求并发、过期/重复事件、刷新竞态、迟到工具与结束；Android 使用实际 Bridge fixture 验证呈现及提醒。受控全序列另经真实模拟器渲染；真实模型问答与取消另行记录。#16 临时 Build 24 已恢复 Build 20。设备、模型调用与目标安装授权不跨票复用，详见最终记录的已验证与未验证边界。

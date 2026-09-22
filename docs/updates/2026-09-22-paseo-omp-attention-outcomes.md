@@ -29,9 +29,9 @@ Android 使用同一快照验证网络接收、呈现、无动作能力、提醒
 
 实现提交 `689770a`；审查修复提交 `d725129`。修复后 SDK 类型检查、3 项 Paseo Swift 集成与 Android Omp/PhoneSession 定向复验通过。
 
-## 当前未完成
+## 审查与修复记录
 
-真实隔离 Paseo 插件安装、实际模型调用与 Android 模拟器渲染待本 Session 用户授权后执行；不会沿用前票授权。Standards / Spec 双轴初审均发现同一 P1 并发刷新竞态：较旧刷新先返回会使较新解决结果被版本门禁丢弃。补充两个重叠 deferred Promise 的真实 Bridge 测试，先超时失败，改为每会话合并刷新与 dirty 后再次读取后通过。修复提交 `d725129` 后两路独立复审通过：Standards 0 剩余发现；Spec 0 剩余代码发现，仍有真实验收门槛。两位审查者分别重跑实际 TCP 竞态复现，较新请求与恢复结果均保留；Standards 另独立重跑本票 Swift 集成测试通过。最终文档与票据收尾尚未完成。本记录是阶段证据，不能作为 #16 已完成或关票依据。
+Standards / Spec 双轴初审均发现同一 P1 并发刷新竞态：较旧刷新先返回会使较新解决结果被版本门禁丢弃。补充两个重叠 deferred Promise 的真实 Bridge 测试，先超时失败，改为每会话合并刷新并在更新期间再次读取后通过，提交 `d725129`。此前“待授权”是当时阶段状态，本 Session 随后获得明确授权并完成以下实测，不再是遗留事项。
 
 #14/#15 最终验收已完成，不补办前票；不实施 #17/#18，不推送、不发布、不关闭父 #13。
 
@@ -48,4 +48,20 @@ GLM 的真实 ask 产生 kind=question / OMP select；手机 waitingAnswer、安
 
 首次现场摘要：[采样与恢复](assets/2026-09-22-paseo-omp-16-live-summary.json)。其中 TurnTest 明确为受控输入，Codex-Check/GLM-Check 为真实模型。截图：[工具审批和真实问答](assets/2026-09-22-paseo-omp-16-approval.png)、[一般问题](assets/2026-09-22-paseo-omp-16-controlled-question.png)、[部分解决与真实取消](assets/2026-09-22-paseo-omp-16-controlled-partial.png)、[恢复运行](assets/2026-09-22-paseo-omp-16-controlled-resumed.png)、[失败](assets/2026-09-22-paseo-omp-16-controlled-failed.png)、[计划](assets/2026-09-22-paseo-omp-16-controlled-plan.png)、[取消](assets/2026-09-22-paseo-omp-16-controlled-canceled.png)。
 
-复核现场采样发现，请求清除且权威状态已 idle/无 activeTurn 时，等待到取消间仍发出一次 running。新增高层测试复现“等待取消前不应出现 running”的红灯，修复为等待 turn_ended 原子发布结果，测试转绿；不再把已空闲的轮次伪装成恢复执行。当前追加隔离实测及双轴复审进行中，首次采样保留修复前过渡事实，不覆盖为最终证据。
+复核现场采样发现，请求清除且权威状态已 idle/无 activeTurn 时，等待到取消间仍发出一次 running。新增高层测试复现“等待取消前不应出现 running”的红灯，修复为等待 turn_ended 原子发布结果，测试转绿；不再把已空闲的轮次伪装成恢复执行。首次修复 `56f7c6d` 仅阻止目录发布；双轴追加审查又通过实际 TCP 发现迟到 timeline 可绕过。补充“idle 目录 → 同轮迟到工具完成 → 取消”测试，先在 Swift 集成测试第 1023 行明确失败；`27d858a` 使用统一发送门禁 awaitingOutcome，实际结束仍可发送，权威活动恢复后解除。回归转绿。首次采样保留修复前事实，不作为最终修复证据。
+
+## 最终复验、恢复与边界
+
+修复 `27d858a` 后，在第二套独立 Paseo home / 四端口重新加载实际插件。GLM 5.3 再次真实触发原生 question，公开模式仍 full；Paseo 原生 stop 后，公开目录变为 idle / 无 activeTurn / 空请求，手机直接 waitingAnswer → interrupted，没有中间 running。受控 TurnTest 同时重放 idle → 迟到工具 → 取消，结果相同。Android Build 24 实际配对，布局和两张截图均核对安全文案、无操作按钮。第二套 Codex-Check 仅为空会话，不冒充再次模型验收。
+
+证据：[最终安全摘要](assets/2026-09-22-paseo-omp-16-final-summary.json)、[最终等待](assets/2026-09-22-paseo-omp-16-final-waiting.png)、[最终取消](assets/2026-09-22-paseo-omp-16-final-canceled.png)。两套共四轮真实模型调用；未发送任何批准、拒绝或回答请求。首次 GLM 下一轮正常执行已验证取消后原会话仍可继续；解决请求后继续运行由受控请求序列验证。
+
+最终 Swift 全套 177 Core + 15 Bridge 全通过；SDK 类型检查通过。Android 91 项单元、Lint、Debug 构建及 Windows Core 7 项通过，最后仅 JS 状态门禁与受控上游测试变更，Android/Windows 无后续代码变化。一次此前全套运行遇到未修改的 BridgeModelGLMTests:250–251 错误清除测试瞬态失败，立即全套复跑通过；追加门禁后全套再次通过。
+
+固定审查基准始终为 `72dffd318449a63a05801509a7e9451d644ce208`，最终代码范围到 `27d858a`。Standards 独立重跑实际 Bridge 回归；Spec 独立重跑实际适配器 TCP 迟到事件及下一轮序列。Standards 0 剩余代码发现；Spec 0 剩余代码发现。两路均不把审查通过替代现场证据。
+
+两次临时升级均恢复原模拟器 Build 20；原 APK SHA-256、两份原应用数据文件集合及哈希完全一致。额外测试文件清除；本票插件、daemon、Bridge、采样器及模拟器均停止，第二套四端口回读关闭，第一套也已核对关闭。不改日常 daemon、正式 App、Redmi，不推送发布。
+
+验收对应：公开请求 ID 集合及并发/旧 resolved、Full Access 无请求不等待、安全分类、失败/取消/完成区别、重复结束、下一轮、空能力集合、Android 无动作、静音/提醒去重和 #15 回归均有受控自动化；请求全序列进一步贯通实际 Bridge 与 Android 渲染。真实模型补充证明原生一般问答、取消、Full Access、工具错误后继续及正常完成。公开接口足以表达 #16 所需状态，未发现需降低本票验收的接口缺口。
+
+未验证范围：未诱发真实模型工具审批或整轮失败，也未实际回答原生问题（遵守不发送真实审批指令与不修改模式）；这些分支由受控公开输入验证。无 Redmi 硬件提醒/MIUI、正式安装管理、长时间性能或 Windows 桌面验收。首次单点 Bridge 观测约 0% CPU / 38.6 MiB RSS 仅为现场观测，不是性能保证。全面恢复及正式验收分别属于 #17/#18，不影响本票受控请求验收范围。

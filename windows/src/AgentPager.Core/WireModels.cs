@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace AgentPager.Core;
 
-public enum AgentSource { CodexDesktop, CodexCLI, ClaudeCode, ZCode, Unknown }
+public enum AgentSource { CodexDesktop, CodexCLI, ClaudeCode, ZCode, Omp, Unknown }
 public enum AgentLifecycle { Offline, Idle, Starting, Running, WaitingApproval, WaitingAnswer, Succeeded, Interrupted }
 public enum AgentActivity { Thinking, Reading, Searching, Editing, Executing, Testing, Browsing, Delegating }
 public enum TaskCapability { Approve, Deny, Answer, Interrupt, Retry }
@@ -203,6 +203,7 @@ internal sealed class AgentSourceConverter : JsonConverter<AgentSource>
             "codexCLI" => AgentSource.CodexCLI,
             "claudeCode" => AgentSource.ClaudeCode,
             "zcode" => AgentSource.ZCode,
+            "omp" => AgentSource.Omp,
             _ => AgentSource.Unknown,
         };
 
@@ -213,6 +214,7 @@ internal sealed class AgentSourceConverter : JsonConverter<AgentSource>
             AgentSource.CodexCLI => "codexCLI",
             AgentSource.ClaudeCode => "claudeCode",
             AgentSource.ZCode => "zcode",
+            AgentSource.Omp => "omp",
             _ => "unknown",
         });
 }

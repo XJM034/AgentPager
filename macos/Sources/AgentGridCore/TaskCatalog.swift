@@ -92,6 +92,7 @@ public enum TaskCatalogInput: Sendable {
         receivedAt: Date = .now
     )
     case rollout([CodexRolloutSignal])
+    case paseoDiscovery(PaseoDiscovery, receivedAt: Date = .now)
     case synthetic(TaskSnapshot)
 }
 
@@ -158,6 +159,20 @@ public struct TaskCatalog: Sendable {
         case let .rollout(signals):
             for signal in signals.sorted(by: Self.signalOrder) {
                 apply(signal)
+            }
+        case let .paseoDiscovery(discovery, receivedAt):
+            // Discovery never resets an existing round or user settings. The directory can
+            // report initializing before created finishes, so allow that startup to settle.
+            if let discovered = discovery.task(now: receivedAt) {
+                if var existing = store.tasks.first(where: { $0.id == discovered.id }) {
+                    if existing.lifecycle == .starting, discovered.lifecycle != .starting {
+                        existing.lifecycle = discovered.lifecycle
+                        existing.updatedAt = receivedAt
+                        store.upsert(existing)
+                    }
+                } else {
+                    store.upsert(discovered)
+                }
             }
         case let .synthetic(task):
             store.upsert(task)

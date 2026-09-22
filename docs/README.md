@@ -4,6 +4,8 @@
 
 ## 入口
 
+- [Paseo–omp 开发接入（#14）](paseo-omp-development.md)：官方插件、隔离启用与撤销、安全边界；[本票验证记录](updates/2026-09-22-paseo-omp-discovery.md)。源码与自动化交付不等于现场安装验收。
+
 - [2026-09-20 Codex 额度同步修复与 Spark 移除](updates/2026-09-20-codex-quota-spark-removal.md)：实时额度来源、刷新频率、两端验证及安装状态。
 
 - [2026-09-15 Mac 轻量化与内存验证](updates/2026-09-15-macos-lightweight-memory.md)：保留剩余额度与核心同步，静态图标、额度缓存和分文件临时内存回收。

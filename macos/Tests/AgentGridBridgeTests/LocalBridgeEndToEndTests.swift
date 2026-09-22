@@ -754,3 +754,155 @@ private final class IntegrationNoopGLMScheduler: GLMRefreshScheduler, @unchecked
 private final class IntegrationNoopGLMScheduledTask: GLMScheduledTask, @unchecked Sendable {
     func cancel() {}
 }
+
+@MainActor
+@Test("Paseo 未输入 omp 经认证本机入口自动进入手机快照")
+func paseoCreatedSessionReachesPhone() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let ports = try paseoTestPorts()
+    let (hookPort, phonePort, paseoPort) = (ports[0], ports[1], ports[2])
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        hookPort: hookPort, webSocketPort: phonePort, advertisedHost: "127.0.0.1",
+        pairingSecretLoader: { Data(repeating: 14, count: 32) },
+        taskPersistence: TaskSnapshotPersistence(fileURL: directory.appendingPathComponent("tasks.json")),
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false,
+        usageLoader: { nil },
+        paseoIngress: PaseoIngressConfiguration(port: paseoPort, token: String(repeating: "a", count: 64))
+    ), glmCoordinatorFactory: { stateHandler in
+        GLMQuotaCoordinator(keyStore: IntegrationMemoryGLMKeyStore(),
+            quotaFetcher: IntegrationSequencedGLMFetcher(results: []),
+            scheduler: IntegrationNoopGLMScheduler(), onStateChange: stateHandler)
+    })
+    model.start()
+    try await waitForPaseoTestPort(phonePort)
+    try await waitForPaseoTestPort(paseoPort)
+    let client = LocalWebSocketClient(port: phonePort)
+    defer { client.close(); model.stop() }
+    _ = try await nextSnapshot(from: client) { $0.tasks.isEmpty }
+    let payload: [String: Any] = [
+        "token": String(repeating: "a", count: 64), "hostID": "host-a",
+        "agentID": "agent-a", "provider": "omp", "projectName": "AgentPager",
+        "titleCategory": "development", "status": "idle", "archived": false,
+    ]
+    var unauthorized = payload
+    unauthorized["token"] = "wrong-token"
+    unauthorized["agentID"] = "unauthorized"
+    #expect(try await paseoExchange(JSONSerialization.data(withJSONObject: unauthorized) + Data([10]), port: paseoPort) == "")
+    let line = try JSONSerialization.data(withJSONObject: payload) + Data([10])
+    let reply = try await paseoExchange(line, port: paseoPort)
+    #expect(reply == "ok")
+    let snapshot = try await nextSnapshot(from: client) { !$0.tasks.isEmpty }
+    let task = try #require(snapshot.tasks.first)
+    #expect(task.source.rawValue == "omp")
+    #expect(task.lifecycle == .idle)
+    #expect(task.completedAt == nil)
+    #expect(task.capabilities.isEmpty)
+    #expect(task.title == "AgentPager · 开发请求")
+    #expect(snapshot.pendingRequests.isEmpty)
+
+    let fixtureURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("integrations/paseo-omp/test/discovery-fixture.mjs")
+    let result = try await Task.detached {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["node", fixtureURL.path, String(paseoPort), String(repeating: "a", count: 64)]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }.value
+    #expect(result == 0)
+    let discovered = try await nextSnapshot(from: client) { $0.tasks.count == 4 }
+    #expect(Set(discovered.tasks.map(\.id)).count == 4)
+    #expect(discovered.tasks.allSatisfy { $0.source == .omp && $0.lifecycle == .idle })
+    #expect(discovered.tasks.filter { $0.projectName == "AgentPager" }.count == 3)
+    #expect(discovered.tasks.filter { $0.projectName == "ProjectB" }.count == 1)
+    // Repeated messages do not alter existing identity or timestamps.
+    #expect(try await paseoExchange(line, port: paseoPort) == "ok")
+    var otherHost = payload
+    otherHost["hostID"] = "host-b"
+    #expect(try await paseoExchange(JSONSerialization.data(withJSONObject: otherHost) + Data([10]), port: paseoPort) == "ok")
+    let multiHost = try await nextSnapshot(from: client) { $0.tasks.count == 5 }
+    #expect(multiHost.tasks.first { $0.id == task.id } == task)
+    #expect(Set(multiHost.tasks.map(\.id)).count == 5)
+    let phoneText = try protocolText(multiHost)
+    let persisted = try String(contentsOf: directory.appendingPathComponent("tasks.json"), encoding: .utf8)
+    for sensitive in ["sensitive-parent", "secret-prompt-value", "fixture-host", String(repeating: "a", count: 64)] {
+        #expect(!phoneText.contains(sensitive))
+        #expect(!persisted.contains(sensitive))
+        #expect(!model.recentEvents.joined().contains(sensitive))
+    }
+}
+
+private func paseoExchange(_ line: Data, port: UInt16) async throws -> String {
+    try await withTimeout {
+        try await withCheckedThrowingContinuation { continuation in
+            let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+            let gate = TimeoutContinuationGate<String>(continuation)
+            connection.stateUpdateHandler = { state in
+                if case .ready = state {
+                    connection.send(content: line, completion: .contentProcessed { error in
+                        if let error { gate.resume(throwing: error); connection.cancel(); return }
+                        connection.receive(minimumIncompleteLength: 1, maximumLength: 32) { data, _, _, error in
+                            if let error { gate.resume(throwing: error) }
+                            else { gate.resume(returning: String(data: data ?? Data(), encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") }
+                            connection.cancel()
+                        }
+                    })
+                } else if case let .failed(error) = state { gate.resume(throwing: error); connection.cancel() }
+            }
+            connection.start(queue: DispatchQueue(label: "paseo-test"))
+        }
+    }
+}
+
+private func waitForPaseoTestPort(_ port: UInt16) async throws {
+    for _ in 0..<100 {
+        let ready = await withCheckedContinuation { continuation in
+            let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+            let queue = DispatchQueue(label: "paseo-readiness")
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready, .waiting, .failed:
+                    connection.stateUpdateHandler = nil
+                    connection.cancel()
+                    if case .ready = state { continuation.resume(returning: true) }
+                    else { continuation.resume(returning: false) }
+                default: break
+                }
+            }
+            connection.start(queue: queue)
+        }
+        if ready { return }
+        // Poll an observable listening condition, not a fixed delay used as acceptance evidence.
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    throw LocalBridgeEndToEndError.timedOut
+}
+
+private func paseoTestPorts() throws -> [UInt16] {
+    var descriptors: [Int32] = []
+    defer { descriptors.forEach { Darwin.close($0) } }
+    return try (0..<3).map { _ in
+        let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw LocalBridgeEndToEndError.temporaryPortUnavailable }
+        descriptors.append(descriptor)
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(descriptor, $0, length) }
+        }
+        guard bound == 0 else { throw LocalBridgeEndToEndError.temporaryPortUnavailable }
+        let named = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(descriptor, $0, &length) }
+        }
+        guard named == 0 else { throw LocalBridgeEndToEndError.temporaryPortUnavailable }
+        return UInt16(bigEndian: address.sin_port)
+    }
+}

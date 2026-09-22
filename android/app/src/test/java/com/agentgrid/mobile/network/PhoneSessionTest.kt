@@ -308,6 +308,20 @@ class PhoneSessionTest {
     }
 
     @Test
+    fun `omp 与未知来源共存时手机保留整份快照`() = runTest {
+        val fixture = connectedFixture()
+        fixture.transport.emit(TransportEvent.TextReceived(protocolFixture("paseo-omp-discovery.json")))
+        runCurrent()
+        val tasks = fixture.session.state.value.snapshot.tasks
+        assertEquals(listOf(AgentSource.OMP, AgentSource.UNKNOWN), tasks.map { it.source })
+        assertEquals(AgentLifecycle.IDLE, tasks.first().lifecycle)
+        assertEquals(null, tasks.first().completedAt)
+        assertTrue(tasks.first().capabilities.isEmpty())
+        assertEquals(null, fixture.session.state.value.problem)
+        fixture.close()
+    }
+
+    @Test
     fun `旧 Codex 快照缺少扩展字段时仍可接收`() = runTest {
         val fixture = connectedFixture()
 

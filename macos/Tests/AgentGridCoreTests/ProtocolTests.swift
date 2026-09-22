@@ -272,3 +272,13 @@ private func protocolFixture(named name: String) throws -> Data {
     }
     throw CocoaError(.fileNoSuchFile)
 }
+
+@Test("omp 与未知来源共存时整份共享快照仍可往返")
+func ompDiscoveryProtocolCompatibility() throws {
+    let envelope = try ProtocolCodec.decode(MessageEnvelope<StateSnapshotPayload>.self,
+        from: protocolFixture(named: "paseo-omp-discovery.json"))
+    #expect(envelope.payload.tasks.map(\.source) == [.omp, .unknown])
+    let roundTrip = try ProtocolCodec.decode(MessageEnvelope<StateSnapshotPayload>.self,
+        from: ProtocolCodec.encode(envelope))
+    #expect(roundTrip.payload.tasks == envelope.payload.tasks)
+}

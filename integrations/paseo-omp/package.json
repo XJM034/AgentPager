@@ -1,0 +1,12 @@
+{
+  "name": "agentpager-paseo-omp",
+  "private": true,
+  "type": "module",
+  "scripts": { "check": "tsc --noEmit" },
+  "devDependencies": {
+    "@getpaseo/client": "0.8.0",
+    "@getpaseo/plugin": "0.8.0",
+    "@types/node": "24.0.0",
+    "typescript": "5.9.3"
+  }
+}

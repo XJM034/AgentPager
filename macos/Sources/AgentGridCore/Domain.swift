@@ -5,6 +5,7 @@ public enum AgentSource: String, Codable, Sendable {
     case codexCLI
     case claudeCode
     case zcode
+    case omp
     case unknown
 
     public init(from decoder: Decoder) throws {

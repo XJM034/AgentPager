@@ -6,7 +6,13 @@ struct AgentPagerBridgeApp: App {
 
     init() {
         PixelFontRegistry.register()
-        let model = BridgeModel()
+        let model: BridgeModel
+        if ProcessInfo.processInfo.environment["AGENTPAGER_PASEO_DEVELOPMENT"] == "1" {
+            do { model = try PaseoDevelopment.model() }
+            catch { fatalError("Paseo development configuration is invalid") }
+        } else {
+            model = BridgeModel()
+        }
         _model = State(initialValue: model)
         model.start()
     }

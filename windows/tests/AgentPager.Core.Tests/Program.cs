@@ -17,9 +17,11 @@ internal static class Program
         Run("旧 Codex 快照缺少扩展字段时仍可解析", DecodesLegacyProtocolFixture, failures);
         Run("控制载荷兼容可选待审批请求标识", SupportsOptionalPendingRequestID, failures);
 
+        Run("omp 与未知来源快照可兼容往返", OmpDiscoveryCompatibility, failures);
+
         if (failures.Count == 0)
         {
-            Console.WriteLine("AgentPager.Core regression tests passed (6/6).");
+            Console.WriteLine("AgentPager.Core regression tests passed (7/7).");
             return 0;
         }
 
@@ -38,6 +40,22 @@ internal static class Program
         {
             failures.Add("FAIL: " + name + "\n" + error);
         }
+    }
+
+    private static void OmpDiscoveryCompatibility()
+    {
+        var envelope = Require(
+            JsonSerializer.Deserialize<MessageEnvelope<StateSnapshotPayload>>(
+                File.ReadAllText(ProtocolFixture("paseo-omp-discovery.json")), WireJson.Options),
+            "omp 协议样本解码失败");
+        Equal(AgentSource.Omp, envelope.Payload.Tasks.First().Source, "omp 来源");
+        Equal(AgentSource.Unknown, envelope.Payload.Tasks.Last().Source, "未知来源");
+        var forwarded = Require(
+            JsonSerializer.Deserialize<MessageEnvelope<StateSnapshotPayload>>(
+                JsonSerializer.Serialize(envelope, WireJson.Options), WireJson.Options),
+            "omp 往返失败");
+        Equal(AgentSource.Omp, forwarded.Payload.Tasks.First().Source, "往返后的 omp 来源");
+        Equal(2, forwarded.Payload.Tasks.Count, "整份快照保留");
     }
 
     private static void KeepsNewestSparkAcrossFiles()

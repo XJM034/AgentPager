@@ -15,6 +15,7 @@ enum class AgentSource(val wireName: String) {
     CODEX_CLI("codexCLI"),
     CLAUDE_CODE("claudeCode"),
     ZCODE("zcode"),
+    OMP("omp"),
     UNKNOWN("unknown"),
 }
 

@@ -176,3 +176,7 @@ GLM 钥匙串改动还有专门的验收边界：
 - 稳定、反复使用的 macOS 流程更新到本文。
 - 单次工具链版本、安装、故障、性能和验收证据写入 `docs/updates/YYYY-MM-DD-*.md`。
 - Package 结构、最低系统、Xcode/Swift 要求、Hook/协议、签名、公证、安装或验证流程变化时，重新运行 `$claude-agents-bootstrap`。
+
+## Paseo–omp 隔离开发
+
+#14 的官方插件与隔离 Bridge 启用、撤销、信任边界和自动化接缝见 [Paseo–omp 开发接入](paseo-omp-development.md)。开发模式通过进程环境显式启用，使用独立端口、临时配对和专属持久化，不扫描真实 Hook 或读取账号额度；不等于安装。正常 Bridge 未配置时不新增入口。

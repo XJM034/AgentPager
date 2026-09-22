@@ -90,6 +90,7 @@ enum GLMConnectionPresentation {
 }
 
 struct BridgeRuntimeConfiguration: Sendable {
+    var paseoIngress: PaseoIngressConfiguration?
     var hookPort: UInt16
     var webSocketPort: UInt16
     var advertisedHost: String
@@ -111,10 +112,12 @@ struct BridgeRuntimeConfiguration: Sendable {
         startsBackgroundMaintenance: Bool = true,
         zcodeDecisionTimeoutMilliseconds: Int =
             ZCodePermissionTiming.bridgeDecisionTimeoutMilliseconds,
-        usageLoader: (@Sendable () -> UsageSnapshot?)? = nil
+        usageLoader: (@Sendable () -> UsageSnapshot?)? = nil,
+        paseoIngress: PaseoIngressConfiguration? = PaseoIngressConfiguration.fromEnvironment()
     ) {
         precondition(hookPort != webSocketPort)
         precondition(zcodeDecisionTimeoutMilliseconds > 0)
+        self.paseoIngress = paseoIngress
         self.hookPort = hookPort
         self.webSocketPort = webSocketPort
         self.advertisedHost = advertisedHost
@@ -175,6 +178,7 @@ final class BridgeModel {
         }
     }
     private var rolloutObservation = CodexRolloutObservation()
+    private var paseoServer: PaseoIngressServer?
     private var hookServer: HookBridgeServer?
     private var webSocketServer: WebSocketServer?
     private var refreshTask: Task<Void, Never>?
@@ -266,6 +270,19 @@ final class BridgeModel {
             lastError = error.localizedDescription
         }
 
+        if let config = runtimeConfiguration.paseoIngress {
+            let server = PaseoIngressServer(configuration: config) { [weak self] discovery in
+                Task { @MainActor in
+                    guard let self, self.hasStarted else { return }
+                    if let commit = self.catalog.accept(.paseoDiscovery(discovery)) {
+                        self.applyCatalogCommit(commit)
+                    }
+                }
+            }
+            do { try server.start(); paseoServer = server }
+            catch { addEvent("Paseo 接入暂不可用") }
+        }
+
         if runtimeConfiguration.observesLocalEnvironment {
             refreshHookStatus()
             refreshClaudeHookStatus()
@@ -316,6 +333,8 @@ final class BridgeModel {
         usageLoadTask = nil
         usageRefreshTask = nil
         rolloutTask = nil
+        paseoServer?.stop()
+        paseoServer = nil
         hookServer?.stop()
         webSocketServer?.stop()
         hookServer = nil

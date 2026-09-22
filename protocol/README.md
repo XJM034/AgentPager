@@ -58,3 +58,14 @@ Windows 在本阶段只解析、序列化和转发这些字段，不安装 ZCode
 - `fixtures/task-snapshot-v2.json`：同时包含旧 `usage`、ZCode、多提供方额度和待审批请求标识的新快照。
 - `fixtures/task-snapshot-unknown.json`：未知来源、未知提供方、未知额度组和缺失可选字段的降级样本。
 - `fixtures/zcode-session-monitoring.json`：Issue #4 核心 Hook 事件归约后的 ZCode 非终态空闲快照；不含 prompt、命令、工具输入输出或真实本地路径。
+
+## Paseo–omp discovery (Issue #14)
+
+`tasks[].source = "omp"` identifies Oh My Pi managed by Paseo, regardless of model.
+IDs use `paseo:omp:` plus a SHA-256 digest of the length-prefixed host namespace and agent ID.
+A new idle session has no `completedAt`, completion flag, prompt or mobile approval capability.
+Titles use existing category-only summaries; project names contain only a bounded basename.
+No new required wire fields or protocol version changes are introduced. Unknown sources keep
+falling back to `unknown` without discarding the snapshot on macOS, Android and Windows.
+`fixtures/paseo-omp-discovery.json` exercises omp and an unknown source in one snapshot.
+Windows adds encoding/decoding only, not a Paseo collector.

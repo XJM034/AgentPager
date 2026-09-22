@@ -1728,6 +1728,7 @@ internal fun agentBadge(source: AgentSource): String = when (source) {
     AgentSource.CODEX_DESKTOP, AgentSource.CODEX_CLI -> "Codex"
     AgentSource.CLAUDE_CODE -> "Claude"
     AgentSource.ZCODE -> "ZCode"
+    AgentSource.OMP -> "omp"
     AgentSource.UNKNOWN -> "Agent"
 }
 
@@ -1742,6 +1743,7 @@ internal fun agentOriginLabel(source: AgentSource): String? = when (source) {
     AgentSource.CODEX_CLI -> "Terminal"
     AgentSource.CLAUDE_CODE -> "Claude Code"
     AgentSource.ZCODE -> null
+    AgentSource.OMP -> "Paseo"
     AgentSource.UNKNOWN -> "未知来源"
 }
 

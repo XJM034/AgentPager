@@ -97,6 +97,14 @@ public enum TaskCatalogInput: Sendable {
 }
 
 public struct TaskCatalog: Sendable {
+    private struct PaseoMembership: Sendable {
+        let id: String
+        let parts: Int
+        var nextPart: Int
+        var taskIDs: Set<String>
+    }
+    private var paseoMemberships: [String: PaseoMembership] = [:]
+    private var paseoHosts: [String: String] = [:]
     private var paseoLastSeen: [String: Date] = [:]
     private var paseoRevisions: [String: (connectionID: String, startedAt: Double, revision: UInt64)] = [:]
     private var store: TaskStore
@@ -163,7 +171,7 @@ public struct TaskCatalog: Sendable {
                 apply(signal)
             }
         case let .paseoDiscovery(discovery, receivedAt):
-            guard discovery.hasValidIdentity else { break }
+            guard discovery.hasValidHost else { break }
             if let connection = discovery.connectionID, let revision = discovery.revision {
                 let startedAt = discovery.connectionStartedAt ?? 0
                 if let previous = paseoRevisions[discovery.hostID] {
@@ -173,13 +181,45 @@ public struct TaskCatalog: Sendable {
                 guard paseoRevisions[discovery.hostID] != nil || paseoRevisions.count < 200 else { break }
                 paseoRevisions[discovery.hostID] = (connection, startedAt, revision)
             }
+            if let members = discovery.members {
+                guard let id = discovery.snapshotID, id.count <= 128,
+                      let part = discovery.snapshotPart, let parts = discovery.snapshotParts,
+                      (1...10).contains(parts), (0..<parts).contains(part), members.count <= 20,
+                      members.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 128 }) else { break }
+                if part == 0 {
+                    guard paseoMemberships.count < 200 || paseoMemberships[discovery.hostID] != nil else { break }
+                    paseoMemberships[discovery.hostID] = PaseoMembership(id: id, parts: parts, nextPart: 0, taskIDs: [])
+                }
+                guard var membership = paseoMemberships[discovery.hostID], membership.id == id,
+                      membership.parts == parts, membership.nextPart == part else { break }
+                membership.taskIDs.formUnion(members.map { discovery.taskID(for: $0) })
+                membership.nextPart += 1
+                paseoMemberships[discovery.hostID] = membership
+                if membership.nextPart == parts {
+                    // Restored omp records predate this process's ownership map. This
+                    // ingress serves one configured local Paseo; live other hosts stay isolated.
+                    for task in store.tasks where task.source == .omp &&
+                        (paseoHosts[task.id] == nil || paseoHosts[task.id] == discovery.hostID) &&
+                        !membership.taskIDs.contains(task.id) {
+                        store.remove(id: task.id)
+                        paseoLastSeen.removeValue(forKey: task.id)
+                        paseoHosts.removeValue(forKey: task.id)
+                    }
+                    paseoMemberships.removeValue(forKey: discovery.hostID)
+                }
+                break
+            }
+            guard discovery.hasValidIdentity else { break }
             if discovery.archived {
+                paseoMemberships[discovery.hostID]?.taskIDs.remove(discovery.taskID)
                 store.remove(id: discovery.taskID)
                 paseoLastSeen.removeValue(forKey: discovery.taskID)
                 break
             }
             if let discovered = discovery.task(now: receivedAt) {
                 paseoLastSeen[discovered.id] = receivedAt
+                paseoHosts[discovered.id] = discovery.hostID
+                paseoMemberships[discovery.hostID]?.taskIDs.insert(discovered.id)
                 if let original = store.tasks.first(where: { $0.id == discovered.id }) {
                     var existing = original
                     // Recovery is a current fact, not a new completion or a fresh timer.
@@ -253,6 +293,7 @@ public struct TaskCatalog: Sendable {
         }
         let retained = Set(store.tasks.map(\.id))
         paseoLastSeen = paseoLastSeen.filter { retained.contains($0.key) }
+        paseoHosts = paseoHosts.filter { retained.contains($0.key) }
         normalize(now: now)
 
         return commitIfChanged(

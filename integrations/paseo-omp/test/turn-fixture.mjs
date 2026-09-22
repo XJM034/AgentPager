@@ -18,12 +18,28 @@ const client = { agents: {
     subscribe: handler => { if (id === 'main') timeline = handler; return Object.assign(() => {}, {ready: Promise.resolve()}); },
   } }),
 } };
-const adapter = startDiscovery({ on: (name, fn) => hooks.set(name, fn) }, client,
+let adapter = startDiscovery({ on: (name, fn) => hooks.set(name, fn) }, client,
   {port: Number(process.argv[2]), token: process.argv[3], hostID: 'turn-test'}, Promise.resolve(), clock);
 await adapter.ready;
 console.log("ready");
 for await (const command of createInterface({input: process.stdin})) {
   if (command === 'sync') await tick?.();
+  if (command === 'outcome-race') {
+    let release;
+    const turnId = snapshot.activeTurn.turnId;
+    snapshot = {...snapshot, status: 'idle', activeTurn: null, updatedAt: '2026-09-22T08:00:05Z'};
+    hooks.get('agent.turn_ended')({agent: snapshot, turnId, outcome: {kind: 'completed'}},
+      {paseo: {agents: {ref: () => ({refresh: () => new Promise(resolve => { release = resolve; })})}}});
+    await tick();
+    release({agent: snapshot});
+  }
+  if (command === 'adapter-restart-empty') {
+    await adapter.close();
+    snapshot = {...snapshot, archivedAt: '2026-09-22T08:00:06Z'};
+    adapter = startDiscovery({on: (name, fn) => hooks.set(name, fn)}, client,
+      {port: Number(process.argv[2]), token: process.argv[3], hostID: 'turn-test'}, Promise.resolve(), clock);
+    await adapter.ready;
+  }
   if (command === 'busy-snapshot') {
     const list = client.agents.list;
     let release;
@@ -156,6 +172,7 @@ for await (const command of createInterface({input: process.stdin})) {
   if (command === 'complete') {
     snapshot = {...snapshot, status: 'idle', activeTurn: null, updatedAt: '2026-09-22T08:00:03.000Z'};
     update({kind: 'upsert', agent: snapshot, seq: 2, generation: 'connection-1'});
+    await tick();
     await hooks.get('agent.turn_ended')?.({agent: {...snapshot, parentAgentId: null}, turnId: 'round-1',
       outcome: {kind: 'completed'}, timeline: []}, {paseo: client});
   }

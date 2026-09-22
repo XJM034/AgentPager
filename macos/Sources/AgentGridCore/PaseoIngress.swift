@@ -41,6 +41,10 @@ public struct PaseoDiscovery: Decodable, Sendable {
     let revision: UInt64?
     let activity: AgentActivity?
     let baseline: Bool?
+    let members: [String]?
+    let snapshotID: String?
+    let snapshotPart: Int?
+    let snapshotParts: Int?
 
     var safeStep: String? {
         switch status {
@@ -53,13 +57,15 @@ public struct PaseoDiscovery: Decodable, Sendable {
     }
 
     public var taskID: String {
-        let identity = Data("\(hostID.utf8.count):\(hostID)\(agentID)".utf8)
-        return "paseo:omp:" + SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
+        taskID(for: agentID)
     }
 
-    var hasValidIdentity: Bool {
-        provider == "omp" && !hostID.isEmpty && hostID.utf8.count <= 128 &&
-            !agentID.isEmpty && agentID.utf8.count <= 128
+    var hasValidHost: Bool { provider == "omp" && !hostID.isEmpty && hostID.utf8.count <= 128 }
+    var hasValidIdentity: Bool { hasValidHost && !agentID.isEmpty && agentID.utf8.count <= 128 }
+
+    func taskID(for member: String) -> String {
+        let identity = Data("\(hostID.utf8.count):\(hostID)\(member)".utf8)
+        return "paseo:omp:" + SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
     }
 
     func task(now: Date) -> TaskSnapshot? {

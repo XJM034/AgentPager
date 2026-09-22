@@ -923,6 +923,11 @@ func paseoRecoveryReachesPhone() async throws {
     try input.fileHandleForWriting.write(contentsOf: Data("busy-snapshot\n".utf8))
     let busy = try await nextSnapshot(from: phone) { $0.tasks.count == 2 }
     #expect(busy.tasks.first { $0.id == identity }?.lifecycle == .running)
+    try input.fileHandleForWriting.write(contentsOf: Data("outcome-race\n".utf8))
+    let outcome = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .succeeded }
+    #expect(outcome.tasks.first?.completedAt != nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("adapter-restart-empty\n".utf8))
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
     if let capture = ProcessInfo.processInfo.environment["AGENTPAGER_CAPTURE_OMP_RECOVERY"] {
         try Data(protocolText([initial, imported, archived, recovered, idle, fast, generation, raced, reconnected]).utf8)
             .write(to: URL(fileURLWithPath: capture))

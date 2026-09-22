@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 /** @typedef {import('@getpaseo/client').PaseoAgent} PaseoAgent */
-/** @typedef {ReturnType<typeof summarize> & {connectionID: string, connectionStartedAt: number, revision: number, activity: string | null, baseline?: boolean}} Summary */
+/** @typedef {ReturnType<typeof summarize> & {connectionID: string, connectionStartedAt: number, revision: number, activity: string | null, baseline?: boolean, members?: string[], snapshotID?: string, snapshotPart?: number, snapshotParts?: number}} Summary */
 /** @typedef {{port: number, token: string, hostID: string}} IngressConfig */
 
 // Category-only titles mirror ZCodeEventReducer.safeTitle; never forward source text.
@@ -73,6 +73,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     else snapshotInvalid = true;
   }
   let needsSnapshot = false;
+  let hasSnapshot = false;
   let retryDelay = 1500;
   let stopped = false;
   const connectionID = randomUUID();
@@ -89,6 +90,8 @@ export function startDiscovery(server, client, config, connected = Promise.resol
    * pending: Map<string, string>, version: number, turnTimestamp: number, ended: boolean, awaitingOutcome: boolean, activity: string | null, seq: number,
    * unsubscribe?: import('@getpaseo/client').PaseoAgentTimelineSubscription}>} */
   const sessions = new Map();
+  /** @type {Map<string, number>} */
+  const pendingOutcomes = new Map();
   /** @type {Set<string>} */
   const retiredAgents = new Set();
   /** Release demand for sessions that leave the catalog; this does not synthesize outcomes.
@@ -125,9 +128,9 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     else { needsSnapshot = true; return; }
     if (!active) active = drain();
   }
-  /** @param {PaseoAgent} agent @param {boolean} baseline */
-  function publish(agent, baseline = false) {
-    if (stopped || (!baseline && retiredAgents.has(agent.id))) return;
+  /** @param {PaseoAgent} agent @param {boolean} baseline @param {boolean} recovering */
+  function publish(agent, baseline = false, recovering = false) {
+    if (stopped || (!baseline && retiredAgents.has(agent.id)) || (baseline && pendingOutcomes.has(agent.id))) return;
     if (baseline) retiredAgents.delete(agent.id);
     if (!baseline) markChanged(agent.id);
     if (agent.archivedAt || agent.status === 'closed') { retire(agent.id); return; }
@@ -177,7 +180,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
       // A recovered idle/error fact is not a replayable outcome.
       state.summary = {...summary, status: agent.status === 'idle' ? 'idle' : 'offline'};
       state.awaitingOutcome = false;
-      state.ended = !!state.turnID;
+      state.ended = state.ended || (!!state.turnID && recovering);
       state.activity = null;
       emit(agent.id, true);
       return;
@@ -296,6 +299,8 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     if (!isRoot(event.agent) || !event.turnId ||
         sessions.get(event.agent.id)?.turnID !== event.turnId ||
         sessions.get(event.agent.id)?.ended) return;
+    const id = event.agent.id;
+    pendingOutcomes.set(id, (pendingOutcomes.get(id) ?? 0) + 1);
     try {
       const result = await context.paseo.agents.ref(event.agent.id).refresh();
       if (!result?.agent || stopped) return;
@@ -311,6 +316,11 @@ export function startDiscovery(server, client, config, connected = Promise.resol
       state.activity = null;
       emit(event.agent.id);
     } catch { /* Never turn a missing or failed refresh into success. */ }
+    finally {
+      const remaining = (pendingOutcomes.get(id) ?? 1) - 1;
+      if (remaining) pendingOutcomes.set(id, remaining);
+      else pendingOutcomes.delete(id);
+    }
   });
   let catalogSequence = -1;
   let catalogGeneration = '';
@@ -322,6 +332,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
       retiredGenerations.add(catalogGeneration);
       if (retiredGenerations.size > 32) retiredGenerations.delete(retiredGenerations.values().next().value ?? '');
       catalogSequence = -1;
+      hasSnapshot = false;
       for (const state of sessions.values()) state.seq = -1;
     }
     if (update.generation) catalogGeneration = update.generation;
@@ -334,35 +345,53 @@ export function startDiscovery(server, client, config, connected = Promise.resol
   // The public API has no connection event subscription. One bounded catalog read
   // every 15 seconds also repairs missed hooks and late Bridge startup.
   async function reconcile() {
+    const recovering = needsSnapshot || !hasSnapshot;
     const changed = new Set();
     snapshotChanges = changed;
     snapshotInvalid = false;
     try {
-    /** @type {PaseoAgent[]} */
-    const agents = [];
-    /** @type {string | null | undefined} */
-    let cursor;
-    const cursors = new Set();
-    do {
-      const page = await client.agents.list({
-        timeout: 5000,
-        filter: { includeArchived: false },
-        page: { limit: 200, ...(cursor ? { cursor } : {}) },
-        ...(!cursor ? { subscribe: { subscriptionId: 'agentpager-omp-discovery' } } : {}),
-      });
+      /** @type {PaseoAgent[]} */
+      const agents = [];
+      /** @type {string | null | undefined} */
+      let cursor;
+      const cursors = new Set();
+      do {
+        const page = await client.agents.list({
+          timeout: 5000,
+          filter: { includeArchived: false },
+          page: { limit: 200, ...(cursor ? { cursor } : {}) },
+          ...(!cursor ? { subscribe: { subscriptionId: 'agentpager-omp-discovery' } } : {}),
+        });
+        if (stopped) return;
+        agents.push(...page.entries.map(entry => entry.agent).filter(agent => summarize(agent, config.hostID)).slice(0, 200 - agents.length));
+        cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor : null;
+        if (cursor && cursors.has(cursor)) throw new Error("repeated catalog cursor");
+        if (cursor) cursors.add(cursor);
+      } while (cursor && agents.length < 200 && cursors.size < 200 && !stopped);
       if (stopped) return;
-      agents.push(...page.entries.map(entry => entry.agent).filter(agent => summarize(agent, config.hostID)).slice(0, 200 - agents.length));
-      cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor : null;
-      if (cursor && cursors.has(cursor)) throw new Error("repeated catalog cursor");
-      if (cursor) cursors.add(cursor);
-    } while (cursor && agents.length < 200 && cursors.size < 200 && !stopped);
-    if (stopped) return;
-    if (snapshotInvalid) return;
-    const ids = new Set(agents.map(agent => agent.id));
-    if (!cursor) for (const id of sessions.keys()) if (!ids.has(id) && !changed.has(id)) retire(id);
-    needsSnapshot = false;
-    for (const agent of agents.slice(0, 200)) if (!changed.has(agent.id)) publish(agent, true);
-    await active;
+      if (snapshotInvalid) return;
+      const ids = new Set(agents.map(agent => agent.id));
+      if (!cursor) for (const id of sessions.keys()) if (!ids.has(id) && !changed.has(id)) retire(id);
+      needsSnapshot = false;
+      for (const agent of agents.slice(0, 200)) if (!changed.has(agent.id)) publish(agent, true, recovering);
+      await active;
+      if (!cursor && !needsSnapshot) {
+        // Commit a complete host membership in bounded, ordered chunks. This also
+        // removes stale Bridge records when the adapter itself has been restarted.
+        const ids = [...sessions.keys()];
+        const snapshotID = randomUUID();
+        const parts = Math.max(1, Math.ceil(ids.length / 20));
+        for (let part = 0; part < parts && !stopped; part++) {
+          queue.push({hostID: config.hostID, agentID: '', provider: 'omp', projectName: '',
+            titleCategory: '', status: 'snapshot', archived: false, activity: null,
+            connectionID, connectionStartedAt, revision: ++revision,
+            snapshotID, snapshotPart: part, snapshotParts: parts, members: ids.slice(part * 20, (part + 1) * 20)});
+          if (!active) active = drain();
+          await active;
+          if (needsSnapshot) break;
+        }
+      }
+      if (!needsSnapshot) hasSnapshot = true;
     } finally { snapshotChanges = undefined; }
   }
   async function tick() {

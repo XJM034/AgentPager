@@ -16,6 +16,40 @@ import org.junit.Test
 
 class OmpTaskPresentationTest {
     @Test
+    fun `真实 Bridge 请求与异常快照展示安全文案且沿用提醒静音`() {
+        val fixture = listOf(File("../../protocol/fixtures/paseo-omp-attention.json"),
+            File("../protocol/fixtures/paseo-omp-attention.json")).first { it.exists() }
+        val snapshots = Json { ignoreUnknownKeys = true }
+            .decodeFromString<List<StateSnapshotPayload>>(fixture.readText())
+        val tracker = TaskSoundTracker()
+        val expected = listOf(null, ArcadeSoundCue.TASK_ACKNOWLEDGE,
+            ArcadeSoundCue.INPUT_REQUIRED, ArcadeSoundCue.INPUT_REQUIRED, ArcadeSoundCue.INPUT_REQUIRED,
+            ArcadeSoundCue.TASK_ACKNOWLEDGE, ArcadeSoundCue.TASK_INTERRUPTED,
+            ArcadeSoundCue.TASK_ACKNOWLEDGE, ArcadeSoundCue.INPUT_REQUIRED, ArcadeSoundCue.TASK_INTERRUPTED)
+        val texts = mapOf(2 to "请回到 Paseo 处理工具审批", 3 to "请回到 Paseo 处理待确认事项",
+            6 to "本轮执行失败，请回到 Paseo 查看", 8 to "请回到 Paseo 处理待确认事项", 9 to "本轮已取消")
+        var projection: TaskDashboardProjection? = null
+        snapshots.forEachIndexed { index, snapshot ->
+            val task = snapshot.tasks.single()
+            assertTrue(task.capabilities.isEmpty())
+            projection = TaskDashboardProjector.project(snapshot, projection, task.updatedAt)
+            assertEquals(task.id, projection?.focusedTaskID)
+            assertEquals(expected[index], tracker.nextCue(projection!!.visibleTasks))
+            assertNull(tracker.nextCue(projection!!.visibleTasks))
+            texts[index]?.let { assertEquals(it, taskActivitySummary(task)) }
+        }
+        val muted = TaskSoundTracker()
+        val disabled = TaskSoundTracker()
+        snapshots.forEach {
+            assertNull(muted.nextCue(it.tasks.map { task -> task.copy(isMuted = true) }))
+            assertNull(disabled.nextCue(it.tasks, soundEnabled = false))
+        }
+        assertNull(disabled.nextCue(snapshots.last().tasks, soundEnabled = true))
+        assertNull(muted.nextCue(snapshots.last().tasks))
+        assertNull(TaskSoundTracker().nextCue(snapshots[2].tasks))
+    }
+
+    @Test
     fun `真实 Bridge 轮次快照复用焦点完成收起 提醒去重静音和亮度`() {
         // Captured by paseoTurnProgressReachesPhone through the actual phone WebSocket.
         val fixture = listOf(File("../../protocol/fixtures/paseo-omp-turns.json"),

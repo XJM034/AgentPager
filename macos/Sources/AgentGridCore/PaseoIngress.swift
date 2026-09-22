@@ -40,6 +40,16 @@ public struct PaseoDiscovery: Decodable, Sendable {
     let revision: UInt64?
     let activity: AgentActivity?
 
+    var safeStep: String? {
+        switch status {
+        case "failed": return "本轮执行失败，请回到 Paseo 查看"
+        case "canceled": return "本轮已取消"
+        case "waitingApproval": return "请回到 Paseo 处理工具审批"
+        case "waitingAnswer": return "请回到 Paseo 处理待确认事项"
+        default: return activity.flatMap { $0 == .thinking ? nil : ZCodeEventReducer.safeStep(for: $0) }
+        }
+    }
+
     public var taskID: String {
         let identity = Data("\(hostID.utf8.count):\(hostID)\(agentID)".utf8)
         return "paseo:omp:" + SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
@@ -55,6 +65,9 @@ public struct PaseoDiscovery: Decodable, Sendable {
         case "starting", "initializing": lifecycle = .starting
         case "running": lifecycle = .running
         case "succeeded": lifecycle = .succeeded
+        case "failed", "canceled": lifecycle = .interrupted
+        case "waitingApproval": lifecycle = .waitingApproval
+        case "waitingAnswer": lifecycle = .waitingAnswer
         default: lifecycle = .offline
         }
         let project = projectName.isEmpty || projectName.contains("/") || projectName.contains("\\")

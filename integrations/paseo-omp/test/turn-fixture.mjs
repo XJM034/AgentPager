@@ -24,6 +24,27 @@ for await (const command of createInterface({input: process.stdin})) {
     update({kind: 'upsert', agent: snapshot, seq: 1, generation: 'connection-1'});
     await hooks.get('agent.turn_started')?.({agent: {...snapshot, parentAgentId: null}, turnId: 'round-1'}, {paseo: client});
   }
+  if (command === 'approval') {
+    snapshot = {...snapshot, pendingPermissions: [{id: 'request-a', kind: 'tool', name: 'bash', title: 'secret-question', input: 'secret-tool'}], updatedAt: '2026-09-22T08:00:01.500Z'};
+    await hooks.get('agent.permission_requested')?.({agent: snapshot, request: snapshot.pendingPermissions[0]}, {paseo: client});
+  }
+  if (['question', 'resolve-a', 'resolve-b', 'stale-resolved', 'tool-c', 'resolve-c', 'plan', 'other', 'resolve-all'].includes(command)) {
+    const b = {id: 'request-b', kind: 'question', title: 'secret-question', input: {text: 'secret-tool'}};
+    if (command === 'question') snapshot = {...snapshot, pendingPermissions: [...snapshot.pendingPermissions, b]};
+    if (command.startsWith('resolve-')) snapshot = {...snapshot, pendingPermissions: snapshot.pendingPermissions.filter(r => r.id !== `request-${command.slice(8)}`)};
+    if (command === 'tool-c') snapshot = {...snapshot, pendingPermissions: [...snapshot.pendingPermissions, {id: 'request-c', kind: 'tool'}]};
+    if (command === 'plan' || command === 'other') snapshot = {...snapshot, pendingPermissions: [{id: `request-${command}`, kind: command, input: {text: 'secret-question'}}]};
+    if (command === 'resolve-all') snapshot = {...snapshot, pendingPermissions: []};
+    snapshot = {...snapshot, updatedAt: snapshot.activeTurn?.turnId === 'round-2' ? '2026-09-22T08:00:04.500Z' : '2026-09-22T08:00:02.000Z'};
+    await hooks.get(command === 'question' ? 'agent.permission_requested' : 'agent.permission_resolved')?.(
+      {agent: snapshot, request: b, requestId: command === 'resolve-b' ? b.id : 'request-a', resolution: {behavior: 'deny'}}, {paseo: client});
+  }
+  if (command === 'failed' || command === 'canceled') {
+    snapshot = {...snapshot, status: command === 'failed' ? 'error' : 'idle', activeTurn: null,
+      pendingPermissions: [], updatedAt: command === 'failed' ? '2026-09-22T08:00:03.000Z' : '2026-09-22T08:00:05.000Z'};
+    for (let i = 0; i < 2; i++) await hooks.get('agent.turn_ended')?.({agent: snapshot, turnId: command === 'failed' ? 'round-1' : 'round-2',
+      outcome: {kind: command, error: {message: 'secret-error'}, reason: 'secret-cancel'}}, {paseo: client});
+  }
   if (command === 'tool') {
     timeline?.({agentId: 'main', timestamp: '2026-09-22T08:00:02.000Z', seq: 1, epoch: 'timeline-1',
       event: {type: 'timeline', provider: 'omp', turnId: 'round-1', item: {

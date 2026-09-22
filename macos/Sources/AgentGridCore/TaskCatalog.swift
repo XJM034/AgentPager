@@ -173,10 +173,8 @@ public struct TaskCatalog: Sendable {
                     if discovery.revision != nil || existing.lifecycle == .starting {
                         existing.lifecycle = discovered.lifecycle
                         existing.activity = discovery.activity
-                        existing.latestStep = discovery.activity.flatMap {
-                            $0 == .thinking ? nil : ZCodeEventReducer.safeStep(for: $0)
-                        }
-                        if discovered.lifecycle == .succeeded {
+                        existing.latestStep = discovery.safeStep
+                        if discovered.lifecycle == .succeeded || discovered.lifecycle == .interrupted {
                             existing.completedAt = existing.completedAt ?? receivedAt
                             if existing.lifecycle != original.lifecycle {
                                 existing.isUnread = true
@@ -193,6 +191,7 @@ public struct TaskCatalog: Sendable {
                 } else {
                     var task = discovered
                     task.activity = discovery.activity
+                    task.latestStep = discovery.safeStep
                     store.upsert(task)
                 }
             }

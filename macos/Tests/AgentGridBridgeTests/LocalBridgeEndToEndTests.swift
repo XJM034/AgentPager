@@ -936,6 +936,103 @@ func paseoTurnProgressReachesPhone() async throws {
 
 }
 
+@Test("Paseo 原生请求经实际插件与 Bridge 到手机，保持只读")
+@MainActor
+func paseoAttentionReachesPhone() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let ports = try paseoTestPorts()
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        hookPort: ports[0], webSocketPort: ports[1], advertisedHost: "127.0.0.1",
+        pairingSecretLoader: { Data(repeating: 15, count: 32) },
+        taskPersistence: TaskSnapshotPersistence(fileURL: directory.appendingPathComponent("tasks.json")),
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, usageLoader: { nil },
+        paseoIngress: PaseoIngressConfiguration(port: ports[2], token: String(repeating: "b", count: 64))
+    ), glmCoordinatorFactory: { handler in
+        GLMQuotaCoordinator(keyStore: IntegrationMemoryGLMKeyStore(),
+            quotaFetcher: IntegrationSequencedGLMFetcher(results: []),
+            scheduler: IntegrationNoopGLMScheduler(), onStateChange: handler)
+    })
+    model.start()
+    try await waitForPaseoTestPort(ports[1])
+    try await waitForPaseoTestPort(ports[2])
+    let phone = LocalWebSocketClient(port: ports[1])
+    let process = Process()
+    let input = Pipe()
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("integrations/paseo-omp/test/turn-fixture.mjs")
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", fixture.path, String(ports[2]), String(repeating: "b", count: 64)]
+    process.standardInput = input
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    defer {
+        try? input.fileHandleForWriting.close()
+        if process.isRunning { process.terminate() }
+        phone.close()
+        model.stop()
+    }
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    try process.run()
+    let initial = try await nextSnapshot(from: phone) { $0.tasks.count == 1 }
+    let identity = try #require(initial.tasks.first?.id)
+    #expect(initial.tasks.first?.lifecycle == .idle)
+    try input.fileHandleForWriting.write(contentsOf: Data("start\n".utf8))
+    let running = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(running.tasks.count == 1)
+    #expect(running.tasks.first?.id == identity)
+    #expect(running.tasks.first?.activity == .thinking)
+    #expect(running.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("approval\n".utf8))
+    let waiting = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .waitingApproval }
+    #expect(waiting.tasks.first?.latestStep == "请回到 Paseo 处理工具审批")
+    #expect(waiting.tasks.first?.capabilities.isEmpty == true)
+    try input.fileHandleForWriting.write(contentsOf: Data("question\n".utf8))
+    let question = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .waitingAnswer }
+    #expect(question.tasks.first?.latestStep == "请回到 Paseo 处理待确认事项")
+    try input.fileHandleForWriting.write(contentsOf: Data("resolve-a\nstale-resolved\ntool-c\nresolve-b\n".utf8))
+    let stillWaiting = try await nextSnapshot(from: phone) { snapshot in
+        #expect(snapshot.tasks.first?.lifecycle != .running)
+        return snapshot.tasks.first?.lifecycle == .waitingApproval
+    }
+    try input.fileHandleForWriting.write(contentsOf: Data("stale-resolved\nresolve-c\n".utf8))
+    let resumed = try await nextSnapshot(from: phone) { snapshot in
+        #expect(snapshot.tasks.first?.lifecycle != .waitingAnswer)
+        return snapshot.tasks.first?.lifecycle == .running
+    }
+    #expect(resumed.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("failed\n".utf8))
+    let failed = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .interrupted }
+    #expect(failed.tasks.first?.latestStep == "本轮执行失败，请回到 Paseo 查看")
+    #expect(failed.tasks.first?.completedAt != nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("next\n".utf8))
+    let next = try await nextSnapshot(from: phone) { snapshot in
+        #expect(snapshot.tasks.first?.lifecycle != .offline)
+        return snapshot.tasks.first?.lifecycle == .running
+    }
+    try input.fileHandleForWriting.write(contentsOf: Data("plan\n".utf8))
+    let plan = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .waitingAnswer }
+    #expect(plan.tasks.first?.latestStep == "请回到 Paseo 处理待确认事项")
+    try input.fileHandleForWriting.write(contentsOf: Data("other\nstale-resolved\nresolve-all\ncanceled\n".utf8))
+    let canceled = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .interrupted }
+    #expect(canceled.tasks.first?.latestStep == "本轮已取消")
+    #expect(canceled.tasks.first?.completedAt != nil)
+    let snapshots = [initial, running, waiting, question, stillWaiting, resumed, failed, next, plan, canceled]
+    if let capture = ProcessInfo.processInfo.environment["AGENTPAGER_CAPTURE_OMP_ATTENTION"] {
+        try Data(protocolText(snapshots).utf8).write(to: URL(fileURLWithPath: capture))
+    }
+    for snapshot in snapshots {
+        #expect(snapshot.tasks.first?.id == identity)
+        #expect(snapshot.tasks.first?.capabilities.isEmpty == true)
+        let text = try protocolText(snapshot)
+        for secret in ["secret-", "request-a", "request-b", "round-1"] {
+            #expect(!text.contains(secret))
+            #expect(!model.recentEvents.joined().contains(secret))
+        }
+    }
+}
+
 private func paseoExchange(_ line: Data, port: UInt16) async throws -> String {
     try await withTimeout {
         try await withCheckedThrowingContinuation { continuation in

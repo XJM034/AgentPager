@@ -71,7 +71,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
   const sockets = new Set();
   /** @type {Map<string, {summary: NonNullable<ReturnType<typeof summarize>>, timestamp: number,
    * turnID: string | null, retiredTurns: Set<string>, retiredThrough: number,
-   * turnTimestamp: number, ended: boolean, activity: string | null, seq: number,
+   * pending: Map<string, string>, version: number, turnTimestamp: number, ended: boolean, activity: string | null, seq: number,
    * unsubscribe?: import('@getpaseo/client').PaseoAgentTimelineSubscription}>} */
   const sessions = new Map();
   /** Release demand for sessions that leave the catalog; this does not synthesize outcomes.
@@ -87,7 +87,10 @@ export function startDiscovery(server, client, config, connected = Promise.resol
   function emit(id) {
     const state = sessions.get(id);
     if (!state || stopped) return;
-    const summary = { ...state.summary, connectionID, revision: ++revision, activity: state.activity };
+    const waiting = !state.ended && state.pending.size ?
+      ([...state.pending.values()].every(kind => kind === 'tool') ? 'waitingApproval' : 'waitingAnswer') : null;
+    const summary = { ...state.summary, status: waiting ?? state.summary.status,
+      connectionID, revision: ++revision, activity: waiting ? null : state.activity };
     const last = queue.at(-1);
     // Coalesce content within one lifecycle only. Preserve completion followed immediately
     // by another round so the phone sees both transitions and its sound baseline advances.
@@ -108,7 +111,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     if (!state) {
       if (sessions.size >= 200) return;
       state = {summary, timestamp, turnID: null, retiredTurns: new Set(), retiredThrough: -1,
-        turnTimestamp: -1, ended: false, activity: null, seq: -1};
+        pending: new Map(), version: 0, turnTimestamp: -1, ended: false, activity: null, seq: -1};
       sessions.set(agent.id, state);
       const subscription = client.agents.ref(agent.id).timeline?.subscribe(event => activity(agent.id, event));
       state.unsubscribe = subscription;
@@ -133,13 +136,16 @@ export function startDiscovery(server, client, config, connected = Promise.resol
       state.ended = false;
       state.activity = 'thinking';
     }
+    state.version++;
+    state.pending = new Map((agent.pendingPermissions ?? []).filter(request => request.id)
+      .map(request => [request.id, request.kind]));
     state.timestamp = timestamp;
     // An idle catalog update alone is not proof of a successful turn. Keep the last
     // running state until the authoritative turn_ended callback validates its identity.
-    if (summary.status === 'idle' && state.turnID) {
+    if ((summary.status === 'idle' || agent.status === 'error') && state.turnID) {
       summary.status = state.summary.status;
     }
-    if (state.ended && turnID === state.turnID) return;
+    if (state.ended) return;
     state.summary = summary;
     if (summary.status === 'running' && !state.activity) state.activity = 'thinking';
     emit(agent.id);
@@ -198,19 +204,35 @@ export function startDiscovery(server, client, config, connected = Promise.resol
       if (result?.agent) publish(result.agent);
     } catch { /* Best effort within this connection; recovery belongs to #17. */ }
   });
+  // Refresh the entire authoritative set. A resolved ID must never clear other requests;
+  // delayed/duplicate callbacks carry no state of their own and cannot resurrect requests.
+  for (const name of /** @type {const} */ (['agent.permission_requested', 'agent.permission_resolved'])) {
+    server.on(name, async (event, context) => {
+      if (!isRoot(event.agent)) return;
+      const before = sessions.get(event.agent.id);
+      const version = before?.version;
+      try {
+        const result = await context.paseo.agents.ref(event.agent.id).refresh();
+        if (result?.agent && sessions.get(event.agent.id)?.version === version) publish(result.agent);
+      } catch { /* Keep the last known state; never infer approval from a failed read. */ }
+    });
+  }
   server.on('agent.turn_ended', async (event, context) => {
     if (!isRoot(event.agent) || !event.turnId ||
-        sessions.get(event.agent.id)?.turnID !== event.turnId) return;
+        sessions.get(event.agent.id)?.turnID !== event.turnId ||
+        sessions.get(event.agent.id)?.ended) return;
     try {
       const result = await context.paseo.agents.ref(event.agent.id).refresh();
       if (!result?.agent || stopped) return;
       publish(result.agent);
       const state = sessions.get(event.agent.id);
       if (!state || state.ended || state.turnID !== event.turnId ||
-          result.agent.status !== 'idle' || result.agent.activeTurn ||
+          !(result.agent.status === 'idle' || (event.outcome.kind === 'failed' && result.agent.status === 'error')) || result.agent.activeTurn ||
           (Date.parse(result.agent.updatedAt) || 0) < state.timestamp) return;
       state.ended = true;
-      state.summary.status = event.outcome.kind === 'completed' ? 'succeeded' : 'offline';
+      state.summary.status = event.outcome.kind === 'completed' ? 'succeeded' :
+        event.outcome.kind === 'failed' ? 'failed' : 'canceled';
+      state.pending.clear();
       state.activity = null;
       emit(event.agent.id);
     } catch { /* Never turn a missing or failed refresh into success. */ }

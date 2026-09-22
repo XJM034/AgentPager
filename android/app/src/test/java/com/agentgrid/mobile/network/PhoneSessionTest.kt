@@ -308,11 +308,11 @@ class PhoneSessionTest {
     }
 
     @Test
-    fun `实际 Bridge omp 轮次序列经手机连接接收且保持身份`() = runTest {
+    fun `实际 Bridge omp 轮次请求及异常序列经手机连接接收且保持身份`() = runTest {
         val fixture = connectedFixture()
-        val snapshots = json.decodeFromString<List<StateSnapshotPayload>>(
-            protocolFixture("paseo-omp-turns.json"),
-        )
+        val snapshots = listOf("paseo-omp-turns.json", "paseo-omp-attention.json").flatMap {
+            json.decodeFromString<List<StateSnapshotPayload>>(protocolFixture(it))
+        }
         snapshots.forEachIndexed { index, snapshot ->
             val envelope = StateEnvelope(version = 1, messageId = "omp-$index",
                 type = "state.snapshot", sentAt = snapshot.tasks.single().updatedAt, payload = snapshot)

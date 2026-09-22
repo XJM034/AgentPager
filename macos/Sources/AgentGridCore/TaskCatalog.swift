@@ -97,6 +97,7 @@ public enum TaskCatalogInput: Sendable {
 }
 
 public struct TaskCatalog: Sendable {
+    private var paseoRevisions: [String: (connectionID: String, revision: UInt64)] = [:]
     private var store: TaskStore
     private var requestsByID: [String: PendingRequest]
     private var mobileRequestIDs: Set<String>
@@ -161,17 +162,38 @@ public struct TaskCatalog: Sendable {
                 apply(signal)
             }
         case let .paseoDiscovery(discovery, receivedAt):
-            // Discovery never resets an existing round or user settings. The directory can
-            // report initializing before created finishes, so allow that startup to settle.
             if let discovered = discovery.task(now: receivedAt) {
-                if var existing = store.tasks.first(where: { $0.id == discovered.id }) {
-                    if existing.lifecycle == .starting, discovered.lifecycle != .starting {
+                if let connection = discovery.connectionID, let revision = discovery.revision {
+                    if let previous = paseoRevisions[discovered.id],
+                       previous.connectionID == connection, previous.revision >= revision { break }
+                    paseoRevisions[discovered.id] = (connection, revision)
+                }
+                if let original = store.tasks.first(where: { $0.id == discovered.id }) {
+                    var existing = original
+                    if discovery.revision != nil || existing.lifecycle == .starting {
                         existing.lifecycle = discovered.lifecycle
-                        existing.updatedAt = receivedAt
-                        store.upsert(existing)
+                        existing.activity = discovery.activity
+                        existing.latestStep = discovery.activity.flatMap {
+                            $0 == .thinking ? nil : ZCodeEventReducer.safeStep(for: $0)
+                        }
+                        if discovered.lifecycle == .succeeded {
+                            existing.completedAt = existing.completedAt ?? receivedAt
+                            if existing.lifecycle != original.lifecycle {
+                                existing.isUnread = true
+                            }
+                        } else {
+                            existing.completedAt = nil
+                            existing.isUnread = false
+                        }
+                        if existing != original {
+                            existing.updatedAt = receivedAt
+                            store.upsert(existing)
+                        }
                     }
                 } else {
-                    store.upsert(discovered)
+                    var task = discovered
+                    task.activity = discovery.activity
+                    store.upsert(task)
                 }
             }
         case let .synthetic(task):

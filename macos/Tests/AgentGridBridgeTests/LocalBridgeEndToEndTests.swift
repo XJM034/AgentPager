@@ -837,6 +837,105 @@ func paseoCreatedSessionReachesPhone() async throws {
     }
 }
 
+@MainActor
+@Test("omp 真实适配入口在同一卡片同步运行与思考")
+func paseoTurnProgressReachesPhone() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let ports = try paseoTestPorts()
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        hookPort: ports[0], webSocketPort: ports[1], advertisedHost: "127.0.0.1",
+        pairingSecretLoader: { Data(repeating: 15, count: 32) },
+        taskPersistence: TaskSnapshotPersistence(fileURL: directory.appendingPathComponent("tasks.json")),
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, usageLoader: { nil },
+        paseoIngress: PaseoIngressConfiguration(port: ports[2], token: String(repeating: "b", count: 64))
+    ), glmCoordinatorFactory: { handler in
+        GLMQuotaCoordinator(keyStore: IntegrationMemoryGLMKeyStore(),
+            quotaFetcher: IntegrationSequencedGLMFetcher(results: []),
+            scheduler: IntegrationNoopGLMScheduler(), onStateChange: handler)
+    })
+    model.start()
+    try await waitForPaseoTestPort(ports[1])
+    try await waitForPaseoTestPort(ports[2])
+    let phone = LocalWebSocketClient(port: ports[1])
+    let process = Process()
+    let input = Pipe()
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("integrations/paseo-omp/test/turn-fixture.mjs")
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", fixture.path, String(ports[2]), String(repeating: "b", count: 64)]
+    process.standardInput = input
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    defer {
+        try? input.fileHandleForWriting.close()
+        if process.isRunning { process.terminate() }
+        phone.close()
+        model.stop()
+    }
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    try process.run()
+    let initial = try await nextSnapshot(from: phone) { $0.tasks.count == 1 }
+    let identity = try #require(initial.tasks.first?.id)
+    #expect(initial.tasks.first?.lifecycle == .idle)
+    try input.fileHandleForWriting.write(contentsOf: Data("start\n".utf8))
+    let running = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(running.tasks.count == 1)
+    #expect(running.tasks.first?.id == identity)
+    #expect(running.tasks.first?.activity == .thinking)
+    #expect(running.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("tool\n".utf8))
+    let tool = try await nextSnapshot(from: phone) { $0.tasks.first?.activity == .reading }
+    #expect(tool.tasks.first?.latestStep == ZCodeEventReducer.safeStep(for: .reading))
+    #expect(tool.tasks.first?.lifecycle == .running)
+    try input.fileHandleForWriting.write(contentsOf: Data("complete\n".utf8))
+    let completed = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .succeeded }
+    #expect(completed.tasks.first?.completedAt != nil)
+    #expect(completed.tasks.first?.id == identity)
+    try input.fileHandleForWriting.write(contentsOf: Data("next\n".utf8))
+    let next = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(next.tasks.count == 1)
+    #expect(next.tasks.first?.id == identity)
+    #expect(next.tasks.first?.activity == .thinking)
+    #expect(next.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("hazards\n".utf8))
+    let safe = try await nextSnapshot(from: phone) { snapshot in
+        #expect(snapshot.tasks.filter { $0.id == identity }.allSatisfy { $0.lifecycle == .running })
+        return snapshot.tasks.first?.activity == .editing
+    }
+    #expect(safe.tasks.count == 1)
+    #expect(safe.tasks.first?.id == identity)
+    #expect(safe.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("burst\n".utf8))
+    let secondCompletion = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .succeeded }
+    #expect(secondCompletion.tasks.first?.id == identity)
+    let immediateNext = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(immediateNext.tasks.first?.id == identity)
+    try input.fileHandleForWriting.write(contentsOf: Data("equal-time-old-round\n".utf8))
+    let protected = try await nextSnapshot(from: phone) { snapshot in
+        #expect(snapshot.tasks.count == 1)
+        #expect(snapshot.tasks.first?.lifecycle == .running)
+        return snapshot.tasks.first?.activity == .reading
+    }
+    #expect(protected.tasks.first?.id == identity)
+    try input.fileHandleForWriting.write(contentsOf: Data("churn\n".utf8))
+    let fresh = try await nextSnapshot(from: phone) { $0.tasks.contains { $0.projectName == "Fresh" } }
+    #expect(fresh.tasks.contains { $0.projectName == "Fresh" && $0.lifecycle == .idle })
+    let snapshots = [initial, running, tool, completed, next, safe]
+    if let capture = ProcessInfo.processInfo.environment["AGENTPAGER_CAPTURE_OMP_TURNS"] {
+        try Data(protocolText(snapshots).utf8).write(to: URL(fileURLWithPath: capture))
+    }
+    for snapshot in snapshots {
+        let text = try protocolText(snapshot)
+        for secret in ["secret-prompt", "secret-path", "secret-tool", "round-1"] {
+            #expect(!text.contains(secret))
+            #expect(!model.recentEvents.joined().contains(secret))
+        }
+    }
+
+}
+
 private func paseoExchange(_ line: Data, port: UInt16) async throws -> String {
     try await withTimeout {
         try await withCheckedThrowingContinuation { continuation in

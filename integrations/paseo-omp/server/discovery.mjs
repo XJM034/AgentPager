@@ -1,13 +1,16 @@
 import net from 'node:net';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 /** @typedef {import('@getpaseo/client').PaseoAgent} PaseoAgent */
+/** @typedef {ReturnType<typeof summarize> & {connectionID: string, revision: number, activity: string | null}} Summary */
 /** @typedef {{port: number, token: string, hostID: string}} IngressConfig */
 
 // Category-only titles mirror ZCodeEventReducer.safeTitle; never forward source text.
 /** @param {PaseoAgent} agent @param {string} hostID */
 function summarize(agent, hostID) {
-  if (agent?.provider !== 'omp' || agent.archivedAt || agent.status === 'closed' ||
+  if (agent?.provider !== 'omp' || agent.labels?.['paseo.parent-agent-id']?.trim() ||
+      agent.archivedAt || agent.status === 'closed' ||
       typeof agent.id !== 'string' || !agent.id || agent.id.length > 128) return null;
   const cwd = typeof agent.cwd === 'string' ? path.normalize(agent.cwd) : '';
   const home = /^\/Users\/[^/]+\/?$/.test(cwd);
@@ -32,7 +35,7 @@ function summarize(agent, hostID) {
 
 /**
  * @param {IngressConfig} config
- * @param {NonNullable<ReturnType<typeof summarize>>} summary
+ * @param {NonNullable<Summary>} summary
  * @param {Set<import('node:net').Socket>} sockets
  * @returns {Promise<void>}
  */
@@ -50,7 +53,7 @@ function send(config, summary, sockets) {
   });
 }
 
-/** Official lifecycle callbacks plus public SDK catalog. Discovery only; no round controls.
+/** Official lifecycle callbacks plus public SDK catalog and live timeline. No model or control calls.
  * @param {import('@getpaseo/plugin/server').PluginServerContext} server
  * @param {import('@getpaseo/client').PaseoApi} client
  * @param {IngressConfig} config
@@ -58,41 +61,171 @@ function send(config, summary, sockets) {
  */
 export function startDiscovery(server, client, config, connected = Promise.resolve()) {
   let stopped = false;
+  const connectionID = randomUUID();
+  let revision = 0;
   /** @type {Promise<void> | undefined} */
   let active;
-  /** @type {Map<string, NonNullable<ReturnType<typeof summarize>>>} */
-  const queue = new Map();
+  /** @type {NonNullable<Summary>[]} */
+  const queue = [];
   /** @type {Set<import("node:net").Socket>} */
   const sockets = new Set();
+  /** @type {Map<string, {summary: NonNullable<ReturnType<typeof summarize>>, timestamp: number,
+   * turnID: string | null, retiredTurns: Set<string>, retiredThrough: number,
+   * turnTimestamp: number, ended: boolean, activity: string | null, seq: number,
+   * unsubscribe?: import('@getpaseo/client').PaseoAgentTimelineSubscription}>} */
+  const sessions = new Map();
+  /** Release demand for sessions that leave the catalog; this does not synthesize outcomes.
+   * @param {string} id */
+  function retire(id) {
+    sessions.get(id)?.unsubscribe?.();
+    sessions.delete(id);
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (queue[i].agentID === id) queue.splice(i, 1);
+    }
+  }
+  /** @param {string} id */
+  function emit(id) {
+    const state = sessions.get(id);
+    if (!state || stopped) return;
+    const summary = { ...state.summary, connectionID, revision: ++revision, activity: state.activity };
+    const last = queue.at(-1);
+    // Coalesce content within one lifecycle only. Preserve completion followed immediately
+    // by another round so the phone sees both transitions and its sound baseline advances.
+    if (last?.agentID === id && last.status === summary.status) queue[queue.length - 1] = summary;
+    else if (queue.length < 200) queue.push(summary);
+    else return;
+    if (!active) active = drain();
+  }
   /** @param {PaseoAgent} agent */
   function publish(agent) {
     if (stopped) return;
+    if (agent.archivedAt || agent.status === 'closed') { retire(agent.id); return; }
     const summary = summarize(agent, config.hostID);
     if (!summary) return;
-    if (queue.size >= 200 && !queue.has(summary.agentID)) return;
-    queue.set(summary.agentID, summary);
-    if (!active) active = drain();
+    const timestamp = Date.parse(agent.updatedAt) || 0;
+    let state = sessions.get(agent.id);
+    if (state && timestamp < state.timestamp) return;
+    if (!state) {
+      if (sessions.size >= 200) return;
+      state = {summary, timestamp, turnID: null, retiredTurns: new Set(), retiredThrough: -1,
+        turnTimestamp: -1, ended: false, activity: null, seq: -1};
+      sessions.set(agent.id, state);
+      const subscription = client.agents.ref(agent.id).timeline?.subscribe(event => activity(agent.id, event));
+      state.unsubscribe = subscription;
+      subscription?.ready.catch(() => { /* Discovery remains available if activity demand fails. */ });
+    }
+    const turnID = agent.activeTurn?.turnId;
+    if (turnID && turnID !== state.turnID) {
+      const turnTimestamp = Date.parse(agent.activeTurn?.startedAt ?? '') || timestamp;
+      if (state.retiredTurns.has(turnID) || turnTimestamp < state.turnTimestamp ||
+          timestamp <= state.retiredThrough) return;
+      if (state.turnID) {
+        state.retiredTurns.add(state.turnID);
+        // Keep recent identity ties and a conservative timestamp floor for older history.
+        if (state.retiredTurns.size > 64) {
+          state.retiredThrough = state.timestamp;
+          const oldest = state.retiredTurns.values().next().value;
+          if (oldest) state.retiredTurns.delete(oldest);
+        }
+      }
+      state.turnTimestamp = turnTimestamp;
+      state.turnID = turnID;
+      state.ended = false;
+      state.activity = 'thinking';
+    }
+    state.timestamp = timestamp;
+    // An idle catalog update alone is not proof of a successful turn. Keep the last
+    // running state until the authoritative turn_ended callback validates its identity.
+    if (summary.status === 'idle' && state.turnID) {
+      summary.status = state.summary.status;
+    }
+    if (state.ended && turnID === state.turnID) return;
+    state.summary = summary;
+    if (summary.status === 'running' && !state.activity) state.activity = 'thinking';
+    emit(agent.id);
+  }
+  /** @param {string} id @param {import('@getpaseo/client').PaseoAgentTimelineEvent} message */
+  function activity(id, message) {
+    const state = sessions.get(id);
+    const event = message.event;
+    if (!state || state.ended || state.summary.status !== 'running' ||
+        event.type !== 'timeline' || !event.turnId || event.turnId !== state.turnID) return;
+    const seq = 'seq' in message ? message.seq : undefined;
+    if (seq != null && seq <= state.seq) return;
+    if (seq != null) state.seq = seq;
+    const item = event.item;
+    if (item.type === 'reasoning' || item.type === 'assistant_message') state.activity = 'thinking';
+    else if (item.type === 'tool_call') {
+      // Only the tool name is classified; arguments, results, errors and labels never leave here.
+      const name = item.name.toLowerCase();
+      state.activity = item.status === 'running' ?
+        (/read|view|list/.test(name) ? 'reading' : /edit|write|patch/.test(name) ? 'editing' :
+          /search|grep|find/.test(name) ? 'searching' : /agent|task|thread/.test(name) ? 'delegating' :
+          /test|gradle|xcode/.test(name) ? 'testing' : /web|browser/.test(name) ? 'browsing' : 'executing') : 'thinking';
+    } else return;
+    emit(id);
   }
   async function drain() {
-    while (!stopped && queue.size) {
-      const entry = queue.entries().next().value;
-      if (!entry) break;
-      const [id, summary] = entry;
-      queue.delete(id);
+    while (!stopped && queue.length) {
+      const summary = queue.shift();
+      if (!summary) break;
       await send(config, summary, sockets);
     }
     active = undefined;
   }
-  // Register before fetching so creations during the initial list are not lost.
+  /** @param {import('@getpaseo/plugin/server').PluginHookAgent} agent */
+  function isRoot(agent) {
+    if (stopped || agent.provider !== 'omp') return false;
+    if (agent.parentAgentId) {
+      retire(agent.id);
+      return false;
+    }
+    return true;
+  }
+
+  // Register synchronously before fetching, as required by the official plugin runtime.
   server.on('agent.created', async (event, context) => {
-    if (stopped || event.agent.provider !== 'omp' || event.agent.parentAgentId) return;
+    if (!isRoot(event.agent)) return;
     try {
       const result = await context.paseo.agents.ref(event.agent.id).refresh();
-      if (!stopped && result?.agent) publish(result.agent);
+      if (result?.agent) publish(result.agent);
     } catch { /* Monitoring must not fail a Paseo lifecycle callback. */ }
   });
+  server.on('agent.turn_started', async (event, context) => {
+    if (!isRoot(event.agent)) return;
+    try {
+      const result = await context.paseo.agents.ref(event.agent.id).refresh();
+      if (result?.agent) publish(result.agent);
+    } catch { /* Best effort within this connection; recovery belongs to #17. */ }
+  });
+  server.on('agent.turn_ended', async (event, context) => {
+    if (!isRoot(event.agent) || !event.turnId ||
+        sessions.get(event.agent.id)?.turnID !== event.turnId) return;
+    try {
+      const result = await context.paseo.agents.ref(event.agent.id).refresh();
+      if (!result?.agent || stopped) return;
+      publish(result.agent);
+      const state = sessions.get(event.agent.id);
+      if (!state || state.ended || state.turnID !== event.turnId ||
+          result.agent.status !== 'idle' || result.agent.activeTurn ||
+          (Date.parse(result.agent.updatedAt) || 0) < state.timestamp) return;
+      state.ended = true;
+      state.summary.status = event.outcome.kind === 'completed' ? 'succeeded' : 'offline';
+      state.activity = null;
+      emit(event.agent.id);
+    } catch { /* Never turn a missing or failed refresh into success. */ }
+  });
+  let catalogSequence = -1;
+  let catalogGeneration = '';
   const unsubscribe = client.agents.subscribe((update) => {
-    if (update.kind === 'upsert') publish(update.agent);
+    if (update.generation && catalogGeneration && update.generation !== catalogGeneration) return;
+    if (update.generation) catalogGeneration = update.generation;
+    if (update.seq != null && update.seq <= catalogSequence) return;
+    if (update.seq != null) catalogSequence = update.seq;
+    // New live identities are admitted by agent.created, which supplies parentAgentId.
+    // Initial snapshots use the public parent label; live creation also verifies the hook parent.
+    if (update.kind === 'remove') retire(update.agentId);
+    else if (sessions.has(update.agent.id)) publish(update.agent);
   });
   const ready = (async () => {
     await connected;
@@ -109,7 +242,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
       for (const entry of page.entries) {
         publish(entry.agent);
         // Backpressure for initial pages, without retaining raw upstream snapshots in a queue.
-        if (queue.size >= 100) await active;
+        if (queue.length >= 100) await active;
       }
       cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor : null;
     } while (cursor && !stopped);
@@ -121,7 +254,9 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     async close() {
       stopped = true;
       unsubscribe();
-      queue.clear();
+      queue.length = 0;
+      for (const state of sessions.values()) state.unsubscribe?.();
+      sessions.clear();
       for (const socket of sockets) socket.destroy();
       await active;
     },

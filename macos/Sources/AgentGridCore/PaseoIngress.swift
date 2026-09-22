@@ -36,6 +36,9 @@ public struct PaseoDiscovery: Decodable, Sendable {
     let titleCategory: String
     let status: String
     let archived: Bool
+    let connectionID: String?
+    let revision: UInt64?
+    let activity: AgentActivity?
 
     public var taskID: String {
         let identity = Data("\(hostID.utf8.count):\(hostID)\(agentID)".utf8)
@@ -51,6 +54,7 @@ public struct PaseoDiscovery: Decodable, Sendable {
         case "idle": lifecycle = .idle
         case "starting", "initializing": lifecycle = .starting
         case "running": lifecycle = .running
+        case "succeeded": lifecycle = .succeeded
         default: lifecycle = .offline
         }
         let project = projectName.isEmpty || projectName.contains("/") || projectName.contains("\\")

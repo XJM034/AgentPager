@@ -1,13 +1,15 @@
-# Paseo–omp 开发接入（#14）
+# Paseo–omp 开发接入
 
-当前阶段：已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的轮次进度、异常、全面重连和正式安装管理分别留给 #15–#18。
+当前阶段：#14 已完成真实隔离验收；#15 运行/工具活动/正常完成/下一轮的代码与自动化已完成，真实 Paseo 模型调用及 Android 现场验收尚待本 Session 授权，不能据此认定 #15 完成。详见 [#15 阶段记录](updates/2026-09-22-paseo-omp-turn-progress.md)。
+
+#14 已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的异常、全面重连和正式安装管理仍分别由 #16–#18 交付。
 
 ## 行为与边界
 
-- 仅导入 Paseo provider 为 `omp` 的有效会话。排除归档、closed 历史和其他 provider；创建回调排除带 parentAgentId 的子会话事件（SDK 目录快照不提供此字段）；不扫描独立终端 omp。
+- 仅导入 Paseo provider 为 `omp` 的有效会话。排除归档、closed 历史和其他 provider；创建回调按 parentAgentId、目录/刷新快照按公开 labels 中的 `paseo.parent-agent-id` 排除子会话；不扫描独立终端 omp。
 - 插件同步注册 `agent.created`，通过回调的公开 `agents.ref(id).refresh()` 读取权威状态；独立的公开 SDK 连接负责初始分页清单与目录订阅。只用 `@getpaseo/client` 根入口，不读取私有存储、不接管 omp stdin。
 - `Paseo 主机命名空间 + agent ID` 生成不可逆任务 ID；模型、标题、目录不参与身份。命名空间在本地配置生成一次，后续保持不变。
-- 新会话沿用 idle / starting / running 语义，不造 completedAt、完成标记或手机审批能力。#14 只发现会话，不连续映射工作轮次；启动阶段允许从 initializing 收敛到创建后的状态；除此之外重复发现不会重置既有卡片、时间、静音和置顶。
+- 新会话沿用 idle / starting / running 语义。#15 在公开 activeTurn 和 timeline 基础上同步活动；同轮 turn_ended 为 completed 且权威刷新为 idle、无 activeTurn 时才显示 succeeded / completedAt。下一轮清除完成标记，保持身份、静音和置顶。目录空闲或单工具结束均不独立判为完成，不提供手机审批能力。
 - 项目仅保留最多 48 字符的目录末级名，用户主目录回退为 omp。标题先在插件内映射为有限类别，Bridge 再复用 ZCode 安全标题策略。原始标题、提示词、完整路径、命令、工具内容、模型凭据均不发送。
 - Swift、Android、Windows 增加 `omp` 来源；未知来源回退仍保留整份快照。Windows 仅编解码，不采集。
 - 首次手机快照沿用提醒基线；空闲会话保持可见，不转换为 ZCode 的“本轮完成”。本票不新增声音设置。
@@ -65,6 +67,8 @@ swift test --package-path macos
 cd android
 JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
+
+Swift 的 `paseoTurnProgressReachesPhone` 进一步覆盖 #15 的轮次全链路、工具失败仍运行、重复/乱序/同毫秒旧轮保护、初始及新建子会话过滤、快速连续轮次、订阅回收及安全摘要；Android 接收其实际手机快照验证呈现、声音、静音和亮度策略。
 
 Swift 的 `paseoCreatedSessionReachesPhone` 用受控公开 SDK/生命周期输入运行**实际 JS 适配器、TCP 认证入口、Bridge、任务目录及手机 WebSocket**，不读取真实账号 Key。覆盖初始分页、创建、重复、并发、主机隔离、排除其他来源和历史、认证拒绝及手机/持久化/诊断脱敏。Android 覆盖 PhoneSession 快照接收、看板可见性、标签、未知来源和声音基线。共享 fixture 同时用于三端协议测试。C# 测试需要 .NET SDK；未安装时须明确报告未执行。
 

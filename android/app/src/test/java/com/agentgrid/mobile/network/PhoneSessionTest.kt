@@ -308,6 +308,23 @@ class PhoneSessionTest {
     }
 
     @Test
+    fun `实际 Bridge omp 轮次序列经手机连接接收且保持身份`() = runTest {
+        val fixture = connectedFixture()
+        val snapshots = json.decodeFromString<List<StateSnapshotPayload>>(
+            protocolFixture("paseo-omp-turns.json"),
+        )
+        snapshots.forEachIndexed { index, snapshot ->
+            val envelope = StateEnvelope(version = 1, messageId = "omp-$index",
+                type = "state.snapshot", sentAt = snapshot.tasks.single().updatedAt, payload = snapshot)
+            fixture.transport.emit(TransportEvent.TextReceived(json.encodeToString(envelope)))
+            runCurrent()
+            assertEquals(snapshot, fixture.session.state.value.snapshot)
+            assertEquals(null, fixture.session.state.value.problem)
+        }
+        fixture.close()
+    }
+
+    @Test
     fun `omp 与未知来源共存时手机保留整份快照`() = runTest {
         val fixture = connectedFixture()
         fixture.transport.emit(TransportEvent.TextReceived(protocolFixture("paseo-omp-discovery.json")))

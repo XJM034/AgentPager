@@ -1,6 +1,6 @@
 # Paseo–omp 开发接入（#14）
 
-当前阶段：已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。此页不代表已安装插件、已替换 Bridge 或已通过 Redmi 验收。父规格 #13 的轮次进度、异常、全面重连和正式安装管理分别留给 #15–#18。
+当前阶段：已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的轮次进度、异常、全面重连和正式安装管理分别留给 #15–#18。
 
 ## 行为与边界
 
@@ -20,7 +20,7 @@ Paseo 插件本身属于官方定义的“可信、无沙箱”代码。插件�
 
 ## 可重复开发启用
 
-以下是待授权现场操作步骤，本票执行时没有安装或重启真实 Paseo、Bridge、Android，也没有发起模型调用。已核对本机 Paseo CLI 0.8.0、omp 18.2.8；源码和 npm SDK 锁定 0.8.0。
+以下步骤用于明确目标后的开发接入。#14 已在临时目录和独立端口启动真实 Paseo daemon/Bridge、安装插件，并在保留备份后临时升级 Android 模拟器，验收后恢复；日常 daemon、/Applications 和 Redmi 未改动，也没有发送模型消息。已核对 Paseo CLI 0.8.0、omp 18.2.8；源码和 npm SDK 锁定 0.8.0。
 
 1. 核实目标 Paseo daemon 的本机 WebSocket 地址、已有插件与配置。保留其现有配置备份；不更改 Full Access / Key / 其他插件。地址以目标 daemon 为准，不盲用默认值。
 2. 在新的私有目录准备配置。例如默认插件路径：
@@ -47,8 +47,10 @@ Paseo 插件本身属于官方定义的“可信、无沙箱”代码。插件�
    paseo plugin ls agentpager-omp --host localhost:6767
    ```
 
+   **必须同时满足 daemon 全局 `pluginsEnabled=true`、本插件 enabled 和 omp provider enabled**。新建隔离 daemon 默认可能关闭前两类功能；`plugin install` 返回 enabled 不等于已运行，必须检查 `plugin ls` 的 `status=running`。可通过官方 SDK 的 `client.config.patch({pluginsEnabled: true, providers: {omp: {enabled: true}}})` 配置已核对的隔离目标；不要顺手更改日常 daemon。
+
    插件默认读取 `~/.config/agentpager/paseo-development.json`。`AGENTPAGER_PASEO_CONFIG` 仅在它已存在于目标 daemon 环境时覆盖路径，给安装 CLI 临时设置环境变量不会改变既有 daemon 的环境。不要为改变路径擅自重启 daemon。
-5. Android 使用本票 Debug 构建，包名 `com.agentgrid.mobile.custom`。实际安装按 Android 开发流程核对设备、版本号及数据保留；本票不降级覆盖已装版本。配对隔离 Bridge 后，在 Paseo 创建 omp 会话但不发送消息，应自动出现 `omp / Paseo` 空闲卡片。分别检查同目录两个会话、不同项目、Codex/GLM 模型选择、重载插件后的重复发现；此阶段不启动模型任务。
+5. Android 使用本票 Debug 构建，包名 `com.agentgrid.mobile.custom`。实际安装按 Android 开发流程核对设备、版本号及数据保留；测试构建不以低版本覆盖已装版本；完成后的模拟器备份恢复见下节。配对隔离 Bridge 后，在 Paseo 创建 omp 会话但不发送消息，应自动出现 `omp / Paseo` 空闲卡片。分别检查同目录两个会话、不同项目、Codex/GLM 模型选择、重载插件后的重复发现；此阶段不启动模型任务。
 
 ## 撤销
 
@@ -66,4 +68,13 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradl
 
 Swift 的 `paseoCreatedSessionReachesPhone` 用受控公开 SDK/生命周期输入运行**实际 JS 适配器、TCP 认证入口、Bridge、任务目录及手机 WebSocket**，不读取真实账号 Key。覆盖初始分页、创建、重复、并发、主机隔离、排除其他来源和历史、认证拒绝及手机/持久化/诊断脱敏。Android 覆盖 PhoneSession 快照接收、看板可见性、标签、未知来源和声音基线。共享 fixture 同时用于三端协议测试。C# 测试需要 .NET SDK；未安装时须明确报告未执行。
 
-这些结果不等于插件在真实 daemon 中已加载、真实 Paseo 创建已验收，或 Redmi 提醒和界面已验收。
+自动化测试中的 SDK 输入仍是受控数据；真实 daemon、真实创建和 Android 渲染的补充验收另见阶段记录。Redmi 振动、通知、后台和长期运行不由模拟器结果替代，属于 #18。
+
+## 本轮隔离演示的复现要点
+
+- 给 Paseo 使用独立 `--home <私有临时目录>/paseo-home`，监听空闲的 `127.0.0.1:<端口>`；通过 `daemon start --foreground --no-relay --no-mcp --no-inject-mcp --no-web-ui` 启动。启动进程前传入 `AGENTPAGER_PASEO_CONFIG`，SDK URL 使用 `/ws`。不要停掉默认 home 的 daemon。
+- 按上面的准备脚本选择独立 Hook/手机/接入端口，启动隔离 Bridge，安装并确认插件 running。测试中还将隔离 daemon 的 `metadataGeneration.providers` 设为空，避免标题生成触发额外推理。
+- 从仓库 `integrations/paseo-omp/node_modules/@getpaseo/client/dist/index.js` 导入 `createPaseoClient`，连接该 `/ws`，使用公开 `client.agents.create({config: {provider: "omp/openai-codex/gpt-5.5"}, cwd: <测试目录>, title: <测试标题>})`；GLM 对应 `omp/zhipu-coding-plan/glm-5.3`。实际可用模型先用 `client.providers.listModels("omp")` 核对。**省略 prompt**；不调用 sendMessage。随后 ref.refresh 检查 provider=omp、status=idle、lastUserMessageAt=null。
+- 同项目创建两条、另一项目创建一条；Android 配对后应显示三张卡。保持 Android 连接，再创建另一项目会话，应自动出现第四张卡。重载插件两次，对照 WebSocket 快照检查数量、ID、startedAt/updatedAt 不变。关闭插件后创建第五条，再启用检查初始清单补入，而前四条不变。
+- Android 模拟器用 `10.0.2.2` 访问主机 Bridge；仅对测试设备配对，不打印 pairing JSON。安装前备份 APK 和应用数据、核对签名及版本；本轮使用临时 Build 22，完成后恢复模拟器原 Build 20 及数据，并核对备份文件哈希一致。此恢复不作为 Redmi 降级流程。
+- 撤销时只 remove 本插件、stop 该临时 `--home` 的 daemon、终止自己启动的 Bridge 和模拟器；不修改默认 daemon 或正式 App。私有备份和配置不得提交。

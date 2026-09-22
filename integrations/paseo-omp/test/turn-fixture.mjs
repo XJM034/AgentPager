@@ -42,6 +42,11 @@ for await (const command of createInterface({input: process.stdin})) {
   if (command === 'failed' || command === 'canceled') {
     snapshot = {...snapshot, status: command === 'failed' ? 'error' : 'idle', activeTurn: null,
       pendingPermissions: [], updatedAt: command === 'failed' ? '2026-09-22T08:00:03.000Z' : '2026-09-22T08:00:05.000Z'};
+    if (command === 'canceled') {
+      update({kind: 'upsert', agent: snapshot});
+      timeline({seq: 100, event: {type: 'timeline', turnId: 'round-2',
+        item: {type: 'tool_call', name: 'read', status: 'completed'}}});
+    }
     for (let i = 0; i < 2; i++) await hooks.get('agent.turn_ended')?.({agent: snapshot, turnId: command === 'failed' ? 'round-1' : 'round-2',
       outcome: {kind: command, error: {message: 'secret-error'}, reason: 'secret-cancel'}}, {paseo: client});
   }

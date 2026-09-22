@@ -71,7 +71,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
   const sockets = new Set();
   /** @type {Map<string, {summary: NonNullable<ReturnType<typeof summarize>>, timestamp: number,
    * turnID: string | null, retiredTurns: Set<string>, retiredThrough: number,
-   * pending: Map<string, string>, version: number, turnTimestamp: number, ended: boolean, activity: string | null, seq: number,
+   * pending: Map<string, string>, version: number, turnTimestamp: number, ended: boolean, awaitingOutcome: boolean, activity: string | null, seq: number,
    * unsubscribe?: import('@getpaseo/client').PaseoAgentTimelineSubscription}>} */
   const sessions = new Map();
   /** Release demand for sessions that leave the catalog; this does not synthesize outcomes.
@@ -86,7 +86,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
   /** @param {string} id */
   function emit(id) {
     const state = sessions.get(id);
-    if (!state || stopped) return;
+    if (!state || stopped || (state.awaitingOutcome && !state.ended)) return;
     const waiting = !state.ended && state.pending.size ?
       ([...state.pending.values()].every(kind => kind === 'tool') ? 'waitingApproval' : 'waitingAnswer') : null;
     const summary = { ...state.summary, status: waiting ?? state.summary.status,
@@ -111,7 +111,7 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     if (!state) {
       if (sessions.size >= 200) return;
       state = {summary, timestamp, turnID: null, retiredTurns: new Set(), retiredThrough: -1,
-        pending: new Map(), version: 0, turnTimestamp: -1, ended: false, activity: null, seq: -1};
+        pending: new Map(), version: 0, turnTimestamp: -1, ended: false, awaitingOutcome: false, activity: null, seq: -1};
       sessions.set(agent.id, state);
       const subscription = client.agents.ref(agent.id).timeline?.subscribe(event => activity(agent.id, event));
       state.unsubscribe = subscription;
@@ -148,9 +148,10 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     if (state.ended) return;
     state.summary = summary;
     if (summary.status === 'running' && !state.activity) state.activity = 'thinking';
-    // A cleared request in an already idle/failed turn is not resumed execution.
-    // Wait for turn_ended to emit the outcome atomically, without a false start cue.
-    if (state.turnID && !turnID && (agent.status === 'idle' || agent.status === 'error')) return;
+    // Gate every publisher, including late timeline events, until the public outcome
+    // arrives or the authoritative catalog confirms active execution again.
+    state.awaitingOutcome = !!state.turnID && !turnID &&
+      (agent.status === 'idle' || agent.status === 'error');
     emit(agent.id);
   }
   /** @param {string} id @param {import('@getpaseo/client').PaseoAgentTimelineEvent} message */

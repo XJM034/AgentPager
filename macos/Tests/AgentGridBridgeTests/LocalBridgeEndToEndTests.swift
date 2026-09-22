@@ -1002,6 +1002,10 @@ func paseoAttentionReachesPhone() async throws {
         return snapshot.tasks.first?.lifecycle == .running
     }
     #expect(resumed.tasks.first?.completedAt == nil)
+    try input.fileHandleForWriting.write(contentsOf: Data("refresh-race\n".utf8))
+    _ = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .waitingApproval }
+    let raceResolved = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(raceResolved.tasks.first?.completedAt == nil)
     try input.fileHandleForWriting.write(contentsOf: Data("failed\n".utf8))
     let failed = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .interrupted }
     #expect(failed.tasks.first?.latestStep == "本轮执行失败，请回到 Paseo 查看")

@@ -204,17 +204,37 @@ export function startDiscovery(server, client, config, connected = Promise.resol
       if (result?.agent) publish(result.agent);
     } catch { /* Best effort within this connection; recovery belongs to #17. */ }
   });
-  // Refresh the entire authoritative set. A resolved ID must never clear other requests;
-  // delayed/duplicate callbacks carry no state of their own and cannot resurrect requests.
+  // At most one refresh and one dirty flag per session. A callback arriving during a
+  // read requires another read; it must not lose the newer state to a version guard.
+  /** @type {Map<string, {again: boolean, context: import('@getpaseo/plugin/server').PluginHookContext, promise: Promise<void>}>} */
+  const requestRefreshes = new Map();
   for (const name of /** @type {const} */ (['agent.permission_requested', 'agent.permission_resolved'])) {
-    server.on(name, async (event, context) => {
-      if (!isRoot(event.agent)) return;
-      const before = sessions.get(event.agent.id);
-      const version = before?.version;
-      try {
-        const result = await context.paseo.agents.ref(event.agent.id).refresh();
-        if (result?.agent && sessions.get(event.agent.id)?.version === version) publish(result.agent);
-      } catch { /* Keep the last known state; never infer approval from a failed read. */ }
+    server.on(name, (event, context) => {
+      if (!isRoot(event.agent) || !sessions.has(event.agent.id)) return;
+      const id = event.agent.id;
+      const previous = requestRefreshes.get(id);
+      if (previous) {
+        previous.again = true;
+        previous.context = context;
+        return previous.promise;
+      }
+      const job = {again: true, context, promise: Promise.resolve()};
+      requestRefreshes.set(id, job);
+      job.promise = (async () => {
+        try {
+          while (job.again && !stopped && sessions.has(id)) {
+            job.again = false;
+            const state = sessions.get(id);
+            const version = state?.version;
+            const result = await job.context.paseo.agents.ref(id).refresh();
+            if (sessions.get(id) !== state) break;
+            if (state?.version !== version) job.again = true;
+            else if (result?.agent) publish(result.agent);
+          }
+        } catch { /* Keep the last known state; never infer approval from a failed read. */ }
+        finally { requestRefreshes.delete(id); }
+      })();
+      return job.promise;
     });
   }
   server.on('agent.turn_ended', async (event, context) => {

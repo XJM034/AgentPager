@@ -45,6 +45,21 @@ for await (const command of createInterface({input: process.stdin})) {
     for (let i = 0; i < 2; i++) await hooks.get('agent.turn_ended')?.({agent: snapshot, turnId: command === 'failed' ? 'round-1' : 'round-2',
       outcome: {kind: command, error: {message: 'secret-error'}, reason: 'secret-cancel'}}, {paseo: client});
   }
+  if (command === 'refresh-race') {
+    const older = {...snapshot, pendingPermissions: [{id: 'race-a', kind: 'tool'}], updatedAt: '2026-09-22T08:00:02.100Z'};
+    snapshot = {...snapshot, pendingPermissions: [], updatedAt: '2026-09-22T08:00:02.200Z'};
+    let release;
+    const delayed = new Promise(resolve => { release = resolve; });
+    const first = hooks.get('agent.permission_requested')({agent: snapshot, request: older.pendingPermissions[0]},
+      {paseo: {agents: {ref: () => ({refresh: () => delayed})}}});
+    let releaseNew;
+    const newer = new Promise(resolve => { releaseNew = resolve; });
+    const second = hooks.get('agent.permission_resolved')({agent: snapshot, requestId: 'race-a', resolution: {behavior: 'deny'}},
+      {paseo: {agents: {ref: () => ({refresh: () => newer})}}});
+    delayed.then(() => releaseNew({agent: snapshot}));
+    release({agent: older});
+    await Promise.all([first, second]);
+  }
   if (command === 'tool') {
     timeline?.({agentId: 'main', timestamp: '2026-09-22T08:00:02.000Z', seq: 1, epoch: 'timeline-1',
       event: {type: 'timeline', provider: 'omp', turnId: 'round-1', item: {

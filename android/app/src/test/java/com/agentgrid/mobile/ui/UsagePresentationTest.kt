@@ -12,7 +12,20 @@ import org.junit.Test
 
 class UsagePresentationTest {
     @Test
-    fun `顶部额度固定按通用和 Spark 分组且兼容旧快照`() {
+    fun `旧 Bridge 只发 Spark 时不作为通用额度回退`() {
+        for (id in listOf("codex_bengalfox", "spark")) {
+            val group = QuotaGroup(id = id, windows = listOf(window("5h", 300)))
+            assertEquals(emptyList<QuotaGroup>(), UsagePresentation.topQuotaGroups(
+                UsageSnapshot(quotaGroups = listOf(group)),
+            ))
+            assertEquals(emptyList<QuotaGroup>(), UsagePresentation.topQuotaGroups(
+                UsageSnapshot(limitID = id, windows = group.windows),
+            ))
+        }
+    }
+
+    @Test
+    fun `顶部额度移除 Spark 且兼容旧快照`() {
         val general = QuotaGroup(
             id = "codex",
             windows = listOf(window("7d", 10_080)),
@@ -27,9 +40,8 @@ class UsagePresentationTest {
             UsageSnapshot(quotaGroups = listOf(spark, general)),
         )
 
-        assertEquals(listOf("GENERAL", "SPARK"), groups.map(UsagePresentation::quotaTitle))
+        assertEquals(listOf("GENERAL"), groups.map(UsagePresentation::quotaTitle))
         assertEquals(listOf("7d"), groups[0].windows.map { it.label })
-        assertEquals(listOf("5h", "7d"), groups[1].windows.map { it.label })
 
         val legacy = UsagePresentation.topQuotaGroups(
             UsageSnapshot(
@@ -41,7 +53,7 @@ class UsagePresentationTest {
     }
 
     @Test
-    fun `顶部额度固定为 General Spark GLM 且缺失 GLM 不占位`() {
+    fun `顶部额度固定为 General GLM 且缺失 GLM 不占位`() {
         val general = QuotaGroup(
             id = "codex",
             windows = listOf(window("5H", 300)),
@@ -77,18 +89,18 @@ class UsagePresentationTest {
         )
 
         assertEquals(
-            listOf("GENERAL", "SPARK", "GLM"),
+            listOf("GENERAL", "GLM"),
             all.map(UsagePresentation::quotaTitle),
         )
         assertEquals(listOf("GLM"), onlyGLM.map(UsagePresentation::quotaTitle))
         assertEquals(
-            listOf("GENERAL", "SPARK"),
+            listOf("GENERAL"),
             withoutGLM.map(UsagePresentation::quotaTitle),
         )
     }
 
     @Test
-    fun `额度更新时间分别反映 General 和 Spark 新旧程度`() {
+    fun `额度更新时间不再包含 Spark`() {
         val now = Instant.parse("2026-08-27T14:00:00Z").toEpochMilli()
         val general = QuotaGroup(
             id = "codex",
@@ -103,7 +115,7 @@ class UsagePresentationTest {
         )
 
         assertEquals(
-            "GENERAL 刚刚 · SPARK 2 小时前",
+            "GENERAL 刚刚",
             UsagePresentation.quotaFreshnessText(
                 UsageSnapshot(
                     capturedAt = now - 30_000,

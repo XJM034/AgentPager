@@ -58,7 +58,7 @@ private val UsageBar = Color(0xFF326B73)
 private val UsageBarDimmed = Color(0xFF1C3940)
 
 @Preview(
-    name = "General 与 Spark 分组更新时间",
+    name = "Codex 额度更新时间",
     widthDp = 226,
     heightDp = 48,
     showBackground = true,
@@ -80,11 +80,6 @@ private fun QuotaFreshnessTextPreview() {
                     capturedAt = now,
                     quotaGroups = listOf(
                         QuotaGroup(id = "codex", capturedAt = now),
-                        QuotaGroup(
-                            id = "codex_bengalfox",
-                            name = "GPT-5.3-Codex-Spark",
-                            capturedAt = now - 2 * 60 * 60_000,
-                        ),
                     ),
                 ),
                 connected = true,
@@ -436,7 +431,6 @@ private fun QuotaPanel(
 ) {
     val groups = UsagePresentation.topQuotaGroups(usage)
     val general = groups.firstOrNull { UsagePresentation.quotaTitle(it) == "GENERAL" }
-    val spark = groups.firstOrNull { UsagePresentation.quotaTitle(it) == "SPARK" }
     val primaryGroup = general ?: groups.firstOrNull()
     val primary = primaryGroup?.windows
         ?.maxByOrNull { it.windowMinutes }
@@ -495,12 +489,7 @@ private fun QuotaPanel(
             groupLabel = primaryGroup?.let(UsagePresentation::quotaTitle),
         )
 
-        if (spark != null && spark !== primaryGroup) {
-            CompactQuotaGroup(
-                title = UsagePresentation.quotaTitle(spark),
-                windows = spark.windows,
-            )
-        } else if (secondary != null) {
+        if (secondary != null) {
             SecondaryQuota(window = secondary)
         }
 
@@ -573,77 +562,6 @@ private fun PrimaryQuota(
             UsagePresentation.resetText(window?.resetsAt),
             color = AgentGridColors.Muted,
             fontSize = 10.sp,
-        )
-    }
-}
-
-@Composable
-private fun CompactQuotaGroup(
-    title: String,
-    windows: List<UsageWindow>,
-) {
-    val visibleWindows = windows.sortedBy { it.windowMinutes }.take(2)
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(
-            title,
-            color = if (title == "SPARK") AgentGridColors.Violet else AgentGridColors.Muted,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.5.sp,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            visibleWindows.forEach { window ->
-                CompactQuota(
-                    window = window,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompactQuota(
-    window: UsageWindow,
-    modifier: Modifier = Modifier,
-) {
-    val remaining = window.remainingPercentage.roundToInt().coerceIn(0, 100)
-    val color = quotaColor(remaining)
-    Column(
-        modifier = modifier.semantics(mergeDescendants = true) {
-            contentDescription = "${window.label} 剩余 $remaining%"
-        },
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                window.label.uppercase(),
-                color = AgentGridColors.Muted,
-                fontSize = 9.sp,
-            )
-            Text(
-                "$remaining%",
-                color = color,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        LinearProgressIndicator(
-            progress = { remaining / 100f },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(3.dp),
-            color = color,
-            trackColor = AgentGridColors.Divider,
-            gapSize = 0.dp,
-            drawStopIndicator = {},
         )
     }
 }

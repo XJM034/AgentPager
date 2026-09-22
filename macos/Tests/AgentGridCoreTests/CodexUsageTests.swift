@@ -18,8 +18,7 @@ func usageLoaderDefaultsToCurrentQuotas() throws {
     let result = try #require(CodexUsageLoader().load(fromRootURL: root, now: now))
     #expect(result.windows.map(\.remainingPercentage) == [75, 40])
     #expect(result.windows.first?.resetsAt == Date(timeIntervalSince1970: 1789488000))
-    #expect(result.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"])
-    #expect(result.quotaGroups.last?.windows.first?.remainingPercentage == 90)
+    #expect(result.quotaGroups.map(\.id) == ["codex"])
     #expect(result.dailyUsage.isEmpty)
 }
 
@@ -43,8 +42,8 @@ func usageLoaderParsesWindows() throws {
     #expect(snapshot.windows[1].remainingPercentage == 9)
 }
 
-@Test("用量解析器同时保留通用额度和 Spark 双窗口")
-func usageLoaderKeepsGeneralAndSparkQuotaGroups() throws {
+@Test("用量解析器忽略历史 Spark 额度")
+func usageLoaderIgnoresRetiredSparkQuotaGroups() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -61,14 +60,12 @@ func usageLoaderKeepsGeneralAndSparkQuotaGroups() throws {
 
     #expect(snapshot.limitID == "codex")
     #expect(snapshot.windows.map(\.remainingPercentage) == [91])
-    #expect(snapshot.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"])
+    #expect(snapshot.quotaGroups.map(\.id) == ["codex"])
     #expect(snapshot.quotaGroups[0].windows.map(\.label) == ["7d"])
-    #expect(snapshot.quotaGroups[1].name == "GPT-5.3-Codex-Spark")
-    #expect(snapshot.quotaGroups[1].windows.map(\.label) == ["5h", "7d"])
 }
 
-@Test("跨文件额度乱序时保留 capturedAt 更新的 Spark")
-func usageLoaderKeepsNewestSparkAcrossFiles() throws {
+@Test("跨文件也不再读取 Spark")
+func usageLoaderIgnoresSparkAcrossFiles() throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -106,12 +103,8 @@ func usageLoaderKeepsNewestSparkAcrossFiles() throws {
     let snapshot = try #require(
         CodexUsageLoader().load(fromRootURL: root, now: now)
     )
-    let spark = try #require(
-        snapshot.quotaGroups.first(where: { $0.id == "codex_bengalfox" })
-    )
-
-    #expect(spark.capturedAt == ISO8601DateFormatter().date(from: "2026-08-27T11:00:00Z"))
-    #expect(spark.windows.map(\.remainingPercentage) == [80])
+    #expect(snapshot.quotaGroups.map(\.id) == ["codex"])
+    #expect(snapshot.windows.map(\.remainingPercentage) == [92])
 }
 
 @Test("额度文件未变化时复用缓存，变化后重新解析")

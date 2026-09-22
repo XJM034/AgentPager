@@ -1659,14 +1659,6 @@ private fun previewCodexUsage() = UsageSnapshot(
                 previewUsageWindow("WEEK", 10_080, 95.0),
             ),
         ),
-        QuotaGroup(
-            id = "codex_bengalfox",
-            name = "GPT-5.3-Codex-Spark",
-            windows = listOf(
-                previewUsageWindow("5H", 300, 88.0),
-                previewUsageWindow("WEEK", 10_080, 71.0),
-            ),
-        ),
     ),
 )
 

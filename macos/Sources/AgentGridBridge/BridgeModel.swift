@@ -123,10 +123,7 @@ struct BridgeRuntimeConfiguration: Sendable {
         self.observesLocalEnvironment = observesLocalEnvironment
         self.startsBackgroundMaintenance = startsBackgroundMaintenance
         self.zcodeDecisionTimeoutMilliseconds = zcodeDecisionTimeoutMilliseconds
-        // 每个 Bridge 复用同一额度缓存，未变化的日志无需再次解析。
-        self.usageLoader = usageLoader ?? { [loader = CodexUsageLoader()] in
-            loader.load()
-        }
+        self.usageLoader = usageLoader ?? { CodexAccountUsageLoader.load() }
     }
 }
 
@@ -182,6 +179,7 @@ final class BridgeModel {
     private var webSocketServer: WebSocketServer?
     private var refreshTask: Task<Void, Never>?
     private var usageLoadTask: Task<Void, Never>?
+    private var usageRefreshTask: Task<Void, Never>?
     private var rolloutTask: Task<Void, Never>?
     private var hasStarted = false
 
@@ -277,11 +275,17 @@ final class BridgeModel {
         refreshUsage()
         startGLMQuotaMonitoring()
         if runtimeConfiguration.startsBackgroundMaintenance {
+            usageRefreshTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(60))
+                    guard !Task.isCancelled, let self else { return }
+                    self.refreshUsage()
+                }
+            }
             refreshTask = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(600))
                     guard let self else { return }
-                    self.refreshUsage()
                     if let commit = self.catalog.maintain() {
                         self.applyCatalogCommit(commit)
                     }
@@ -306,9 +310,11 @@ final class BridgeModel {
         guard hasStarted else { return }
         refreshTask?.cancel()
         usageLoadTask?.cancel()
+        usageRefreshTask?.cancel()
         rolloutTask?.cancel()
         refreshTask = nil
         usageLoadTask = nil
+        usageRefreshTask = nil
         rolloutTask = nil
         hookServer?.stop()
         webSocketServer?.stop()

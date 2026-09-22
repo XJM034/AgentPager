@@ -24,9 +24,11 @@ macOS 端是一个 Swift Package，而不是独立的 `.xcodeproj`：
 
 ## 常驻轻量化行为
 
-Mac Bridge 默认保留任务监控、手机审批、配对与连接，以及 Codex General / Spark 和 GLM 的当前剩余额度、重置时间与既有刷新机制。状态图标使用静态像素帧；后台不统计 90 天用量，也不启动 CodexBar 估算费用。Android 无需更新；手机仍显示当前额度，历史统计区可能显示暂无用量。
+Mac Bridge 保留任务监控、手机审批、配对与连接，以及 Codex General 和 GLM 的当前剩余额度、重置时间与刷新入口。Spark 额度监控已移除。状态图标使用静态像素帧；后台不统计 90 天用量，也不启动 CodexBar 估算费用。历史统计区可能显示暂无用量。
 
-`BridgeRuntimeConfiguration` 为每个 Bridge 复用同一个 `CodexUsageLoader`。额度缓存随文件大小和修改时间更新，扫描逐文件释放临时对象；默认 `includeHistory: false`。历史解析仅保留显式调用兼容能力，不属于常驻运行路径。日期化测量与本地安装状态见 [2026-09-15 Mac 轻量化](updates/2026-09-15-macos-lightweight-memory.md)。
+`BridgeRuntimeConfiguration` 使用 `CodexAccountUsageLoader`，通过本机 Codex CLI 的 `app-server` 标准输入输出连接调用只读 `account/rateLimits/read`。需本机安装 Codex CLI 并登录要监控的账号；优先查找标准 Codex App 内置 CLI，然后查找 Homebrew / PATH。启动、手机连接、手动刷新及每 60 秒查询一次；单次查询限时 10 秒，结束后回收子进程。不发起模型任务，不读取或转发凭据，不兑换额度重置。查询失败或 CLI 不可用时返回空额度，不用日志历史余额冒充实时结果。GLM 每 10 分钟刷新保持原样。
+
+`CodexUsageLoader` 仍保留显式历史解析能力与文件缓存，但不再作为 Bridge 当前额度来源，并过滤历史 Spark 记录。详见 [2026-09-20 额度同步修复](updates/2026-09-20-codex-quota-spark-removal.md)；早期性能测量见 [2026-09-15 Mac 轻量化](updates/2026-09-15-macos-lightweight-memory.md)。
 
 ## 1. 每次开发先核实工具链
 

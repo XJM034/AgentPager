@@ -324,6 +324,10 @@ public final class CodexUsageLoader: @unchecked Sendable {
             return nil
         }
 
+        let quotaIdentity = [scalarString(rateLimits["limit_id"]), scalarString(rateLimits["limit_name"])]
+            .compactMap { $0?.lowercased() }.joined(separator: " ")
+        guard !quotaIdentity.contains("spark"), !quotaIdentity.contains("bengalfox") else { return nil }
+
         return UsageSnapshot(
             capturedAt: parseTimestamp(object["timestamp"]) ?? fallbackTimestamp,
             planType: scalarString(rateLimits["plan_type"]),
@@ -378,11 +382,7 @@ public final class CodexUsageLoader: @unchecked Sendable {
 
     private static func quotaGroupRank(_ snapshot: UsageSnapshot) -> Int {
         if snapshot.limitID?.lowercased() == "codex" { return 0 }
-        let searchable = [snapshot.limitID, snapshot.limitName]
-            .compactMap { $0?.lowercased() }
-            .joined(separator: " ")
-        if searchable.contains("spark") || searchable.contains("bengalfox") { return 1 }
-        return 2
+        return 1
     }
 
     private static func usageWindow(

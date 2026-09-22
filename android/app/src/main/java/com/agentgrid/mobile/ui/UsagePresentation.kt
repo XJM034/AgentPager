@@ -151,9 +151,10 @@ internal object UsagePresentation {
                 )
             }
         }
-        val general = groups.firstOrNull(::isGeneralQuota)
-        val spark = groups.firstOrNull(::isSparkQuota)
-        val codexGroups = listOfNotNull(general, spark).ifEmpty { groups.take(2) }
+        // Also hide retired buckets received from an older Bridge or cached snapshot.
+        val supportedGroups = groups.filterNot(::isRetiredQuota)
+        val general = supportedGroups.firstOrNull(::isGeneralQuota)
+        val codexGroups = listOfNotNull(general).ifEmpty { supportedGroups.take(1) }
         val glmProvider = providers.firstOrNull {
             it.id.equals("glm", ignoreCase = true)
         }
@@ -182,7 +183,7 @@ internal object UsagePresentation {
         val items = topQuotaItems(usage, providers).filter { it.group.windows.isNotEmpty() }
         val (glm, codex) = items.partition { it.group.id.equals("glm", ignoreCase = true) }
         return buildList {
-            if (codex.isNotEmpty()) add(TopQuotaSection("CODEX", codex, showGroupTitles = true))
+            if (codex.isNotEmpty()) add(TopQuotaSection("CODEX", codex, showGroupTitles = false))
             if (glm.isNotEmpty()) add(TopQuotaSection("GLM", glm, showGroupTitles = false))
         }
     }
@@ -290,7 +291,6 @@ internal object UsagePresentation {
         val accent: QuotaAccent,
     ) {
         GENERAL("GENERAL", QuotaAccent.MUTED),
-        SPARK("SPARK", QuotaAccent.VIOLET),
         GLM("GLM", QuotaAccent.CYAN),
         OTHER(null, QuotaAccent.MUTED),
     }
@@ -307,7 +307,6 @@ internal object UsagePresentation {
 
     private fun quotaKind(group: QuotaGroup): QuotaKind = when {
         group.id.equals("glm", ignoreCase = true) -> QuotaKind.GLM
-        isSparkQuota(group) -> QuotaKind.SPARK
         isGeneralQuota(group) -> QuotaKind.GENERAL
         else -> QuotaKind.OTHER
     }
@@ -315,7 +314,7 @@ internal object UsagePresentation {
     private fun isGeneralQuota(group: QuotaGroup): Boolean =
         group.id.equals("codex", ignoreCase = true)
 
-    private fun isSparkQuota(group: QuotaGroup): Boolean =
+    private fun isRetiredQuota(group: QuotaGroup): Boolean =
         listOf(group.id, group.name.orEmpty()).any { value ->
             value.contains("spark", ignoreCase = true) ||
                 value.contains("bengalfox", ignoreCase = true)

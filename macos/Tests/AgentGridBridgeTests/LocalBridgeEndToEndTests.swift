@@ -47,7 +47,7 @@ func unconfiguredGLMLocalBridgeEndToEnd() async throws {
     }
 
     let initial = try await nextSnapshot(from: client) { snapshot in
-        snapshot.usage?.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"]
+        snapshot.usage?.quotaGroups.map(\.id) == ["codex"]
     }
     #expect(initial.usageProviders == nil)
     let initialGLMRequestCount = await quotaFetcher.requestCount
@@ -244,7 +244,7 @@ func configuredGLMLocalBridgeEndToEnd() async throws {
     let firstClient = LocalWebSocketClient(port: webSocketPort)
     let connectedSnapshot = try await nextSnapshot(from: firstClient) { snapshot in
         snapshot.usageProviders == nil &&
-            snapshot.usage?.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"]
+            snapshot.usage?.quotaGroups.map(\.id) == ["codex"]
     }
     #expect(connectedSnapshot.tasks.isEmpty)
     model.refreshGLMQuota()
@@ -256,7 +256,7 @@ func configuredGLMLocalBridgeEndToEnd() async throws {
     let available = try await nextSnapshot(from: firstClient) { snapshot in
         snapshot.usageProviders?.count == 1 && snapshot.usageProviders?.first?.status == "available"
     }
-    #expect(available.usage?.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"])
+    #expect(available.usage?.quotaGroups.map(\.id) == ["codex"])
     let glm = try #require(available.usageProviders?.first)
     #expect(glm.id == "glm")
     #expect(glm.quotaGroups.count == 1)
@@ -371,7 +371,7 @@ func configuredGLMLocalBridgeEndToEnd() async throws {
     let deleted = try await nextSnapshot(from: firstClient) { snapshot in
         snapshot.usageProviders == nil
     }
-    #expect(deleted.usage?.quotaGroups.map(\.id) == ["codex", "codex_bengalfox"])
+    #expect(deleted.usage?.quotaGroups.map(\.id) == ["codex"])
     await waitForBridgeOperation(model)
     #expect((try? keyStore.load()) == nil)
     let requestCountAfterDeletion = await quotaFetcher.requestCount
@@ -594,12 +594,6 @@ private func fixtureCodexUsage() -> UsageSnapshot? {
         windows: [],
         quotaGroups: [
             QuotaGroup(id: "codex", name: "GENERAL", capturedAt: capturedAt, windows: []),
-            QuotaGroup(
-                id: "codex_bengalfox",
-                name: "SPARK",
-                capturedAt: capturedAt,
-                windows: []
-            ),
         ]
     )
 }

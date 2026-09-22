@@ -10,7 +10,7 @@ Skill：/Users/minxian/Projects/agent-skill-sources/repos/mattpocock-skills/skil
 工作目录：/Users/minxian/Documents/alex_project/AgentPager-0.3.0
 沿用本地工作目录和长期分支 alexx_custom，不创建或切换分支。
 
-#14、#15、#16 已完成实现、同 Session 隔离验收、双轴审查、文档、选择性本地提交和关闭回读。#16 实现 689770a、并发刷新修复 d725129、终态修复 56f7c6d / 27d858a；最终证据和关闭记录见 docs/updates/2026-09-22-paseo-omp-attention-outcomes.md 与 handoff/260922-handoff.md。不要把早期待授权或修复前采样当成当前未完成，不补办前票收尾。
+#14、#15、#16 已完成实现、同 Session 隔离验收、双轴审查、文档、选择性本地提交和关闭回读。#16 实现 689770a、并发刷新修复 d725129、终态修复 56f7c6d / 27d858a、最终实测文档 a4a5ede；#16 已于北京时间 2026-09-22 17:16:07 关闭并回读 CLOSED。最终证据和关闭记录见 docs/updates/2026-09-22-paseo-omp-attention-outcomes.md 与 handoff/260922-handoff.md。不要把早期待授权或修复前采样当成当前未完成，不补办前票收尾。
 
 先检查 Git 状态，阅读适用 AGENTS.md、docs/README.md、CONTEXT.md、handoff/260922-handoff.md，以及 #17、#13 的完整正文、评论、标签和原生依赖。按索引读取调研、Paseo 开发接入说明及 #14–#16 最终记录。#17 最近原生依赖仅 #15 CLOSED，执行时回读；不要人为增加 #16 阻塞依赖。
 已有未提交规格、研究、拆票、CONTEXT.md 和 docs/README.md 索引改动必须保留，不覆盖、不全量暂存。

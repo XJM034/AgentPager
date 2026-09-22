@@ -2,45 +2,45 @@
 
 ## 1. 当前任务目标
 
-仅实施 GitHub #14：Paseo 新建 omp、未发消息也能经本机 Bridge 出现在 Android。父规格 #13；不要继续 #15–#18。
+本 Session 仅实施 #15（父 #13）：已有 omp 卡片正常轮次进度、工具活动、完成及下一轮。实现、验收、审查、文档与本地提交完成后按授权关闭 #15；不推送、不发布、不关闭父 #13、不实施 #16–#18。
 
 ## 2. 当前进展
 
-本票源码、测试、真实隔离演示及开发步骤已完成，详见 `docs/paseo-omp-development.md` 与 `docs/updates/2026-09-22-paseo-omp-discovery.md`。官方插件使用公开 SDK 根入口；独立 loopback 认证入口、稳定身份、安全摘要、重复创建、初始化收敛及三端来源已接通。Swift 190 项、Android 88 项、Windows Core 7 项、Lint/Debug 构建、Paseo SDK/JS 类型检查通过；真实 Paseo daemon + omp 空会话 + 隔离 Bridge + Android 模拟器已验收，审查结果和截图见本票更新记录。实现提交 a2b7d7069ebec046eb71032a34b2f5856e00aa00。
+实现提交 `d4b758a`，基准 `c92b017`，分支 `alexx_custom`。#14 已通过 a2b7d70 / fc5a135 / c92b017 完成并关闭，不再补办。#15 已完成 TDD、真实隔离 Paseo → 插件 → Bridge → Android 验收及恢复，具体证据在 `docs/updates/2026-09-22-paseo-omp-turn-progress.md`，不要把首次代码提交时的“待授权”当成最终缺口。
+
+Swift 串行全套 191、Android 单元 90 + Lint + Debug 构建、SDK 类型检查、Windows Core 7 项全部通过。双轴初审发现的同毫秒旧轮、初始子任务、重复查找及订阅回收问题已修复复验。证据复审发现的一处模型工具状态歧义也已核实修正。
 
 ## 3. 关键上下文
 
-- 长期分支 `alexx_custom`，基线 `8440cd0c41ce06bec8a2bcaa80b91a6192c0b1cc`，本轮只本地提交，不推送/发布/关父票。
-- 用户原有未提交 `CONTEXT.md`、2026-09-22 研究/讨论/规格/拆票及 `docs/README.md` 原始索引段落必须保留，不全量暂存。
-- 已向独立临时 home 的真实 Paseo daemon 安装插件；没有修改日常 daemon、替换 /Applications 或发送模型消息。Android 模拟器临时从 Build 20 升至 22，现已恢复原 APK/配对数据，逐文件哈希一致；只停止本次启动的服务和模拟器。
-- Swift 6.4 / Xcode 27.0 / SDK 27.0；Android JDK17 / Gradle8.13 / SDK36 / `.custom` 包名不变。
+- 原有未提交 `CONTEXT.md`、研究/讨论/规格/拆票目录及 docs/README.md 原始 6 行索引仍保留，不全量暂存。
+- 用户明确授权本 Session 隔离真实安装、最小模型调用及模拟器恢复；该授权不自动扩大成下张票的真实操作授权。
+- 使用独立私有 Paseo home / loopback 四端口，官方插件安装与公开 SDK 0.8.0，omp 18.2.8；不改日常 daemon、/Applications 或 Redmi。
+- Android `.custom`，临时 Build 23 已恢复 Build 20，原文件集合与 SHA-256 完全一致。测试设置文件已移除，隔离插件/服务/采样器/模拟器均已停止，四端口关闭。
+- Swift6.4 / Xcode27 / SDK27；Android JDK17 / Gradle8.13 / SDK36。
 
 ## 4. 关键发现
 
-- Paseo 0.8.0 `PluginServerContext` 启动时无 paseo 实例，生命周期回调上下文才提供；因此初始清单用独立公开 SDK 连接。
-- `agents.subscribe` 是本地监听，必须 `agents.list({subscribe})` 建立网络需求。`ref.refresh()` 返回 `{agent}`，不调用模型。
-- SDK 目录可能先报 initializing，再收到 created 的 idle；目录归约须允许启动阶段收敛，重复发现不能重置已存在轮次。
-- SDK 快照没有 parentAgentId；只有生命周期回调能据此排除子会话。不要扩大说明成全面子代理过滤。
-- 自动化接缝上游仍是受控 SDK 数据；另行实际创建五条 Paseo omp 会话，覆盖四个项目、同项目两条、Codex/GLM 两种模型。全部 idle、lastUserMessageAt=null。Android 连接后新建第四条自动出现，插件重载不重复；停用期间第五条在启用后由初始清单补入。
-- Paseo 全局 pluginsEnabled、插件 enabled、omp provider enabled 都必须满足；安装返回 enabled 不等于 running。SDK URL 带 /ws；配置环境变量必须在 daemon 启动时传入。
+- 稳定身份仅由主机命名空间与 agent ID 决定。公开目录、timeline 和同轮 turn_ended + 权威 idle/无 activeTurn 联合归约，工具结束不能单独代表成功。
+- 公开父关系标签 `labels["paseo.parent-agent-id"]` 可过滤初始子会话，实时 created 同时使用 parentAgentId。#14 当时的限制说明是历史事实，不要继续当作当前缺口。
+- 发送队列保留状态转换，跨轮事件防护包含同毫秒旧轮；关闭/归档回收订阅仅是资源管理，不是 #16/#17 手机语义交付。
+- 两条真实会话、四轮：Codex 首轮 + 同会话切换 GLM 后两轮，另一 GLM 首轮。卡片 ID/startedAt 稳定。GLM bash failed 后继续编辑执行正常完成；Codex 实际后台续跑未提前成功。
+- 提醒精确次数/旧事件/子任务由受控真实 Bridge + Android 接缝验证；模型正常路径、重复内容更新、静音、设置与呈现另有真实证据。不能互相冒充。
 
 ## 5. 未完成事项
 
-1. #14 开发、自动化和本票范围的真实隔离演示均已完成，无需再开 Session 补验收。
-2. #14 已于 2026-09-22 15:35（Asia/Shanghai）按用户后续收尾授权关闭为 completed；已回读 CLOSED。#15 原生依赖仅 #14，状态 closed，现已具备开工条件。父 #13 保持 OPEN。无需下一 Session 再处理 #14。
-3. Redmi 真机提醒/后台、正式安装管理、签名升级和长期运行属于 #18，未实施。Windows 仅在 macOS 运行 Core 编解码测试，未运行 Windows 桌面 App。
+#15 实现、验收、审查和恢复无遗留；关闭回读另见阶段记录最后的票据状态。父 #13 仍需 #16–#18 范围验收，不由本票代办。
+
+下一张 #16：等待审批/问答、失败/取消的只读监控；不新增手机批准、拒绝、回答、停止或重试。Redmi 硬件提醒、MIUI 后台、正式安装管理及长期运行不在 #15 验证范围。
 
 ## 6. 建议接手路径
 
-- 先读本票更新记录的“同 Session 补充真实验收”、当前 Git 状态与最新 #14/#13；不要将首次提交时的缺口当成最终状态。
-- 本 Session 不实施 #15–#18；用户在新 Session 提交 #15 prompt 后，仅实施 #15，沿用稳定身份、Paseo 入口和现有测试接缝。
-- 用户要求每张票在所属 Session 内完成实现、测试、审查、文档、提交和获授权的票据状态收尾，再给下一票完整 prompt；不得将本票遗留收尾转交下一 Session。
-- 自动化入口：`paseoCreatedSessionReachesPhone`、`OmpTaskPresentationTest`、`PhoneSessionTest`、共享 fixture `paseo-omp-discovery.json`。
-- 可重复真实演示步骤在 `docs/paseo-omp-development.md`；截图在 `docs/updates/assets/2026-09-22-paseo-omp-android.png`。不读取或输出私有 token、配对数据及模型凭据。
+- 先读 Git 状态、AGENTS、docs/README.md、CONTEXT.md、本文件、#15 最终阶段记录、Paseo 开发接入说明，再拉取 #16/#13 最新完整正文/评论/标签/依赖。
+- 优先复用 integrations/paseo-omp/server/discovery.mjs 与公开 SDK、Swift `paseoTurnProgressReachesPhone`、Android `OmpTaskPresentationTest` / `PhoneSessionTest`；受控上游 fixture 与真实采样摘要不可混称。
+- #16 本次读取为 OPEN / ready-for-agent / 无评论，仅依赖 #15；以新 Session 实际回读为准。完整启动 prompt 存放于 `docs/updates/2026-09-22-paseo-omp-16-session-prompt.md`。
 
 ## 7. 风险与注意事项
 
-本票只发现会话；完整轮次、归档后清理、失联恢复及正式配置 UI 未实现。新入口短超时且有界，离线/队列过载可能漏发现；不要扩大成全面恢复已交付。隔离开发 App 使用独立端口、专属文件和临时配对，不读取真实额度。短时启动资源观察不能代替长时间性能验收。
+首次 Swift 并行全套遇到既有进程超时/Bridge 就绪竞争，串行全套已通过；不要省略该事实或扩大为新功能失败。全面重连由 #17 交付。无手机共享字段或枚举新增，Windows 仅 Core 兼容测试，无 Windows 桌面运行。正式环境的安装/重启/真实模型或审批操作必须遵守项目当次授权边界，不读取输出凭据。
 
 下一位 Agent 的第一步建议：
-运行 `git status --short --branch`，阅读本票更新记录，核对 #15 正文、评论及依赖，按新 Session 用户 prompt 实施 #15；#14 已收尾，不再补办。
+运行 `git status --short --branch` 并回读 #16 的原生阻塞关系，确认 #15 已 CLOSED 后只实施 #16，不补办 #14/#15 收尾。

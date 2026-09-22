@@ -1,0 +1,250 @@
+{
+  "source": "real Paseo 0.8.0 / omp 18.2.8 -> plugin -> isolated Bridge -> phone WebSocket",
+  "controlledInput": false,
+  "models": [
+    "openai-codex/gpt-5.5",
+    "zhipu-coding-plan/glm-5.3"
+  ],
+  "sessions": [
+    {
+      "project": "Codex-Check",
+      "stableIdentity": true,
+      "stableStartedAt": true,
+      "completionTransitions": 3,
+      "transitions": [
+        {
+          "at": 1790064407385,
+          "lifecycle": "idle",
+          "activity": null,
+          "muted": false
+        },
+        {
+          "at": 1790064697314,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064701880,
+          "lifecycle": "running",
+          "activity": "reading",
+          "muted": false
+        },
+        {
+          "at": 1790064701900,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064703889,
+          "lifecycle": "running",
+          "activity": "executing",
+          "muted": false
+        },
+        {
+          "at": 1790064703890,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064705754,
+          "lifecycle": "running",
+          "activity": "editing",
+          "muted": false
+        },
+        {
+          "at": 1790064705756,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064708049,
+          "lifecycle": "running",
+          "activity": "executing",
+          "muted": false
+        },
+        {
+          "at": 1790064720071,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064723477,
+          "lifecycle": "succeeded",
+          "activity": null,
+          "muted": false
+        },
+        {
+          "at": 1790065015196,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790065017103,
+          "lifecycle": "running",
+          "activity": "reading",
+          "muted": false
+        },
+        {
+          "at": 1790065017141,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790065018505,
+          "lifecycle": "running",
+          "activity": "executing",
+          "muted": false
+        },
+        {
+          "at": 1790065026570,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790065029234,
+          "lifecycle": "succeeded",
+          "activity": null,
+          "muted": false
+        },
+        {
+          "at": 1790065082775,
+          "lifecycle": "succeeded",
+          "activity": null,
+          "muted": true
+        },
+        {
+          "at": 1790065110943,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": true
+        },
+        {
+          "at": 1790065111981,
+          "lifecycle": "running",
+          "activity": "reading",
+          "muted": true
+        },
+        {
+          "at": 1790065111987,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": true
+        },
+        {
+          "at": 1790065114145,
+          "lifecycle": "running",
+          "activity": "executing",
+          "muted": true
+        },
+        {
+          "at": 1790065122153,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": true
+        },
+        {
+          "at": 1790065123565,
+          "lifecycle": "succeeded",
+          "activity": null,
+          "muted": true
+        }
+      ]
+    },
+    {
+      "project": "GLM-Check",
+      "stableIdentity": true,
+      "stableStartedAt": true,
+      "completionTransitions": 1,
+      "transitions": [
+        {
+          "at": 1790064409443,
+          "lifecycle": "idle",
+          "activity": null,
+          "muted": false
+        },
+        {
+          "at": 1790064726994,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064734832,
+          "lifecycle": "running",
+          "activity": "reading",
+          "muted": false
+        },
+        {
+          "at": 1790064734834,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064736826,
+          "lifecycle": "running",
+          "activity": "executing",
+          "muted": false
+        },
+        {
+          "at": 1790064736846,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064738899,
+          "lifecycle": "running",
+          "activity": "editing",
+          "muted": false
+        },
+        {
+          "at": 1790064738903,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064740547,
+          "lifecycle": "running",
+          "activity": "executing",
+          "muted": false
+        },
+        {
+          "at": 1790064752553,
+          "lifecycle": "running",
+          "activity": "thinking",
+          "muted": false
+        },
+        {
+          "at": 1790064755796,
+          "lifecycle": "succeeded",
+          "activity": null,
+          "muted": false
+        }
+      ]
+    }
+  ],
+  "duplicateSameNameUpdatesPreservedSnapshot": true,
+  "safePayloadAssertionsPassed": true,
+  "providerToolStatuses": [
+    "completed",
+    "failed",
+    "running"
+  ],
+  "realToolFailure": {
+    "at": 1790064736840,
+    "agent": "GLM-Check",
+    "tool": "bash",
+    "status": "failed",
+    "subsequentLifecycle": "running"
+  }
+}

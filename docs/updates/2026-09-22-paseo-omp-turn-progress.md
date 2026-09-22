@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-实现、受控输入自动化和双轴代码审查已完成。**真实隔离 Paseo 模型调用与 Android 模拟器验收尚未执行，等待本 Session 的明确授权；#15 不关闭，不宣称整票验收完成。** #14 已完成并关闭，无需补办。未推送、发布或实施 #16–#18。
+实现、受控输入自动化、双轴代码审查及本 Session 获授权后的真实隔离 Paseo / Android 验收均已完成。实现提交 `d4b758a`。 #14 已完成并关闭，无需补办。未推送、发布或实施 #16–#18。
 
 ## 实现范围
 
@@ -45,19 +45,46 @@ Android `OmpTaskPresentationTest` 验证相同身份、焦点、完成收起、�
 - Xcode 27.0 / Swift 6.4 / macOS SDK 27.0；Paseo CLI 0.8.0、omp 18.2.8；SDK 锁定 0.8.0。Context7 无匹配资料，查询固定版本官方插件文档与本地 SDK 类型。
 - `npm run check --prefix integrations/paseo-omp`：通过。
 - `swift test --package-path macos --no-parallel`：177 Core + 14 Bridge，共 **191 项通过**。首次并行全套出现既有 Codex 额度测试 2 秒进程超时、两项旧 Bridge 测试端口尚未就绪；串行复跑全部通过，未将其误写为首次全绿。
-- Android JDK 17 / Gradle 8.13 / SDK 36：`testDebugUnitTest lintDebug assembleDebug` 全部通过，**90 项单元测试，0 失败**。产物仍为 `.custom` / AgentPager Custom，尚未安装本票版本。
+- Android JDK 17 / Gradle 8.13 / SDK 36：`testDebugUnitTest lintDebug assembleDebug` 全部通过，**90 项单元测试，0 失败**。产物仍为 `.custom` / AgentPager Custom；真实验收临时安装 Build 23，结束后恢复 Build 20 及原数据。
 - Standards 初审：0 硬违反、1 重复查找建议、1 订阅资源风险；已修复，复核 0 剩余发现。
 - Spec 初审：2 项（同毫秒旧轮回退 P1、初始子任务 P2）；高层回归复现并修复，独立复核 0 剩余发现。
 - 共享手机协议没有新增字段/枚举。Windows Core 编解码复验 **7/7 通过**（复用 #14 隔离 .NET SDK 8.0.425，原 Windows 目标 EnableWindowsTargeting）；不代表 Windows 桌面运行。
 
-## 真实验证授权与边界
+## 同 Session 补充真实验收
 
-已在当前 Session 请求明确授权：独立临时 Paseo home/端口/测试目录，安装本插件并启动隔离 Bridge；备份后临时升级 medium_phone，验收后恢复；使用 omp 既有登录分别调用 Codex/GLM 最小读取、编辑、执行及同会话模型切换。不读取/输出凭据，不改日常服务，不操作 Redmi。尚未获得回复，因此未执行这些操作。
+用户回复“允许”后执行；不是受控 SDK 模拟结果。Paseo 0.8.0 / omp 18.2.8 使用独立私有 home、测试目录和四个 loopback 端口；官方命令安装本插件、确认 running，启动本票隔离 Bridge。使用既有模型登录，不读取或输出凭据。正式 Bridge、日常 Paseo daemon、/Applications 和 Redmi 未修改。
 
-现有自动化证明受控条件下的状态归约、接线及 Android 策略，不证明真实 Paseo 的自动重试/后台工作交付，也不证明设备提示音或硬件亮度。Redmi、正式安装管理和长期运行仍属于 #18；本票必需的真实正常轮次验收不能据此豁免。
+- 两个实际会话：`Codex-Check` 使用 `openai-codex/gpt-5.5`，`GLM-Check` 使用 `zhipu-coding-plan/glm-5.3`。先创建无 prompt 的空闲会话，Android 实际显示两张卡。
+- 两个模型分别读取合成文件、执行非零退出的 `false`、写入合成结果、执行短暂 sleep 后继续。两条手机快照均经历 thinking → reading → executing → editing → executing → succeeded；非零退出后继续运行，没有中途成功。结果文件内容已核对。
+- Codex 的真实 Paseo UI 出现 `Background job bg_1 has completed. Resume your work`，后续完成前手机持续运行，最后仅一次 succeeded。此观察证明该次后台续跑，不推广为所有重试/后台场景都已现场覆盖。两模型的公开工具结果有差异：Codex 的命令非零退出仍呈 completed；GLM-Check 的真实 timeline 在 `1790064736840` 报 bash / failed，随后手机仍为 running，继续编辑与执行，最终正常完成。此 failed 来自真实采样，没有混入受控事件；更多失败顺序由自动化补充覆盖。
+- 通过隔离 Paseo Web UI 的模型选择器，把 Codex-Check **原会话**切换成 GLM-5.3，再发送下一轮；公开 SDK refresh 确认模型变化。同一卡片回到运行并完成，ID 和 startedAt 全程不变，没有第三张卡。
+- 经既有签名 `control.request / mute` 对该测试卡静音，再用 GLM 执行一轮；手机快照在运行、活动和完成时均保留 `isMuted=true`。Android 现有界面没有独立任务静音入口，因此这里是实际协议控制，并非声称点击了不存在的按钮；不发送审批指令。
+- Android 实际切换“提示音：开 → 关 → 开”，关闭期间完成静音轮次；设置空闲亮度为约 34%，系统窗口 `sbrt=0.34270832` 与设置相符。提示音触发次数、禁用期间基线更新和重新打开不补播由 Android 自动化断言；没有把未录音的模拟器或截图当作物理发声证明。
+- 使用官方 CLI 对原会话连续提交两次相同名称更新；前后实际手机 tasks 内容完全一致，保持两张卡。精确重复事件、乱序、同毫秒旧轮、并发子任务则由受控测试覆盖，不在真实 daemon 中伪造这些事件。
+- WebSocket 采样核对：两条会话各只有一个 ID / startedAt；Codex-Check 共三次完整运行与完成（首轮 Codex、后两轮 GLM），GLM-Check 一次；真实快照和 Bridge 诊断不包含测试 prompt、完整命令、文件内容或工具参数。只输出安全活动文案。
+
+可复核的去敏摘要：[真实链路采样](assets/2026-09-22-paseo-omp-15-live-summary.json)。它来自真实模型链路，与 `protocol/fixtures/paseo-omp-turns.json` 的受控上游样本明确分开。未提交私有配置、原始 daemon 日志、配对数据或模型内容。
+
+Android `medium_phone / emulator-5554` 实际渲染截图（均已查看）：
+
+- [首轮工具活动](assets/2026-09-22-paseo-omp-15-running.png)
+- [首轮正常完成](assets/2026-09-22-paseo-omp-15-completion.png)
+- [模型切换后原卡片下一轮](assets/2026-09-22-paseo-omp-15-model-switch-next.png)
+- [任务已静音、总开关关闭时继续运行](assets/2026-09-22-paseo-omp-15-muted-next.png)
+- [正常完成、总开关重新打开与亮度设置](assets/2026-09-22-paseo-omp-15-settings-completed.png)
+
+### 恢复核对
+
+安装前核对 `.custom` 包名及相同 Debug 签名，保存原 APK 与应用数据；临时 Build 23 完成验证后恢复原 Build 20。原有两个数据文件 SHA-256 全部一致，并移除仅本次测试新建的两个设置文件，最终文件集合及内容哈希完全一致。没有卸载或清空应用数据。官方 remove 只移除隔离 daemon 的本插件，stop 只针对本次独立 home；停止自己启动的 Bridge、采样器、模拟器，四个隔离端口均已关闭。
+
+### 已验证与未验证边界
+
+#15 正常轮次、两个真实模型与切换、实际 Bridge/Android 呈现、重复内容更新与任务静音已现场完成。异常精确排序、自动重试保守判断、子任务及提醒去重由受控真实接线测试覆盖。Redmi 声音/振动、物理亮度、MIUI 后台、正式安装管理、全面断线恢复和长期运行不属于本票的现场结论；分别按后续票范围验收，不作为 #15 遗留收尾。
 
 ## 文档与票据
 
-领域术语、平台安装流程、协议结构未改变，无需改写 CONTEXT.md、根/子 AGENTS 或新增 ADR。待真实验收通过后同步现行接入说明和索引、补实际证据、选择性本地提交并关闭 #15 回读。用户原有研究/规格/拆票及索引改动保留，不全量暂存。
+领域术语、平台安装流程、协议结构未改变，无需改写 CONTEXT.md、根/子 AGENTS 或新增 ADR。现行接入说明、索引、阶段记录与 handoff 同步；用户原有研究/规格/拆票及索引改动保留，不全量暂存。#15 仅在验收与文档提交完成后按授权关闭并回读；父 #13 保持 OPEN。
 
-下一票 #16 最新正文、评论、标签及原生依赖已于本 Session 读取：OPEN / ready-for-agent，无评论，仅依赖仍 OPEN 的 #15；在本票真正收尾前不启动 #16，也不把遗留验收写入下一票 prompt。
+下一票 #16 最新正文、评论、标签及原生依赖已于本 Session 读取：OPEN / ready-for-agent，无评论，仅依赖 #15；本 Session 不实施 #16–#18。其范围是等待请求、失败及取消的监控，不能顺带增加手机控制能力。完整可复制 prompt 见 [#16 新 Session](2026-09-22-paseo-omp-16-session-prompt.md)。
+
+真实证据补录后由原两位审查者分别复核：Standards 0 项未解决，Spec 0 项未解决。未新增生产代码，沿用已完成的全套检查结果；文档本地链接与 `git diff --check` 通过。

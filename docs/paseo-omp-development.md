@@ -1,6 +1,6 @@
 # Paseo–omp 开发接入
 
-当前阶段：#14 已完成真实隔离验收；#15 运行/工具活动/正常完成/下一轮的代码与自动化已完成，真实 Paseo 模型调用及 Android 现场验收尚待本 Session 授权，不能据此认定 #15 完成。详见 [#15 阶段记录](updates/2026-09-22-paseo-omp-turn-progress.md)。
+当前阶段：#14、#15 均已完成本票实现、自动化、审查和真实隔离 Paseo / Android 验收。#15 已验证两个模型的运行、工具活动、正常完成、同会话模型切换与下一轮，详见 [#15 阶段记录](updates/2026-09-22-paseo-omp-turn-progress.md#同-session-补充真实验收)。
 
 #14 已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的异常、全面重连和正式安装管理仍分别由 #16–#18 交付。
 
@@ -82,3 +82,9 @@ Swift 的 `paseoCreatedSessionReachesPhone` 用受控公开 SDK/生命周期输�
 - 同项目创建两条、另一项目创建一条；Android 配对后应显示三张卡。保持 Android 连接，再创建另一项目会话，应自动出现第四张卡。重载插件两次，对照 WebSocket 快照检查数量、ID、startedAt/updatedAt 不变。关闭插件后创建第五条，再启用检查初始清单补入，而前四条不变。
 - Android 模拟器用 `10.0.2.2` 访问主机 Bridge；仅对测试设备配对，不打印 pairing JSON。安装前备份 APK 和应用数据、核对签名及版本；本轮使用临时 Build 22，完成后恢复模拟器原 Build 20 及数据，并核对备份文件哈希一致。此恢复不作为 Redmi 降级流程。
 - 撤销时只 remove 本插件、stop 该临时 `--home` 的 daemon、终止自己启动的 Bridge 和模拟器；不修改默认 daemon 或正式 App。私有备份和配置不得提交。
+
+## #15 真实正常轮次复现补充
+
+沿用上述独立环境和恢复方式；实际模型调用必须取得当次目标及验证目的的授权。通过公开 `ref.timeline.subscribe` 观察活动，用 `ref.send` 在合成测试目录执行最小读取、写入及短暂执行，`ref.waitForFinish` 后核对公开状态与手机快照。分别核对 Codex / GLM；通过 Paseo 原生模型选择器切换同会话，再发送下一轮，核对卡片 ID / startedAt 不变。需要原生模型选择器时，仅对隔离 home 开启本地 Web UI，不改变日常 daemon。
+
+#15 使用临时 Build 23、两条会话与四轮真实调用；总开关、任务静音、重复内容更新和亮度设置的具体证据与限制见阶段记录。模拟器恢复 Build 20 后已逐文件校验；旧 #14 的 Build 22 / 无模型调用记录仍是其当时的事实。

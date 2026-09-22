@@ -4,7 +4,7 @@
 
 ## 入口
 
-- [Paseo–omp 运行与本轮完成（#15）](updates/2026-09-22-paseo-omp-turn-progress.md)：代码、自动化与双轴审查已完成；真实模型/Android 隔离验收待本 Session 授权，尚未关闭。
+- [Paseo–omp 运行与本轮完成（#15）](updates/2026-09-22-paseo-omp-turn-progress.md)：实现、自动化、双轴审查与真实 Paseo / Android 隔离验收均完成；含模型切换、下一轮及恢复证据。
 
 - [Paseo–omp 开发接入（#14）](paseo-omp-development.md)：官方插件、隔离启用与撤销、安全边界；[本票验证记录](updates/2026-09-22-paseo-omp-discovery.md)。源码与自动化交付不等于现场安装验收。
 

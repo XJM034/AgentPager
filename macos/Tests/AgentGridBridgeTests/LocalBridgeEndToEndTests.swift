@@ -1018,8 +1018,11 @@ func paseoAttentionReachesPhone() async throws {
     try input.fileHandleForWriting.write(contentsOf: Data("plan\n".utf8))
     let plan = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .waitingAnswer }
     #expect(plan.tasks.first?.latestStep == "请回到 Paseo 处理待确认事项")
-    try input.fileHandleForWriting.write(contentsOf: Data("other\nstale-resolved\nresolve-all\ncanceled\n".utf8))
-    let canceled = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .interrupted }
+    try input.fileHandleForWriting.write(contentsOf: Data("other\nstale-resolved\ncanceled\n".utf8))
+    let canceled = try await nextSnapshot(from: phone) { snapshot in
+        #expect(snapshot.tasks.first?.lifecycle != .running)
+        return snapshot.tasks.first?.lifecycle == .interrupted
+    }
     #expect(canceled.tasks.first?.latestStep == "本轮已取消")
     #expect(canceled.tasks.first?.completedAt != nil)
     let snapshots = [initial, running, waiting, question, stillWaiting, resumed, failed, next, plan, canceled]

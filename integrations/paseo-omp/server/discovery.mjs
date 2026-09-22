@@ -148,6 +148,9 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     if (state.ended) return;
     state.summary = summary;
     if (summary.status === 'running' && !state.activity) state.activity = 'thinking';
+    // A cleared request in an already idle/failed turn is not resumed execution.
+    // Wait for turn_ended to emit the outcome atomically, without a false start cue.
+    if (state.turnID && !turnID && (agent.status === 'idle' || agent.status === 'error')) return;
     emit(agent.id);
   }
   /** @param {string} id @param {import('@getpaseo/client').PaseoAgentTimelineEvent} message */

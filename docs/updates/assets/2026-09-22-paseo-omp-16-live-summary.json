@@ -1,0 +1,468 @@
+{
+  "versions": {
+    "paseo": "0.8.0",
+    "omp": "18.2.8",
+    "androidBuild": 24
+  },
+  "provenance": {
+    "TurnTest": "controlled public SDK inputs through production adapter and real Bridge",
+    "Codex-Check": "real Paseo model session",
+    "GLM-Check": "real Paseo model session"
+  },
+  "projects": {
+    "TurnTest": {
+      "identityCount": 1,
+      "startedAtCount": 1,
+      "capabilitiesAlwaysEmpty": true,
+      "transitions": [
+        {
+          "at": 1790066630895,
+          "state": {
+            "lifecycle": "idle",
+            "activity": null,
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066659459,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066659460,
+          "state": {
+            "lifecycle": "waitingApproval",
+            "activity": null,
+            "latestStep": "请回到 Paseo 处理工具审批"
+          }
+        },
+        {
+          "at": 1790067250170,
+          "state": {
+            "lifecycle": "waitingAnswer",
+            "activity": null,
+            "latestStep": "请回到 Paseo 处理待确认事项"
+          }
+        },
+        {
+          "at": 1790067269825,
+          "state": {
+            "lifecycle": "waitingApproval",
+            "activity": null,
+            "latestStep": "请回到 Paseo 处理工具审批"
+          }
+        },
+        {
+          "at": 1790067284703,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067308361,
+          "state": {
+            "lifecycle": "waitingApproval",
+            "activity": null,
+            "latestStep": "请回到 Paseo 处理工具审批"
+          }
+        },
+        {
+          "at": 1790067308362,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067308365,
+          "state": {
+            "lifecycle": "interrupted",
+            "activity": null,
+            "latestStep": "本轮执行失败，请回到 Paseo 查看"
+          }
+        },
+        {
+          "at": 1790067328563,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067328564,
+          "state": {
+            "lifecycle": "waitingAnswer",
+            "activity": null,
+            "latestStep": "请回到 Paseo 处理待确认事项"
+          }
+        },
+        {
+          "at": 1790067344702,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067344702,
+          "state": {
+            "lifecycle": "interrupted",
+            "activity": null,
+            "latestStep": "本轮已取消"
+          }
+        }
+      ]
+    },
+    "Codex-Check": {
+      "identityCount": 1,
+      "startedAtCount": 1,
+      "capabilitiesAlwaysEmpty": true,
+      "transitions": [
+        {
+          "at": 1790066657141,
+          "state": {
+            "lifecycle": "idle",
+            "activity": null,
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066808891,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066812175,
+          "state": {
+            "lifecycle": "running",
+            "activity": "reading",
+            "latestStep": "读取文件"
+          }
+        },
+        {
+          "at": 1790066812190,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066814072,
+          "state": {
+            "lifecycle": "running",
+            "activity": "executing",
+            "latestStep": "执行工具"
+          }
+        },
+        {
+          "at": 1790066814073,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066815799,
+          "state": {
+            "lifecycle": "running",
+            "activity": "editing",
+            "latestStep": "编辑文件"
+          }
+        },
+        {
+          "at": 1790066815801,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066817831,
+          "state": {
+            "lifecycle": "succeeded",
+            "activity": null,
+            "latestStep": null
+          }
+        }
+      ]
+    },
+    "GLM-Check": {
+      "identityCount": 1,
+      "startedAtCount": 1,
+      "capabilitiesAlwaysEmpty": true,
+      "transitions": [
+        {
+          "at": 1790066659348,
+          "state": {
+            "lifecycle": "idle",
+            "activity": null,
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066808902,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790066811638,
+          "state": {
+            "lifecycle": "waitingAnswer",
+            "activity": null,
+            "latestStep": "请回到 Paseo 处理待确认事项"
+          }
+        },
+        {
+          "at": 1790067262753,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067262755,
+          "state": {
+            "lifecycle": "interrupted",
+            "activity": null,
+            "latestStep": "本轮已取消"
+          }
+        },
+        {
+          "at": 1790067302618,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067309000,
+          "state": {
+            "lifecycle": "running",
+            "activity": "reading",
+            "latestStep": "读取文件"
+          }
+        },
+        {
+          "at": 1790067309014,
+          "state": {
+            "lifecycle": "running",
+            "activity": "executing",
+            "latestStep": "执行工具"
+          }
+        },
+        {
+          "at": 1790067309015,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067311435,
+          "state": {
+            "lifecycle": "running",
+            "activity": "editing",
+            "latestStep": "编辑文件"
+          }
+        },
+        {
+          "at": 1790067311442,
+          "state": {
+            "lifecycle": "running",
+            "activity": "thinking",
+            "latestStep": null
+          }
+        },
+        {
+          "at": 1790067313055,
+          "state": {
+            "lifecycle": "succeeded",
+            "activity": null,
+            "latestStep": null
+          }
+        }
+      ]
+    }
+  },
+  "privacyMarkersAbsent": true,
+  "publicStatusObservations": [
+    [
+      {
+        "name": "Codex-Check",
+        "status": "idle",
+        "activeTurn": false,
+        "mode": "full",
+        "requests": [],
+        "at": 1790066844826
+      },
+      {
+        "name": "GLM-Check",
+        "status": "running",
+        "activeTurn": true,
+        "mode": "full",
+        "requests": [
+          {
+            "kind": "question",
+            "name": "OMP select"
+          }
+        ],
+        "at": 1790066844827
+      }
+    ],
+    [
+      {
+        "name": "Codex-Check",
+        "status": "idle",
+        "activeTurn": false,
+        "mode": "full",
+        "requests": [],
+        "at": 1790067263260
+      },
+      {
+        "name": "GLM-Check",
+        "status": "idle",
+        "activeTurn": false,
+        "mode": "full",
+        "requests": [],
+        "at": 1790067263261
+      }
+    ],
+    [
+      {
+        "name": "Codex-Check",
+        "status": "idle",
+        "activeTurn": false,
+        "mode": "full",
+        "requests": [],
+        "at": 1790067356500
+      },
+      {
+        "name": "GLM-Check",
+        "status": "idle",
+        "activeTurn": false,
+        "mode": "full",
+        "requests": [],
+        "at": 1790067356500
+      }
+    ]
+  ],
+  "publicToolEvents": [
+    {
+      "agent": "GLM-Check",
+      "at": 1790066811634,
+      "tool": "ask",
+      "status": "running"
+    },
+    {
+      "agent": "Codex-Check",
+      "at": 1790066812172,
+      "tool": "read",
+      "status": "running"
+    },
+    {
+      "agent": "Codex-Check",
+      "at": 1790066812185,
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "agent": "Codex-Check",
+      "at": 1790066814071,
+      "tool": "bash",
+      "status": "running"
+    },
+    {
+      "agent": "Codex-Check",
+      "at": 1790066814072,
+      "tool": "bash",
+      "status": "completed"
+    },
+    {
+      "agent": "Codex-Check",
+      "at": 1790066815797,
+      "tool": "write",
+      "status": "running"
+    },
+    {
+      "agent": "Codex-Check",
+      "at": 1790066815800,
+      "tool": "write",
+      "status": "completed"
+    },
+    {
+      "agent": "GLM-Check",
+      "at": 1790067308998,
+      "tool": "read",
+      "status": "running"
+    },
+    {
+      "agent": "GLM-Check",
+      "at": 1790067309008,
+      "tool": "bash",
+      "status": "running"
+    },
+    {
+      "agent": "GLM-Check",
+      "at": 1790067309009,
+      "tool": "read",
+      "status": "completed"
+    },
+    {
+      "agent": "GLM-Check",
+      "at": 1790067309058,
+      "tool": "bash",
+      "status": "failed"
+    },
+    {
+      "agent": "GLM-Check",
+      "at": 1790067311431,
+      "tool": "write",
+      "status": "running"
+    },
+    {
+      "agent": "GLM-Check",
+      "at": 1790067311437,
+      "tool": "write",
+      "status": "completed"
+    }
+  ],
+  "resourceObservation": {
+    "bridgeElapsedMinutes": 14,
+    "cpuPercent": 0.0,
+    "rssKiB": 39488,
+    "scope": "single observation, not long-term benchmark"
+  },
+  "restoration": {
+    "versionCode": 20,
+    "restoredFiles": 2,
+    "removedTestOnlyFiles": 0,
+    "fileSetAndHashesMatch": true,
+    "apkHashMatch": true,
+    "portsClosed": {
+      "paseo": true,
+      "hook": true,
+      "phone": true,
+      "ingress": true
+    }
+  }
+}

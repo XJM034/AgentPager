@@ -34,3 +34,18 @@ Android 使用同一快照验证网络接收、呈现、无动作能力、提醒
 真实隔离 Paseo 插件安装、实际模型调用与 Android 模拟器渲染待本 Session 用户授权后执行；不会沿用前票授权。Standards / Spec 双轴初审均发现同一 P1 并发刷新竞态：较旧刷新先返回会使较新解决结果被版本门禁丢弃。补充两个重叠 deferred Promise 的真实 Bridge 测试，先超时失败，改为每会话合并刷新与 dirty 后再次读取后通过。修复提交 `d725129` 后两路独立复审通过：Standards 0 剩余发现；Spec 0 剩余代码发现，仍有真实验收门槛。两位审查者分别重跑实际 TCP 竞态复现，较新请求与恢复结果均保留；Standards 另独立重跑本票 Swift 集成测试通过。最终文档与票据收尾尚未完成。本记录是阶段证据，不能作为 #16 已完成或关票依据。
 
 #14/#15 最终验收已完成，不补办前票；不实施 #17/#18，不推送、不发布、不关闭父 #13。
+
+
+## 同 Session 真实验收与追加修复
+
+用户在本 Session 回复“允许”后，在新的私有 Paseo home、四个独立 loopback 端口和隔离 Bridge 实施；实际安装官方插件并确认 running。Paseo 0.8.0、omp 18.2.8；Android medium_phone / emulator-5554，临时 Build 24，与原 Build 20 的 Debug 签名一致。没有改日常 daemon、/Applications 或 Redmi。
+
+首次真实验证包含两条真实会话、三轮调用：Codex 正常工具序列；GLM 原生 ask 问答后通过 Paseo 原生 stop 取消；同一 GLM 会话下一轮执行。两条均保持 Full Access（公开 currentModeId=full）。Codex 的非零退出在公开 timeline 中仍是 completed；GLM bash 明确报告 failed 后继续 write 并最终 succeeded。两模型结果文件均正确。不把 Codex 的非零退出冒充公开 failed 证据。
+
+GLM 的真实 ask 产生 kind=question / OMP select；手机 waitingAnswer、安全文案、空能力集合，实际 Android 显示需要回到 Paseo。Paseo 原生停止后 pendingPermissions 为空、activeTurn 为空、手机 interrupted / 本轮已取消。没有发送工具审批或问答回答指令。原生工具审批、并发/重复/过期事件、整轮 failed 由受控上游贯通实际适配器、Bridge、Android 设备渲染验证；不冒充真实模型产生事件。
+
+逐段受控设备验证：工具审批 → 混合一般问题 → 解决部分后仍工具等待 → 全部解决后运行 → 并发刷新恢复 → 整轮失败 → 下一轮计划/other → 取消。Android 布局核对安全文案且无允许/拒绝/发送回答/停止/重试按钮；七张截图已逐张查看。
+
+首次现场摘要：[采样与恢复](assets/2026-09-22-paseo-omp-16-live-summary.json)。其中 TurnTest 明确为受控输入，Codex-Check/GLM-Check 为真实模型。截图：[工具审批和真实问答](assets/2026-09-22-paseo-omp-16-approval.png)、[一般问题](assets/2026-09-22-paseo-omp-16-controlled-question.png)、[部分解决与真实取消](assets/2026-09-22-paseo-omp-16-controlled-partial.png)、[恢复运行](assets/2026-09-22-paseo-omp-16-controlled-resumed.png)、[失败](assets/2026-09-22-paseo-omp-16-controlled-failed.png)、[计划](assets/2026-09-22-paseo-omp-16-controlled-plan.png)、[取消](assets/2026-09-22-paseo-omp-16-controlled-canceled.png)。
+
+复核现场采样发现，请求清除且权威状态已 idle/无 activeTurn 时，等待到取消间仍发出一次 running。新增高层测试复现“等待取消前不应出现 running”的红灯，修复为等待 turn_ended 原子发布结果，测试转绿；不再把已空闲的轮次伪装成恢复执行。当前追加隔离实测及双轴复审进行中，首次采样保留修复前过渡事实，不覆盖为最终证据。

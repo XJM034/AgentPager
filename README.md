@@ -15,6 +15,8 @@
 
 AgentPager 将 Codex Desktop、Codex CLI 与 Claude Code 的运行状态通过局域网实时同步到旧 Android 手机。把手机横放在桌面上，它就会变成一个常亮、安静，又能在关键时刻提醒你的 Agent 控制台。
 
+> **个人定制版补充（`alexx_custom`）**：本分支还支持 ZCode 会话监控、手机批准/拒绝本次工具请求，以及可选 GLM Coding Plan 额度。Mac Bridge 在系统钥匙串中保存用户主动提供的独立 Key，Android 展示额度快照；免重复 Key 接入仍是后续优化。启用方法、控制范围与验收记录见 [ZCode / GLM 现行说明](docs/zcode-glm-integration.md)，维护入口见 [项目文档](docs/README.md)。下方通用支持表与发布下载说明保留上游基线，不能据此判断定制功能已包含在上游发布包中。
+
 ## 查看效果
 
 <p align="center"><img src="artifacts/converted.gif" width="400" alt="状态更新动画演示"></p>
@@ -122,6 +124,8 @@ Windows 首版支持原生 Codex（PowerShell 环境），暂不支持 Codex 运
 </p>
 
 AgentPager synchronizes the live status of Codex Desktop, Codex CLI, and Claude Code to an old Android phone. Place the phone horizontally on your desk and it becomes an always-on, quiet agent console that gets your attention when it matters.
+
+> **Custom branch (`alexx_custom`)**: This fork also supports ZCode session monitoring, per-request phone approvals, and optional GLM Coding Plan quota display. The Mac Bridge stores a separately supplied Key in Keychain; Android receives quota snapshots. Reusing ZCode login credentials without another Key remains future work. See the [current ZCode / GLM guide](docs/zcode-glm-integration.md). The upstream support tables and release links below do not establish availability in upstream builds.
 
 ## See It in Action
 

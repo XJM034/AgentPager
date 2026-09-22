@@ -13,11 +13,26 @@
 | GLM 独立 Key 额度连接 | 已实现；用户在 Mac Bridge 主动保存 Key，Bridge 查询并向 Android 发送裁剪快照 | 不代表复用了 ZCode 登录态，或接口具有官方长期兼容承诺 |
 | 无重复 Key 的 GLM 额度接入 | 尚未实现；2026-08-29 的 #12 Gate 未找到满足条件的官方接缝 | Gate 未通过不等于独立 Key 查询代码不存在或一定不可用 |
 
+2026-08-31，用户明确确认本期接受“在 Mac 保存一次独立 Key”，将无重复 Key 移出本期必达范围，保留为 #12 后续优化，不再阻塞 #10 / #1 收尾。这是用户确认的范围变更，不是无重复 Key 已实现，也不改变凭据和私有接口的安全边界。依据与验收限制见 [本期范围确认与 Issue 收尾](updates/2026-08-31-zcode-glm-scope-closeout.md)。
+
 用户后来反馈“GLM 额度检测可用”，见
 [2026-08-31 补录](updates/2026-08-31-zcode-glm-documentation-sync.md)。
 该反馈应保留为用户实测证据，不补造测试版本、数值、鉴权方式或完整验收结论。
 
 ## ZCode 会话与权限
+
+### 启用与使用
+
+1. 使用本仓库的 macOS Bridge 与 Android 定制版，先按 [Android 开发流程](android-development.md)完成局域网配对和连接。
+2. 在 Mac Bridge 的“配置 → ZCode”查看 Hook 状态，需要接入时点击“安装或修复”。Hook 是 ZCode 向 Bridge 报告会话事件和请求审批的本地连接程序；安装会按现有流程保留配置与备份。
+3. 安装后新建 ZCode Session，使新配置生效。手机会显示带 ZCode 来源的任务；只有 ZCode 实际请求权限时，手机才出现本次批准/拒绝入口。历史验收采用“变更前确认”模式，“自动编辑”不一定触发审批。
+4. 如需同时显示 GLM 额度，展开同一 ZCode 区域下的“GLM 额度连接（可选）”，主动保存并验证 Coding Plan Key。会话监控和手机审批可以独立使用。
+
+当前手机控制仅限本次工具请求的批准/拒绝；不支持从手机新建 ZCode 任务、发送后续 prompt、回答问题、停止或重试会话。ZCode 本轮 Stop 在 Bridge 中保持为空闲，Android 显示绿色本轮完成反馈 90 秒，可以继续同一会话。
+
+“代码支持”与“本机 Hook 已启用”分别核实：2026-08-29 验收后曾恢复为未安装状态；后续使用须以 Bridge 当前界面为准，不能从旧验收记录推断仍已安装。
+
+### 状态与保护边界
 
 - Android 的 ZCode 会话只保留彩色来源标签，不显示右侧重复的灰色“ZCode”；Codex 的 Terminal / ChatGPT.app 标签保留。
 - 七类 Hook 为 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、PermissionRequest、PostToolUseFailure、Stop。
@@ -33,7 +48,7 @@
 
 ## GLM 数据来源与展示
 
-2026-09-15 Mac 轻量化继续保留 Codex General / Spark、GLM 的当前剩余额度、重置时间和刷新入口。Mac 默认停止生成 90 天用量及费用估算，Android 代码、当前额度呈现和 GLM 查询链路未修改。实现与验证边界见 [Mac 轻量化记录](updates/2026-09-15-macos-lightweight-memory.md)。
+2026-09-20 起，当前额度只保留 Codex General 与 GLM；Spark 监控及展示已移除。Mac 默认不生成 90 天用量及费用估算。Codex 改用本机登录账号的实时查询，GLM 查询链路保持原样。实现与验证边界见 [额度同步修复](updates/2026-09-20-codex-quota-spark-removal.md)；此前状态见 [Mac 轻量化记录](updates/2026-09-15-macos-lightweight-memory.md)。
 
 现行链路：Mac Bridge 设置中的“配置 → ZCode → GLM 额度连接（可选）” → 系统钥匙串中的独立 Key →
 BigModel 额度查询 → `UsageProviderSnapshot` → Android。Android 不保存或接收 GLM Key。
@@ -45,13 +60,13 @@ BigModel 额度查询 → `UsageProviderSnapshot` → Android。Android 不保�
 - “授权读取”是用户主动入口；系统授权后先复查静默读取，再立即查询额度。系统中的“始终允许”可保留该应用的访问权限；仅“允许”可能不足以支持后台持续读取，复查失败时不能报告可用。授权没有十分钟的有效期。
 - 无法读取 Key 时不继续使用内存缓存的 Key；已有额度保留为陈旧数据，最后成功时间不前移；没有成功数据时显示不可用。Android 沿用现有 `stale_unavailable` / `unavailable` 状态，不新增协议字段。
 - 授权能否跨 App 更新复用取决于签名身份和钥匙串分区。临时签名及本机自签证书均可能按每版二进制指纹授权，不能把相同证书等同于更新免授权；Apple 团队签名与真实账号持续刷新仍需单独验收。见 [钥匙串修复记录](updates/2026-08-31-glm-keychain-authorization.md)及[分区权限诊断](updates/2026-08-31-macos-keychain-partition-signing.md)。
-- 有可信窗口时：顶栏按 `CODEX → GLM` 分区，两者使用同级青蓝标题；Codex 区内按 `GEN → SPARK` 显示，`GEN` 仅为首页 `GENERAL` 的短标签。周期紧凑显示为 `5h / 7d`，只展示实际收到的窗口，不补出不存在的限额；当前截图和默认预览中的 General 仅有 `7d`。GLM 包含 5 小时与每周剩余比例；详情仍可切换 `CODEX / GLM`，完整名称不变。
+- 有可信窗口时：顶栏按 `CODEX → GLM` 分区，两者使用同级青蓝标题；Codex 区直接显示周期与剩余比例，不再显示 `GEN` 分组标签。周期紧凑显示为 `5h / 7d`，只展示实际收到的窗口，不补出不存在的限额；当前截图和默认预览中的 General 仅有 `7d`。GLM 包含 5 小时与每周剩余比例；详情仍可切换 `CODEX / GLM`，完整名称不变。
 - 平台标题与额度同行显示，避免标题单独占一行；顶栏超宽时只横滑额度区，设置和状态视图切换按钮保持固定。顶部外边距为 6dp，任务列表按顶栏实际高度加 2dp 间距避让。后续新增提供方可复用分区布局，但本次没有新增任何额度接入。见 [首页额度分组更新](updates/2026-08-31-android-quota-provider-ui.md)。
 - 刷新失败、鉴权失败、套餐过期和额度耗尽分别表达；只有允许保留旧窗口的状态才显示最后可信值，并明确其陈旧/错误状态。缺失数据不伪造成 0% 或 100%。
 - `percentage` 是上游已用比例；`remainingAmount` 保留上游独立 `remaining`，不能用总额减已用量重算。`level` 是不透明可选字段，套餐名默认“GLM Coding Plan”。完整字段与时间语义见共享协议。
 
-Codex 的现行路径不同：[CodexUsageLoader](../macos/Sources/AgentGridCore/CodexUsageLoader.swift)
-读取本地 Session JSONL 中已有的 `rate_limits`。ZCode 的本地 Token 统计不能代替套餐余额。
+Codex 的现行路径不同：[CodexAccountUsageLoader](../macos/Sources/AgentGridCore/CodexAccountUsageLoader.swift)
+通过本机 Codex CLI 查询 `account/rateLimits/read`，每 60 秒更新当前登录账号的额度；不再使用 Session JSONL 中的旧余额。查询不可用时不显示旧日志额度，也不推算成 100%。需本机 CLI 登录账号与希望监控的 Codex 账号一致。ZCode 的本地 Token 统计不能代替套餐余额。
 [无重复 Key Gate 记录](updates/2026-08-29-issue-12-no-duplicate-key-glm-quota-gate.md)
 是指定版本和日期下的接入调查，不是对所有未来版本的结论，也不撤销现有独立 Key 实现的事实。
 
@@ -61,6 +76,8 @@ OAuth、Cookie、provider 或私有缓存，不调用私有 Electron RPC。
 既有调研记录中的辅助查询政策、公开分发前官方确认与上游兼容风险仍未被“测试可用”消除。
 
 ## 实现与测试入口
+
+将本项目交给 ZCode、Codex 或 Claude Code 继续维护时，明确要求读取根 `AGENTS.md`、`docs/README.md` 与本页，再按目标平台读取 `android/AGENTS.md` 或 `macos/AGENTS.md`。`CLAUDE.md` 与各级 `AGENTS.md` 保持镜像；功能支持不证明某个开发 Agent 已自动加载这些文件。ZCode 的项目指令自动加载与 Skill 发现未在本次验证，不新增未经验证的专属配置文件或托管 Skill 副本。
 
 | 范围 | 实现入口 | 自动化入口 |
 | --- | --- | --- |
@@ -87,7 +104,8 @@ Windows 只保留协议解析与转发兼容；实际 Windows 验证仍按
 - GLM 独立 Key 路径与详情：[Issue #7](updates/2026-08-29-issue-7-glm-coding-plan-quota.md)、[可选连接收尾](updates/2026-08-29-issue-7-optional-glm-follow-up.md)、[Issue #8](updates/2026-08-29-issue-8-glm-quota-details.md)。
 - 合成端到端和现场范围：[Issue #9](updates/2026-08-29-issue-9-cross-platform-integration-acceptance.md)、[Issue #10](updates/2026-08-29-issue-10-final-zcode-redmi-acceptance.md)。#10 当轮未验证真实 GLM Key 路径，该历史事实保留。
 - 后续用户报告：[GLM 可用反馈及文档同步记录](updates/2026-08-31-zcode-glm-documentation-sync.md)。不能忽略此反馈，也不能把它提升为完整独立复验。
-- Mac 重复授权修复：[早期授权修复验收](updates/2026-08-31-glm-keychain-authorization.md)及[分区诊断与 Apple 签名验收](updates/2026-08-31-macos-keychain-partition-signing.md)。Build 15、Build 16 均通过同版本重启及两个真实十分钟周期，但自签名的 Build 15 → 16 未沿用权限。后续经用户批准切换 Apple Development，Build 17 首次授权后，Build 17 → 18 真实升级及 Build 18 重启直接取得最新 GLM 额度。当前安装 Build 18，最终自动刷新记录为 15:29 → 15:39 → 15:49；覆盖升级、重启与两个周期的系统授权弹窗计数为 0。Redmi 画面和更长时间运行未复验。历史失败不能被隔离测试或相同签名结论覆盖。
+- Mac 重复授权修复：[早期授权修复验收](updates/2026-08-31-glm-keychain-authorization.md)及[分区诊断与 Apple 签名验收](updates/2026-08-31-macos-keychain-partition-signing.md)。Build 15、Build 16 均通过同版本重启及两个真实十分钟周期，但自签名的 Build 15 → 16 未沿用权限。后续经用户批准切换 Apple Development，Build 17 首次授权后，Build 17 → 18 真实升级及 Build 18 重启直接取得最新 GLM 额度。记录中的安装版本为 Build 18，最终自动刷新记录为 15:29 → 15:39 → 15:49；覆盖升级、重启与两个周期的系统授权弹窗计数为 0。当时未复验 Redmi 画面；后续真机证据见下一项。历史失败不能被隔离测试或相同签名结论覆盖。
+- Redmi 真实 GLM 首页：[Android Build 14 安装及用户验收](updates/2026-08-31-android-quota-provider-ui.md)。实际首页显示 Bridge 任务、GLM 的 5h / 7d 与 Codex 分区，用户反馈“没啥问题”。这补足真实手机显示证据，不代替最新版与官网同时间的重置时间对照、真实额度错误注入、大字体或长期运行复验。
 
 新验收应分别写明：代码/自动化、Agent 现场验证、用户反馈、未验证项。
 涉及真实额度时需记录脱敏的构建版本、两个窗口及重置时间对照、手机展示和刷新结果，
@@ -96,6 +114,6 @@ Windows 只保留协议解析与转发兼容；实际 Windows 验证仍按
 ## 后续变更与任务状态
 
 - 本文维护现行行为和阅读入口；稳定平台命令留在平台开发文档，单次结果写入 `updates/`，不覆盖旧验收的时点和范围。
-- 原始无重复 Key 目标的变更需要用户明确确认；不能用“独立 Key 可用”或“无 Key 隐藏卡片”自动替代它。
-- #12 的恢复条件与历史判断见 Gate 记录；继续任务前按 [Issue Tracker 规则](agents/issue-tracker.md)读取 GitHub 当前正文、评论与阻塞关系。本文不维护重复的活动队列，也不授权关闭 #12、#10 或 #1。
+- 用户已于 2026-08-31 确认本期独立 Key 方案及 #10 / #1 收尾；未复验项继续保留，不能把关闭 Issue 写成原始全部验收条件均通过。#12 的无重复 Key 目标仍未实现。
+- #12 保留为后续优化，等待受支持的官方接口或新的产品决定，不再阻塞本期。历史 Gate 中要求 #10 / #1 必须保持 OPEN 的条款仅代表 2026-08-29 范围，已被本次明确授权的范围变更替代；#12 自身的安全门槛不变。继续任务前仍按 [Issue Tracker 规则](agents/issue-tracker.md)读取 GitHub 最新正文、评论和依赖，不依据旧快照自动关票。
 - 改动数据来源、Hook/权限、安全边界或验收口径时，同步本文、相关协议/测试与日期化记录；按根规则重新运行 `$claude-agents-bootstrap`。

@@ -1,6 +1,6 @@
 # Android Agent 开发环境
 
-本文说明如何在本仓库使用 Codex 或 Claude Code 定制 Android App，并区分 UI 预览、模拟器验证和 Redmi 真机验收。
+本文说明本仓库 Android App 的开发流程，并区分 UI 预览、模拟器验证和 Redmi 真机验收。处理 ZCode 任务、手机审批或 GLM 额度时，先读 [现行功能与验收边界](zcode-glm-integration.md)；使用 ZCode 等开发 Agent 接手时，按该页的文档阅读入口建立上下文。
 
 ## 服务与工具状态
 

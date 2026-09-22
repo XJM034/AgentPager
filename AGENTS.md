@@ -2,6 +2,8 @@
 
 本仓库用于在原作者 AgentPager 基础上长期维护个人 Android App 与 macOS AgentPager Bridge 定制版；两端都是常规维护范围。Windows、协议和站点除非用户明确要求或改动涉及跨平台契约，否则保持不变。
 
+定制版已实现 ZCode 会话监控、手机本次批准/拒绝及可选的独立 Key GLM 额度显示；启用步骤、限制和验收依据集中在 [现行功能说明](docs/zcode-glm-integration.md)。
+
 ## 每次会话先做
 
 1. 运行 `git status --short --branch`，确认当前分支和未提交改动；普通个人定制应位于长期分支 `alexx_custom`，发现其它分支时不要擅自创建、切换或改名。

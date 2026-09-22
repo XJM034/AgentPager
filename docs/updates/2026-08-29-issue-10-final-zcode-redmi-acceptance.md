@@ -1,5 +1,7 @@
 # Issue #10：最终真实 ZCode、默认无 GLM Key 与 Redmi 验收
 
+> 后续收尾（2026-08-31）：用户确认本期接受在 Mac 保存一次独立 Key，免重复 Key 留为 #12 后续优化；真实 GLM 与 Redmi Build 14 的新证据及未复验项见 [本期范围确认](2026-08-31-zcode-glm-scope-closeout.md)。本页继续保留 Build 13 当时的验证范围。
+
 日期：2026-08-29
 
 ## 结果与范围

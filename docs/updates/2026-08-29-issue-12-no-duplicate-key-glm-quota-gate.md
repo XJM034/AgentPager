@@ -2,6 +2,8 @@
 
 日期：2026-08-29
 
+> 后续范围调整（2026-08-31）：用户确认本期接受独立 Key 方案，#12 保留为后续优化，不再阻塞 #10 / #1。下文 Gate 未通过及安全约束仍成立，但要求 #10 / #1 保持 OPEN 的历史条款已由用户明确变更。见 [本期范围确认](2026-08-31-zcode-glm-scope-closeout.md)。
+
 范围：GitHub [Issue #12](https://github.com/XJM034/AgentPager/issues/12)。本轮只读取当前安装版本的公开元数据、CLI 帮助和安装包内严格限定的协议注册/处理器元数据，并核对 ZCode、Z.ai、智谱官方文档、官方公开仓库固定提交和公开 OpenAPI；没有读取 ZCode OAuth、Cookie、provider 配置、登录缓存、Key 或 `coding-plan-cache` 内容，没有启动 app-server、调用协议方法或探测私有 Electron RPC，没有调用真实 GLM 额度接口，也没有修改 ZCode、Bridge、Android、Redmi 或任何端口状态。
 
 ## 结论摘要

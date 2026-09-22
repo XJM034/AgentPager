@@ -24,10 +24,13 @@ Android 使用同一快照验证网络接收、呈现、无动作能力、提醒
 - `npm run check --prefix integrations/paseo-omp` 通过；官方 SDK 0.8.0 类型和官方固定版本插件 reference 已核对。Context7 没有 Paseo 匹配资料，使用官方文档和本地固定版本类型。
 - `swift test --package-path macos --no-parallel`：177 Core + 15 Bridge = 192 项通过。
 - Android JDK 17 / Gradle 8.13 / SDK 36：91 项单元测试、Lint、Debug 构建通过。
+- Windows Core 兼容测试 7/7 通过（沿用临时 .NET SDK 8.0.425，EnableWindowsTargeting）；不代表 Windows 桌面实测。
 - 无共享手机协议字段或枚举变化；复用 waitingApproval、waitingAnswer、interrupted、latestStep 与既有能力集合。Windows 不增加采集或控制。
+
+实现提交 `689770a`；审查修复提交 `d725129`。修复后 SDK 类型检查、3 项 Paseo Swift 集成与 Android Omp/PhoneSession 定向复验通过。
 
 ## 当前未完成
 
-真实隔离 Paseo 插件安装、实际模型调用与 Android 模拟器渲染待本 Session 用户授权后执行；不会沿用前票授权。Standards / Spec 双轴初审均发现同一 P1 并发刷新竞态：较旧刷新先返回会使较新解决结果被版本门禁丢弃。补充两个重叠 deferred Promise 的真实 Bridge 测试，先超时失败，改为每会话合并刷新与 dirty 后再次读取后通过。独立复审、最终文档与票据收尾尚未完成。本记录是阶段证据，不能作为 #16 已完成或关票依据。
+真实隔离 Paseo 插件安装、实际模型调用与 Android 模拟器渲染待本 Session 用户授权后执行；不会沿用前票授权。Standards / Spec 双轴初审均发现同一 P1 并发刷新竞态：较旧刷新先返回会使较新解决结果被版本门禁丢弃。补充两个重叠 deferred Promise 的真实 Bridge 测试，先超时失败，改为每会话合并刷新与 dirty 后再次读取后通过。修复提交 `d725129` 后两路独立复审通过：Standards 0 剩余发现；Spec 0 剩余代码发现，仍有真实验收门槛。两位审查者分别重跑实际 TCP 竞态复现，较新请求与恢复结果均保留；Standards 另独立重跑本票 Swift 集成测试通过。最终文档与票据收尾尚未完成。本记录是阶段证据，不能作为 #16 已完成或关票依据。
 
 #14/#15 最终验收已完成，不补办前票；不实施 #17/#18，不推送、不发布、不关闭父 #13。

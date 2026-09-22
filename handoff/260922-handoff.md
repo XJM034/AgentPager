@@ -27,13 +27,14 @@
 ## 5. 未完成事项
 
 1. #14 开发、自动化和本票范围的真实隔离演示均已完成，无需再开 Session 补验收。
-2. #14 远端仍 OPEN：用户仅授权本地提交，未修改 GitHub 状态。#15 技术前置已满足，但 tracker 仍有阻塞边；正式开工前按授权处理子票状态，不关闭父 #13。
+2. #14 已于 2026-09-22 15:35（Asia/Shanghai）按用户后续收尾授权关闭为 completed；已回读 CLOSED。#15 原生依赖仅 #14，状态 closed，现已具备开工条件。父 #13 保持 OPEN。无需下一 Session 再处理 #14。
 3. Redmi 真机提醒/后台、正式安装管理、签名升级和长期运行属于 #18，未实施。Windows 仅在 macOS 运行 Core 编解码测试，未运行 Windows 桌面 App。
 
 ## 6. 建议接手路径
 
 - 先读本票更新记录的“同 Session 补充真实验收”、当前 Git 状态与最新 #14/#13；不要将首次提交时的缺口当成最终状态。
-- 不自动实施 #15–#18；用户另行授权下一票时，沿用稳定身份、Paseo 入口和现有测试接缝。
+- 本 Session 不实施 #15–#18；用户在新 Session 提交 #15 prompt 后，仅实施 #15，沿用稳定身份、Paseo 入口和现有测试接缝。
+- 用户要求每张票在所属 Session 内完成实现、测试、审查、文档、提交和获授权的票据状态收尾，再给下一票完整 prompt；不得将本票遗留收尾转交下一 Session。
 - 自动化入口：`paseoCreatedSessionReachesPhone`、`OmpTaskPresentationTest`、`PhoneSessionTest`、共享 fixture `paseo-omp-discovery.json`。
 - 可重复真实演示步骤在 `docs/paseo-omp-development.md`；截图在 `docs/updates/assets/2026-09-22-paseo-omp-android.png`。不读取或输出私有 token、配对数据及模型凭据。
 
@@ -42,4 +43,4 @@
 本票只发现会话；完整轮次、归档后清理、失联恢复及正式配置 UI 未实现。新入口短超时且有界，离线/队列过载可能漏发现；不要扩大成全面恢复已交付。隔离开发 App 使用独立端口、专属文件和临时配对，不读取真实额度。短时启动资源观察不能代替长时间性能验收。
 
 下一位 Agent 的第一步建议：
-运行 `git status --short --branch`，阅读本票更新记录，确认用户授权的是 Issue 状态收尾还是下一张票，勿自行连续开发。
+运行 `git status --short --branch`，阅读本票更新记录，核对 #15 正文、评论及依赖，按新 Session 用户 prompt 实施 #15；#14 已收尾，不再补办。

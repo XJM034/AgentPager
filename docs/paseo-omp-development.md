@@ -2,23 +2,23 @@
 
 当前阶段：#14、#15、#16 均已完成各票实现、自动化、审查和同 Session 隔离 Paseo / Android 验收。#16 的受控请求全序列、真实原生问答/取消和恢复证据见 [#16 最终记录](updates/2026-09-22-paseo-omp-attention-outcomes.md#最终复验恢复与边界)。#15 已验证两个模型的运行、工具活动、正常完成、同会话模型切换与下一轮，详见 [#15 阶段记录](updates/2026-09-22-paseo-omp-turn-progress.md#同-session-补充真实验收)。
 
-#14 已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的全面重连和正式安装管理仍分别由 #17/#18 交付。
+#14 已提供官方 Paseo 插件、公开 SDK 初始目录订阅、带认证的本机 Bridge 入口及 Android 来源展示。已用真实隔离 Paseo daemon、真实 omp 空会话和 Android 模拟器完成 #14 验收；证据见 [阶段记录](updates/2026-09-22-paseo-omp-discovery.md#同-session-补充真实验收)。没有替换日常 Bridge 或通过 Redmi 真机验收。父规格 #13 的恢复机制由 #17 实现（见 [恢复记录](updates/2026-09-22-paseo-omp-recovery.md)）；正式安装管理与 Redmi 全面验收仍由 #18 交付。
 
 ## 行为与边界
 
 - 仅导入 Paseo provider 为 `omp` 的有效会话。排除归档、closed 历史和其他 provider；创建回调按 parentAgentId、目录/刷新快照按公开 labels 中的 `paseo.parent-agent-id` 排除子会话；不扫描独立终端 omp。
-- 插件同步注册 `agent.created`，通过回调的公开 `agents.ref(id).refresh()` 读取权威状态；独立的公开 SDK 连接负责初始分页清单与目录订阅。只用 `@getpaseo/client` 根入口，不读取私有存储、不接管 omp stdin。
+- 插件同步注册生命周期回调，并从目录更新发现不触发 created 的恢复/导入会话；通过回调的公开 `agents.ref(id).refresh()` 读取权威状态；独立的公开 SDK 连接负责初始分页清单与目录订阅。只用 `@getpaseo/client` 根入口，不读取私有存储、不接管 omp stdin。
 - `Paseo 主机命名空间 + agent ID` 生成不可逆任务 ID；模型、标题、目录不参与身份。命名空间在本地配置生成一次，后续保持不变。
 - 新会话沿用 idle / starting / running 语义。#15 在公开 activeTurn 和 timeline 基础上同步活动；同轮 turn_ended 为 completed 且权威刷新为 idle、无 activeTurn 时才显示 succeeded / completedAt。下一轮清除完成标记，保持身份、静音和置顶。目录空闲或单工具结束均不独立判为完成，不提供手机审批能力。
 - 项目仅保留最多 48 字符的目录末级名，用户主目录回退为 omp。标题先在插件内映射为有限类别，Bridge 再复用 ZCode 安全标题策略。原始标题、提示词、完整路径、命令、工具内容、模型凭据均不发送。
 - Swift、Android、Windows 增加 `omp` 来源；未知来源回退仍保留整份快照。Windows 仅编解码，不采集。
-- 首次手机快照沿用提醒基线；空闲会话保持可见，不转换为 ZCode 的“本轮完成”。本票不新增声音设置。
+- 每次手机连接的首个有效快照重新建立提醒基线；空闲会话保持可见，不转换为 ZCode 的“本轮完成”。本票不新增声音设置。
 
 ## 信任与故障边界
 
 配置文件必须为 `0600`；Bridge 接入只绑定 `127.0.0.1`，使用独立随机 256 位 token，不复用手机配对密钥。入口限制 4 KiB、16 个连接、2 秒超时；插件串行发送、队列最多 200 条安全摘要、单连接 1.5 秒超时。配置、token 和 Paseo 本地连接认证信息不得进入 Git、手机或诊断。
 
-Paseo 插件本身属于官方定义的“可信、无沙箱”代码。插件异常只记录固定诊断，捕获失败，不阻止模型任务。#14 没有跨断线可靠重放；入口不可用、队列超过限制或订阅连接丢失时可能漏发现，需要重载后重新获取初始清单；完整恢复由 #17 处理。不要把此开发入口当作正式无人值守交付。
+Paseo 插件本身属于官方定义的“可信、无沙箱”代码。插件异常只记录固定诊断，捕获失败，不阻止模型任务。入口不可用时丢弃历史积压，恢复后读取公开权威清单；健康时每 15 秒校准，失败时以 1.5–30 秒退避。Bridge 对 45 秒没有更新的活跃状态显示离线，不冒充成功。完整成员清单按块提交，归档不会因适配重启重新出现。入口核对配置 hostID；旧配置缺少 hostID 时保守保留归属未知的持久化卡片，避免误删。不要把此开发入口当作正式无人值守交付。
 
 ## 可重复开发启用
 
@@ -49,7 +49,7 @@ Paseo 插件本身属于官方定义的“可信、无沙箱”代码。插件�
    paseo plugin ls agentpager-omp --host localhost:6767
    ```
 
-   **必须同时满足 daemon 全局 `pluginsEnabled=true`、本插件 enabled 和 omp provider enabled**。新建隔离 daemon 默认可能关闭前两类功能；`plugin install` 返回 enabled 不等于已运行，必须检查 `plugin ls` 的 `status=running`。可通过官方 SDK 的 `client.config.patch({pluginsEnabled: true, providers: {omp: {enabled: true}}})` 配置已核对的隔离目标；不要顺手更改日常 daemon。
+   **必须同时满足 daemon 全局 `pluginsEnabled=true`、本插件 enabled 和 omp provider enabled**。新建隔离 daemon 默认可能关闭前两类功能；`plugin install` 返回 enabled 不等于已运行，必须检查 `plugin ls` 的 `status=running`。源码更新后还须对已获准的目标执行 `paseo plugin reload agentpager-omp --host <原目标>`；directory 安装不会自动让运行进程加载新代码。可通过官方 SDK 的 `client.config.patch({pluginsEnabled: true, providers: {omp: {enabled: true}}})` 配置已核对的隔离目标；不要顺手更改日常 daemon。
 
    插件默认读取 `~/.config/agentpager/paseo-development.json`。`AGENTPAGER_PASEO_CONFIG` 仅在它已存在于目标 daemon 环境时覆盖路径，给安装 CLI 临时设置环境变量不会改变既有 daemon 的环境。不要为改变路径擅自重启 daemon。
 5. Android 使用本票 Debug 构建，包名 `com.agentgrid.mobile.custom`。实际安装按 Android 开发流程核对设备、版本号及数据保留；测试构建不以低版本覆盖已装版本；完成后的模拟器备份恢复见下节。配对隔离 Bridge 后，在 Paseo 创建 omp 会话但不发送消息，应自动出现 `omp / Paseo` 空闲卡片。分别检查同目录两个会话、不同项目、Codex/GLM 模型选择、重载插件后的重复发现；此阶段不启动模型任务。
@@ -96,3 +96,7 @@ Swift 的 `paseoCreatedSessionReachesPhone` 用受控公开 SDK/生命周期输�
 请求清空时仅在实际运行中恢复；已 idle/error 且无 activeTurn 的已知轮次等待 turn_ended，统一发送门禁同时阻止迟到 timeline 伪造运行。failed/canceled 映射既有 interrupted，分别显示失败和取消文案；单次工具错误仍只是活动。新轮次恢复正常跟踪，重复/旧结束不能覆盖新状态。
 
 `paseoAttentionReachesPhone` 在实际插件 → TCP Bridge → 手机 WebSocket 覆盖请求并发、过期/重复事件、刷新竞态、迟到工具与结束；Android 使用实际 Bridge fixture 验证呈现及提醒。受控全序列另经真实模拟器渲染；真实模型问答与取消另行记录。#16 临时 Build 24 已恢复 Build 20。设备、模型调用与目标安装授权不跨票复用，详见最终记录的已验证与未验证边界。
+
+## #17 恢复自动化
+
+`paseoRecoveryReachesPhone` 使用实际插件与隔离 Bridge 验证后启动、导入/独立分支、快照竞态、漏归档、适配重启、连接退避及有界压力。TaskCatalog 以受控时间验证失效与旧进程隔离；Android 以实际 Bridge fixture 验证重连声音基线及呈现。正常轮次继续独立使用 #15 接缝验证，#16 等待/失败与恢复的完整组合仍在 #18 验收。实际模型、模拟器与恢复结果以 [#17 记录](updates/2026-09-22-paseo-omp-recovery.md) 为准。

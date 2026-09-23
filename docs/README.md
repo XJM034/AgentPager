@@ -6,6 +6,8 @@
 
 - [Paseo–omp 运行与本轮完成（#15）](updates/2026-09-22-paseo-omp-turn-progress.md)：实现、自动化、双轴审查与真实 Paseo / Android 隔离验收均完成；含模型切换、下一轮及恢复证据。
 
+- [Paseo–omp 恢复与可信状态补齐（#17）](updates/2026-09-22-paseo-omp-recovery.md)：后启动、重连、归档、离线收敛；受控自动化、真实隔离 Paseo/Android 与恢复证据。
+
 - [Paseo–omp 开发接入（#14）](paseo-omp-development.md)：官方插件、隔离启用与撤销、安全边界；[本票验证记录](updates/2026-09-22-paseo-omp-discovery.md)。源码与自动化交付不等于现场安装验收。
 
 - [2026-09-20 Codex 额度同步修复与 Spark 移除](updates/2026-09-20-codex-quota-spark-removal.md)：实时额度来源、刷新频率、两端验证及安装状态。

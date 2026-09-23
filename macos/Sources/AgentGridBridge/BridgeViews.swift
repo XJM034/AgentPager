@@ -424,7 +424,7 @@ struct BridgeSettingsView: View {
                         if let diagnostic = model.paseoDiagnostic {
                             Text(diagnostic).foregroundStyle(PixelTheme.amber)
                         }
-                        Text("只管理 AgentPager 插件，改写前保留本机备份。关闭会清理卡片，保留接入配置；撤销删除自身接入项。两者都不会停止 omp 或更改权限模式。支持 Paseo 0.8.0；需先在 Paseo 设置中开启插件及 omp。")
+                        Text("只管理 AgentPager 插件，改写前保留本机备份。关闭会清理卡片，保留接入配置；撤销删除自身接入项。两者都不会停止 omp 或更改权限模式。支持 Paseo 0.8.0 / 0.9.1；需先在 Paseo 设置中开启插件及 omp。")
                             .font(.pixel(10))
                             .foregroundStyle(PixelTheme.muted)
                             .lineSpacing(4)

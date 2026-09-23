@@ -6,7 +6,7 @@
 
 ## 当前阶段
 
-配置实现与自动化进行中，尚未授权或执行真实安装、重启、模型调用及 Redmi 验收。本文不是完工报告，不构成关闭条件。
+配置实现、自动化与首轮双轴审查已完成。用户在本 Session 回复“已连接redmi，授权通过”，已按具体方案完成正式 Mac 与 Redmi 升级；真实 Paseo 会话和硬件验收进行中。本文不是完工报告，不构成关闭条件。
 
 - 既有 Bridge 配置页新增 omp/Paseo 启用/恢复、关闭、撤销和脱敏诊断。
 - 独立 0600 配置持久化 hostID/token；正式 Bridge 继续使用既有钥匙串手机配对，不使用 #17 开发模式的临时密钥。
@@ -68,3 +68,44 @@ bootstrap 核对：根/平台规则已覆盖安装、备份、签名及配对边
 日常Bridge仍为原Build20进程；未安装、未重启、未发起模型调用。官方SDK当前只读查询：pluginsEnabled=false、ompEnabled=true、pluginIDs=[]。Redmi仍未连接。
 
 [具体安装、备份、恢复与验证方案](2026-09-23-paseo-omp-installation-plan.md)已准备并提出本Session授权问题。该计划及本地提交不是实际验收。等待用户授权与连接Redmi后继续本Session现场阶段；#18/#13均不关闭、不推送、不发布。
+
+
+## 本 Session 实际安装与初步回读
+
+授权后备份目录：`~/Library/Application Support/AgentPager/issue18-backups/20260923-100233/`，权限0700；保存旧Mac Build20 App、任务/偏好、Paseo配置、Redmi Build21 APK及四个应用数据文件，敏感内容不提交。旧App签名已验证。
+
+正式Mac已替换并启动0.3.0/Build26；安装后二进制SHA256与上列最终包一致，严格签名通过。Redmi Note7（lavender）已以相同Custom包名/Debug证书升级至0.3.0-custom/Build26；安装成功后、首次启动前，原四个应用数据文件集合和SHA256完全一致。没有卸载或清数据。
+
+Redmi启动后直接恢复原配对，实际屏幕显示既有Codex/ZCode卡片与Codex/GLM额度。正式Bridge WebSocket回读Codex额度1个窗口，GLM状态available、1个额度组。该证据仅证明安装、旧数据保留与现有状态可见，不替代各原来源新任务或真实omp验收。
+
+Paseo日常daemon未重启。当前插件总开关仍关闭、无模型调用，已请用户依方案手动打开全局插件开关，并打开Bridge配置页供界面验收。纯菜单栏App的电脑控制读取曾超时；Redmi布局工具因MIUI框架文件缺失失败，已按Android CLI规范使用截图并实际查看。物理听音/亮度尚待现场确认。
+
+
+### 正式首次启用发现并修复的 CLI 差异
+
+用户手动打开Paseo插件总开关和Bridge配置页后，从正式UI点击“启用 / 恢复”，出现脱敏连接不可用提示。现场官方CLI证据：`plugin ls agentpager-omp --json --host localhost:6767` 在插件尚未注册时退出1，报 `Plugin is not configured`；全量 `plugin ls --json --host localhost:6767` 返回空数组。此前受控响应遗漏此差异。
+
+新增 `paseoFirstInstallUsesPluginCatalog`：修复前捕获unavailable红灯，改为全量清单后筛选自身ID后转绿，保留路径冲突保护。全量Swift复验200项（180 Core + 20 Bridge）通过，两路增量审查各0新增问题。Android/SDK源码未变。
+
+已将当前Build26 App另存私有备份，再安装修复后的同版本/同签名App，二进制SHA256 `2469064cb38dc2fa9a878d01c8e2177422a279bd49392d09ef4604b6bae4050d`，严格签名通过。正式Bridge重启后配对端点完整内容哈希与重启前一致。当前已创建1个真实Paseo空闲Codex测试会话用于后启动补齐，尚未发送提示词或模型调用。
+
+
+## 真实 Paseo / Redmi 进展与 0.9.1 升级
+
+本节为最新事实；前文“待授权/未安装/仅0.8.0”等属于开工时记录，不代表当前状态。
+
+- 用户手动开启插件总开关后，正式App资源内插件成功安装。初次配置后曾停在连接不可用；增加两条固定无数据启动日志并重启Bridge、显式reload后恢复，初次恢复原因尚未完全归因，后续关闭/恢复仍须复验。
+- Paseo 0.8.0真实Codex `openai-codex/gpt-5.5` 与国内Coding Plan `zhipu-coding-plan/glm-5.3`：新建不发prompt自动显示；两会话并行运行，手机实际显示“执行工具”；WebSocket记录思考/读取/执行/完成。各自正常完成，Codex同会话继续完成。累计3轮模型调用。
+- 原生Full Access保持原值，未变更模式。Redmi截图已实际查看；只存私有临时路径，因含用户其他任务不提交截图。提示音初测用户未听清，后续听音和物理亮度仍未确认；不得记通过。手机原任务/空闲亮度均100%，测试设任务45%，随后读取55%；收尾需与用户核实并恢复偏好。
+- 用户自行重启Paseo，daemon由0.8.0更新为0.9.1（非Agent重启日常daemon）。官方plugin ls回读failed，原因是manifest精确要求0.8.0。此为版本门槛拒绝加载，不能用自动重连掩盖。
+- 在独立临时目录安装官方0.9.1 SDK，现有插件严格类型检查通过；运行依赖仍锁0.8.0。官方assertPluginCompatibility回归测试先红后绿，manifest仅允许0.8.0或0.9.1，拒绝未知0.10.0。配置诊断新增固定版本不兼容提示，不展示原始上游错误。Swift补测含CLI非零退出分支。
+- 已备份并实际安装0.9.1适配Build26，Bundle/Team保持相同、严格签名通过，安装二进制SHA256 `8268f6d19f4e196acff19a9201c4775954601861b19d56ff1751a01468d75107`。显式reload后插件running，正式配对哈希不变，GLM额度available。后续诊断分支源代码修订尚需最终重打，不能混同安装版本。
+- 0.9.1第4轮真实Codex同会话请求原生Blue/Green问答；用户自行选Green。完整手机通道日志：02:36:49Z running → 02:37:05Z waitingAnswer → 02:37:20Z running → 02:37:25Z succeeded；能力数组为空。最初读单次快照时误以为未更新，完整记录已纠正。该轮证明问答状态同步，不证明等待期间断开恢复。
+- 0.9.1重启后GLM测试会话公开状态closed，适配层移除其卡片，不把已关闭会话永久呈现为运行。
+
+当前仍缺：等待断开/恢复与旧请求已解决、正式配置关闭/恢复/撤销完整实测、模型切换、隔离daemon与运行中omp异常退出、手机重连和硬件听音/静音/亮度确认、全原来源新任务回归及清理恢复。#18与#13保持OPEN。
+
+
+最终诊断分支修订后Swift全量180 Core + 21 Bridge测试通过（版本错误测试另含2个参数化场景）；SDK0.8.0与独立0.9.1类型检查、2项manifest兼容性检查通过。双轴增量复核均无剩余确认问题；Spec提出的CLI非零退出诊断分支已补红绿用例并复核。
+
+同身份Build26再次备份、安装并严格签名核验，当前正式二进制SHA256 `9de0297f0fc790243c52ffb0f2b9e5605f88f778186a28a65edec94f5a927a79`。这次仅Swift诊断分支变化，插件源码未再变化；未重启日常Paseo daemon。

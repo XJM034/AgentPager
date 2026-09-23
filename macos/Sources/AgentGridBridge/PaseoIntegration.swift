@@ -21,13 +21,14 @@ enum PaseoMonitoringStatus {
 struct PaseoIntegration: Sendable {
     enum Action: Sendable { case enable, disable, revoke }
     enum Failure: Error, LocalizedError {
-        case unavailable, prerequisites, conflictingPlugin, invalidConfiguration
+        case unavailable, prerequisites, conflictingPlugin, invalidConfiguration, incompatibleVersion
         var errorDescription: String? {
             switch self {
             case .unavailable: "Paseo 连接不可用，请确认本机 Paseo 已启动。"
             case .prerequisites: "请先在 Paseo 设置中启用插件及 omp；插件总开关会影响其他插件，AgentPager 不会自动改写。"
             case .conflictingPlugin: "同名插件来自其他位置，未覆盖；请先在 Paseo 核对。"
             case .invalidConfiguration: "接入配置或插件资源无效，未继续操作。"
+            case .incompatibleVersion: "Paseo 版本与监控插件不兼容，请更新 AgentPager Bridge 后恢复接入。"
             }
         }
     }
@@ -36,6 +37,10 @@ struct PaseoIntegration: Sendable {
         var path: String
         var enabled: Bool
         var status: String
+        var error: String?
+        var isIncompatible: Bool {
+            status == "failed" && error?.hasPrefix("Plugin \"agentpager-omp\" requires Paseo ") == true
+        }
     }
     private struct Settings: Codable, Equatable {
         var enabled: Bool
@@ -102,13 +107,21 @@ struct PaseoIntegration: Sendable {
             settings.enabled = true
             try writeSettings(settings)
             try backup(daemonConfigURL)
-            if plugins["agentpager-omp"] == nil {
-                _ = try command(["plugin", "install", pluginURL.path, "--json", "--host", "localhost:6767"])
-            } else {
-                _ = try command(["plugin", "enable", "agentpager-omp", "--json", "--host", "localhost:6767"])
-                _ = try command(["plugin", "reload", "agentpager-omp", "--json", "--host", "localhost:6767"])
+            do {
+                if plugins["agentpager-omp"] == nil {
+                    _ = try command(["plugin", "install", pluginURL.path, "--json", "--host", "localhost:6767"])
+                } else {
+                    _ = try command(["plugin", "enable", "agentpager-omp", "--json", "--host", "localhost:6767"])
+                    _ = try command(["plugin", "reload", "agentpager-omp", "--json", "--host", "localhost:6767"])
+                }
+            } catch {
+                if (try? pluginState())?.isIncompatible == true { throw Failure.incompatibleVersion }
+                throw error
             }
             let installed = try pluginState()
+            if installed?.isIncompatible == true {
+                throw Failure.incompatibleVersion
+            }
             guard installed?.enabled == true, installed?.status == "running" else {
                 throw Failure.unavailable
             }
@@ -135,7 +148,7 @@ struct PaseoIntegration: Sendable {
 
     private func pluginState() throws -> Plugin? {
         let records = try JSONDecoder().decode([Plugin].self, from:
-            command(["plugin", "ls", "agentpager-omp", "--json", "--host", "localhost:6767"]))
+            command(["plugin", "ls", "--json", "--host", "localhost:6767"]))
         guard let plugin = records.first(where: { $0.id == "agentpager-omp" }) else { return nil }
         guard plugin.path == pluginURL.path else { throw Failure.conflictingPlugin }
         return plugin

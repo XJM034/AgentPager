@@ -32,7 +32,9 @@ export default function contribute(server: PluginServerContext) {
     logger: { debug() {}, info() {}, warn() {}, error() {} },
   });
   // Registration must happen during contribute(), before Paseo captures hook registrations.
-  const discovery = startDiscovery(server, client, config, client.connect());
+  console.info('AgentPager: monitor starting');
+  const connected = client.connect().then(() => { console.info('AgentPager: catalog connected'); });
+  const discovery = startDiscovery(server, client, config, connected);
   const ready = discovery.ready.catch(() => {
     console.warn('AgentPager: Paseo discovery unavailable');
   });

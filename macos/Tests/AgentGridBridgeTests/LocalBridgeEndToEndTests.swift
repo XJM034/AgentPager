@@ -1372,3 +1372,54 @@ private var paseoPluginTestURL: URL {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("integrations/paseo-omp")
 }
+
+@MainActor
+@Test("Paseo 升级拒绝插件时诊断版本不兼容，不误报连接故障", arguments: [false, true])
+func paseoVersionMismatchIsDiagnosed(commandFails: Bool) async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let config = directory.appendingPathComponent("daemon.json")
+    try Data(#"{"pluginsEnabled":true}"#.utf8).write(to: config)
+    let integration = PaseoIntegration(directory: directory.appendingPathComponent("managed"),
+        pluginURL: paseoPluginTestURL, daemonConfigURL: config, command: { arguments in
+            if commandFails && arguments.prefix(2) != ["plugin", "ls"] {
+                throw PaseoIntegration.Failure.unavailable
+            }
+            return try JSONSerialization.data(withJSONObject: [["id": "agentpager-omp",
+                "path": paseoPluginTestURL.path, "enabled": true, "status": "failed",
+                "error": "Plugin \"agentpager-omp\" requires Paseo 0.8.0. Your daemon is 0.9.1."]])
+        })
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, paseoIngress: nil),
+        paseoIntegration: integration)
+    await model.configurePaseo(.enable)
+    #expect(model.paseoDiagnostic == "Paseo 版本与监控插件不兼容，请更新 AgentPager Bridge 后恢复接入。")
+    #expect(model.paseoStatus != "已连接")
+}
+
+@Test("首次启用通过完整插件清单发现未安装项，符合真实 CLI 的不存在行为")
+func paseoFirstInstallUsesPluginCatalog() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let config = directory.appendingPathComponent("daemon.json")
+    let installed = directory.appendingPathComponent("installed")
+    try Data(#"{"pluginsEnabled":true}"#.utf8).write(to: config)
+    let integration = PaseoIntegration(directory: directory.appendingPathComponent("managed"),
+        pluginURL: paseoPluginTestURL, daemonConfigURL: config, command: { arguments in
+            // Paseo 0.8.0 exits 1 for `plugin ls <missing-id>`, but full ls returns [].
+            if arguments.prefix(3) == ["plugin", "ls", "agentpager-omp"],
+               !FileManager.default.fileExists(atPath: installed.path) {
+                throw PaseoIntegration.Failure.unavailable
+            }
+            if arguments.prefix(2) == ["plugin", "install"] {
+                try Data().write(to: installed)
+            }
+            guard FileManager.default.fileExists(atPath: installed.path) else { return Data("[]".utf8) }
+            return try JSONSerialization.data(withJSONObject: [["id": "agentpager-omp",
+                "path": paseoPluginTestURL.path, "enabled": true, "status": "running"]])
+        })
+    #expect(try integration.perform(.enable) != nil)
+    #expect(FileManager.default.fileExists(atPath: installed.path))
+}

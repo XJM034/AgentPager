@@ -51,7 +51,7 @@ Paseo 插件本身属于官方定义的“可信、无沙箱”代码。插件�
 
    **必须同时满足 daemon 全局 `pluginsEnabled=true`、本插件 enabled 和 omp provider enabled**。新建隔离 daemon 默认可能关闭前两类功能；`plugin install` 返回 enabled 不等于已运行，必须检查 `plugin ls` 的 `status=running`。源码更新后还须对已获准的目标执行 `paseo plugin reload agentpager-omp --host <原目标>`；directory 安装不会自动让运行进程加载新代码。可通过官方 SDK 的 `client.config.patch({pluginsEnabled: true, providers: {omp: {enabled: true}}})` 配置已核对的隔离目标；不要顺手更改日常 daemon。
 
-   插件默认读取 `~/.config/agentpager/paseo-development.json`。`AGENTPAGER_PASEO_CONFIG` 仅在它已存在于目标 daemon 环境时覆盖路径，给安装 CLI 临时设置环境变量不会改变既有 daemon 的环境。不要为改变路径擅自重启 daemon。
+   正式插件默认读取 `~/.config/agentpager/paseo.json`；本节开发环境须显式指定 `paseo-development.json`。`AGENTPAGER_PASEO_CONFIG` 仅在它已存在于目标 daemon 环境时覆盖路径，给安装 CLI 临时设置环境变量不会改变既有 daemon 的环境。不要为改变路径擅自重启 daemon。
 5. Android 使用本票 Debug 构建，包名 `com.agentgrid.mobile.custom`。实际安装按 Android 开发流程核对设备、版本号及数据保留；测试构建不以低版本覆盖已装版本；完成后的模拟器备份恢复见下节。配对隔离 Bridge 后，在 Paseo 创建 omp 会话但不发送消息，应自动出现 `omp / Paseo` 空闲卡片。分别检查同目录两个会话、不同项目、Codex/GLM 模型选择、重载插件后的重复发现；此阶段不启动模型任务。
 
 ## 撤销
@@ -112,3 +112,8 @@ Bridge 的“配置 → omp / Paseo”提供启用/恢复、关闭、撤销。�
 诊断“未启用”“连接不可用”“已连接 · 暂无会话”“已连接”来自配置及认证入口当前事实。插件/连接不可用时不伪造空闲或成功；查看诊断时不需要输出 token、完整路径或原始请求。若 Paseo 不在线，关闭先在本机持久化，插件停用失败会明确提示，待连接恢复后可再操作。
 
 本 Session 进度、安装方案和父规格逐项证据见 [#18 记录](updates/2026-09-23-paseo-omp-delivery.md)。现阶段不能宣称已安装或 Redmi 通过。
+
+
+### #18 现场版本更新（尚未整体验收）
+
+本Session用户重启Paseo后daemon从0.8.0升级0.9.1。插件manifest现仅允许`0.8.0 || 0.9.1`；SDK0.8.0锁定运行依赖及独立0.9.1类型检查通过，0.9.1正式reload/running及真实问答状态同步已验证。未知版本仍拒绝，不自动放宽兼容范围；必须查看实际插件状态，不能把“离线”简单当作网络故障。完整证据与未完成范围见本票交付记录。

@@ -92,7 +92,7 @@ public enum TaskCatalogInput: Sendable {
         receivedAt: Date = .now
     )
     case rollout([CodexRolloutSignal])
-    case paseoDiscovery(PaseoDiscovery, receivedAt: Date = .now)
+    case paseoDiscovery(PaseoDiscovery, receivedAt: Date = .now, authoritativeHostID: String? = nil)
     case synthetic(TaskSnapshot)
 }
 
@@ -170,7 +170,7 @@ public struct TaskCatalog: Sendable {
             for signal in signals.sorted(by: Self.signalOrder) {
                 apply(signal)
             }
-        case let .paseoDiscovery(discovery, receivedAt):
+        case let .paseoDiscovery(discovery, receivedAt, authoritativeHostID):
             guard discovery.hasValidHost else { break }
             if let connection = discovery.connectionID, let revision = discovery.revision {
                 let startedAt = discovery.connectionStartedAt ?? 0
@@ -197,9 +197,9 @@ public struct TaskCatalog: Sendable {
                 paseoMemberships[discovery.hostID] = membership
                 if membership.nextPart == parts {
                     // Restored omp records predate this process's ownership map. This
-                    // ingress serves one configured local Paseo; live other hosts stay isolated.
+                    // ingress may authorize its configured local host; unknown/other hosts stay isolated.
                     for task in store.tasks where task.source == .omp &&
-                        (paseoHosts[task.id] == nil || paseoHosts[task.id] == discovery.hostID) &&
+                        ((paseoHosts[task.id] == nil && authoritativeHostID == discovery.hostID) || paseoHosts[task.id] == discovery.hostID) &&
                         !membership.taskIDs.contains(task.id) {
                         store.remove(id: task.id)
                         paseoLastSeen.removeValue(forKey: task.id)

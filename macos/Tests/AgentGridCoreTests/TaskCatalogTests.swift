@@ -282,3 +282,15 @@ func paseoRecoveryEnvelopeOrdering() throws {
     catalog.accept(.paseoDiscovery(try input("succeeded", revision: 99), receivedAt: now.addingTimeInterval(17)))
     #expect(catalog.projection().tasks.first?.lifecycle == .running)
 }
+
+@Test("无配置主机授权的完整目录不能删除归属未知的恢复卡片")
+func paseoMembershipPreservesUnownedRestoredTasks() throws {
+    let task = TaskSnapshot(id: "paseo:omp:unowned", source: .omp, projectName: "Other", lifecycle: .idle)
+    var catalog = TaskCatalog(restoring: [task])
+    let data = Data(#"{"hostID":"host-a","agentID":"","provider":"omp","projectName":"","titleCategory":"","status":"snapshot","archived":false,"connectionID":"current","revision":1,"snapshotID":"empty","snapshotPart":0,"snapshotParts":1,"members":[]}"#.utf8)
+    catalog.accept(.paseoDiscovery(try JSONDecoder().decode(PaseoDiscovery.self, from: data)))
+    #expect(catalog.projection().tasks == [task])
+    let next = Data(String(decoding: data, as: UTF8.self).replacingOccurrences(of: "\"revision\":1", with: "\"revision\":2").utf8)
+    catalog.accept(.paseoDiscovery(try JSONDecoder().decode(PaseoDiscovery.self, from: next), authoritativeHostID: "host-a"))
+    #expect(catalog.projection().tasks.isEmpty)
+}

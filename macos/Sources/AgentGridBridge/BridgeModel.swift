@@ -275,7 +275,7 @@ final class BridgeModel {
             let server = PaseoIngressServer(configuration: config) { [weak self] discovery in
                 Task { @MainActor in
                     guard let self, self.hasStarted else { return }
-                    if let commit = self.catalog.accept(.paseoDiscovery(discovery)) {
+                    if let commit = self.catalog.accept(.paseoDiscovery(discovery, authoritativeHostID: config.hostID)) {
                         self.applyCatalogCommit(commit)
                     }
                 }

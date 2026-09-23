@@ -6,10 +6,12 @@ import Network
 public struct PaseoIngressConfiguration: Codable, Sendable {
     public let port: UInt16
     public let token: String
+    public let hostID: String?
 
-    public init(port: UInt16, token: String) {
+    public init(port: UInt16, token: String, hostID: String? = nil) {
         self.port = port
         self.token = token
+        self.hostID = hostID
     }
 
     public static func fromEnvironment() -> Self? {
@@ -154,7 +156,8 @@ public final class PaseoIngressServer: @unchecked Sendable {
                 let authorized = (try? decoder.decode(Request.self, from: payload)).map {
                     SHA256.hash(data: Data($0.token.utf8)) == SHA256.hash(data: Data(self.configuration.token.utf8))
                 } ?? false
-                guard authorized, let discovery = try? decoder.decode(PaseoDiscovery.self, from: payload) else {
+                guard authorized, let discovery = try? decoder.decode(PaseoDiscovery.self, from: payload),
+                      self.configuration.hostID == nil || self.configuration.hostID == discovery.hostID else {
                     self.finish(id); return
                 }
                 self.handler(discovery)

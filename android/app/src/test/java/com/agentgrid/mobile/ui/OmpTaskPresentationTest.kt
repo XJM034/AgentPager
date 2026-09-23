@@ -16,6 +16,27 @@ import org.junit.Test
 
 class OmpTaskPresentationTest {
     @Test
+    fun `关闭恢复的真实 Bridge 输出不会恢复已解决等待或手机操作`() {
+        val fixture = listOf(File("../../protocol/fixtures/paseo-omp-configuration.json"),
+            File("../protocol/fixtures/paseo-omp-configuration.json")).first { it.exists() }
+        val snapshots = Json { ignoreUnknownKeys = true }
+            .decodeFromString<List<StateSnapshotPayload>>(fixture.readText())
+        val identity = snapshots.first().tasks.single().id
+        val expected = listOf(AgentLifecycle.IDLE, AgentLifecycle.RUNNING,
+            AgentLifecycle.WAITING_APPROVAL, AgentLifecycle.WAITING_APPROVAL, AgentLifecycle.RUNNING)
+        snapshots.forEachIndexed { index, snapshot ->
+            val projection = TaskDashboardProjector.project(snapshot, null, snapshot.tasks.single().updatedAt)
+            val task = projection.visibleTasks.single()
+            assertEquals(identity, task.id)
+            assertEquals(expected[index], task.lifecycle)
+            assertTrue(task.capabilities.isEmpty())
+            assertNull(task.completedAt)
+            assertNull(TaskSoundTracker().nextCue(snapshot.tasks))
+        }
+        assertFalse(taskActivitySummary(snapshots.last().tasks.single()).contains("审批"))
+    }
+
+    @Test
     fun `实际恢复快照保留分支身份清理归档且不制造完成提醒`() {
         val fixture = listOf(File("../../protocol/fixtures/paseo-omp-recovery.json"),
             File("../protocol/fixtures/paseo-omp-recovery.json")).first { it.exists() }

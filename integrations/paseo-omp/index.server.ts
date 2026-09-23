@@ -7,11 +7,12 @@ import { startDiscovery } from './server/discovery.mjs';
 
 export default function contribute(server: PluginServerContext) {
   const configPath = process.env.AGENTPAGER_PASEO_CONFIG ??
-    join(homedir(), '.config', 'agentpager', 'paseo-development.json');
+    join(homedir(), '.config', 'agentpager', 'paseo.json');
   let config;
   try {
     if ((statSync(configPath).mode & 0o777) !== 0o600) return () => {};
     config = JSON.parse(readFileSync(configPath, 'utf8'));
+    if (config.enabled === false) return () => {};
     const url = new URL(config.paseoURL);
     if (url.protocol !== 'ws:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
         url.username || url.password || !/^[a-f0-9]{64}$/i.test(config.token) ||

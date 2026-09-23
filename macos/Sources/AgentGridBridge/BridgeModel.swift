@@ -164,7 +164,11 @@ final class BridgeModel {
     private let claudeHookConfiguration = ClaudeHookConfiguration()
     private let zcodeHookConfiguration = ZCodeHookConfiguration()
     @ObservationIgnored
-    private let runtimeConfiguration: BridgeRuntimeConfiguration
+    private var runtimeConfiguration: BridgeRuntimeConfiguration
+    @ObservationIgnored
+    private let paseoIntegration: PaseoIntegration?
+    private(set) var paseoOperationInProgress = false
+    private(set) var paseoDiagnostic: String?
     @ObservationIgnored
     private let glmCoordinatorFactory: @MainActor @Sendable (
         @escaping @Sendable (GLMQuotaState) async -> Void
@@ -178,6 +182,9 @@ final class BridgeModel {
         }
     }
     private var rolloutObservation = CodexRolloutObservation()
+    private(set) var paseoStatus = "未启用"
+    private var paseoLastContact: Date?
+    private var paseoGeneration = UUID()
     private var paseoMaintenance: Task<Void, Never>?
     private var paseoServer: PaseoIngressServer?
     private var hookServer: HookBridgeServer?
@@ -199,9 +206,15 @@ final class BridgeModel {
                 onStateChange: stateHandler
             )
         },
+        paseoIntegration: PaseoIntegration? = nil,
         snapshotObserver: (@MainActor @Sendable (String) -> Void)? = nil
     ) {
         self.runtimeConfiguration = runtimeConfiguration
+        self.paseoIntegration = paseoIntegration ?? (runtimeConfiguration.observesLocalEnvironment ? .local() : nil)
+        if let integration = self.paseoIntegration {
+            do { self.runtimeConfiguration.paseoIngress = try integration.configuration() }
+            catch { self.paseoDiagnostic = "接入配置不可用，请检查备份后重新启用。" }
+        }
         catalog = PersistentTaskCatalog(
             persistence: runtimeConfiguration.taskPersistence
         )
@@ -271,25 +284,7 @@ final class BridgeModel {
             lastError = error.localizedDescription
         }
 
-        if let config = runtimeConfiguration.paseoIngress {
-            let server = PaseoIngressServer(configuration: config) { [weak self] discovery in
-                Task { @MainActor in
-                    guard let self, self.hasStarted else { return }
-                    if let commit = self.catalog.accept(.paseoDiscovery(discovery, authoritativeHostID: config.hostID)) {
-                        self.applyCatalogCommit(commit)
-                    }
-                }
-            }
-            do { try server.start(); paseoServer = server }
-            catch { addEvent("Paseo 接入暂不可用") }
-            paseoMaintenance = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(5))
-                    guard !Task.isCancelled, let self else { return }
-                    if let commit = self.catalog.maintain() { self.applyCatalogCommit(commit) }
-                }
-            }
-        }
+        setPaseoMonitoring(runtimeConfiguration.paseoIngress != nil)
 
         if runtimeConfiguration.observesLocalEnvironment {
             refreshHookStatus()
@@ -327,6 +322,62 @@ final class BridgeModel {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    func configurePaseo(_ action: PaseoIntegration.Action) async {
+        guard !paseoOperationInProgress, let integration = paseoIntegration else { return }
+        paseoOperationInProgress = true
+        defer { paseoOperationInProgress = false }
+        if action != .enable {
+            runtimeConfiguration.paseoIngress = nil
+            setPaseoMonitoring(false)
+        }
+        do {
+            let config = try await Task.detached { try integration.perform(action) }.value
+            runtimeConfiguration.paseoIngress = config
+            setPaseoMonitoring(config != nil)
+            paseoDiagnostic = nil
+        } catch {
+            paseoDiagnostic = (error as? PaseoIntegration.Failure)?.errorDescription ?? "配置操作未完成，已保留备份；请检查 Paseo 连接。"
+        }
+    }
+
+    func setPaseoMonitoring(_ enabled: Bool) {
+        paseoGeneration = UUID()
+        paseoServer?.stop()
+        paseoServer = nil
+        paseoMaintenance?.cancel()
+        paseoMaintenance = nil
+        paseoLastContact = nil
+        guard enabled, hasStarted, let config = runtimeConfiguration.paseoIngress else {
+            paseoStatus = "未启用"
+            if let commit = catalog.accept(.disablePaseo) { applyCatalogCommit(commit) }
+            return
+        }
+        paseoStatus = "连接不可用"
+        let generation = paseoGeneration
+        let server = PaseoIngressServer(configuration: config) { [weak self] discovery in
+            Task { @MainActor in
+                guard let self, self.hasStarted, self.paseoGeneration == generation else { return }
+                self.paseoLastContact = .now
+                if let commit = self.catalog.accept(.paseoDiscovery(discovery, authoritativeHostID: config.hostID)) {
+                    self.applyCatalogCommit(commit)
+                }
+                self.paseoStatus = self.tasks.contains { $0.source == .omp } ? "已连接" : "已连接 · 暂无会话"
+            }
+        }
+        do { try server.start(); paseoServer = server }
+        catch { addEvent("Paseo 接入暂不可用") }
+        paseoMaintenance = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, let self else { return }
+                if self.paseoLastContact.map({ Date.now.timeIntervalSince($0) > 45 }) ?? true {
+                    self.paseoStatus = "连接不可用"
+                }
+                if let commit = self.catalog.maintain() { self.applyCatalogCommit(commit) }
             }
         }
     }

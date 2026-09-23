@@ -93,6 +93,7 @@ public enum TaskCatalogInput: Sendable {
     )
     case rollout([CodexRolloutSignal])
     case paseoDiscovery(PaseoDiscovery, receivedAt: Date = .now, authoritativeHostID: String? = nil)
+    case disablePaseo
     case synthetic(TaskSnapshot)
 }
 
@@ -170,6 +171,12 @@ public struct TaskCatalog: Sendable {
             for signal in signals.sorted(by: Self.signalOrder) {
                 apply(signal)
             }
+        case .disablePaseo:
+            for task in store.tasks where task.source == .omp { store.remove(id: task.id) }
+            paseoMemberships.removeAll()
+            paseoHosts.removeAll()
+            paseoLastSeen.removeAll()
+            paseoRevisions.removeAll()
         case let .paseoDiscovery(discovery, receivedAt, authoritativeHostID):
             guard discovery.hasValidHost else { break }
             if let connection = discovery.connectionID, let revision = discovery.revision {

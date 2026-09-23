@@ -36,3 +36,5 @@
 
 - [Paseo–omp #16 原生请求与异常轮次最终验收](updates/2026-09-22-paseo-omp-attention-outcomes.md)：只读等待、失败/取消、双轴审查、真实隔离验证及恢复。
 - [Paseo–omp #17 下一 Session 完整 prompt](updates/2026-09-22-paseo-omp-17-session-prompt.md)。
+
+- [Paseo–omp 正式配置与整体验收（#18，进行中）](updates/2026-09-23-paseo-omp-delivery.md)：配置接线、备份与恢复、受控测试及待现场验收边界。

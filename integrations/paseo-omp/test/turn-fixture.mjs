@@ -242,5 +242,6 @@ for await (const command of createInterface({input: process.stdin})) {
     update({kind: 'upsert', agent: snapshot, seq: 6, generation: 'connection-1'});
   }
   await adapter.flush();
+  if (command === 'barrier') console.log("settled");
 }
 await adapter.close();

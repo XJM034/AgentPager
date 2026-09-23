@@ -100,3 +100,15 @@ Swift 的 `paseoCreatedSessionReachesPhone` 用受控公开 SDK/生命周期输�
 ## #17 恢复自动化
 
 `paseoRecoveryReachesPhone` 使用实际插件与隔离 Bridge 验证后启动、导入/独立分支、快照竞态、漏归档、适配重启、连接退避及有界压力。TaskCatalog 以受控时间验证失效与旧进程隔离；Android 以实际 Bridge fixture 验证重连声音基线及呈现。正常轮次继续独立使用 #15 接缝验证，#16 等待/失败与恢复的完整组合仍在 #18 验收。实际模型、模拟器与恢复结果以 [#17 记录](updates/2026-09-22-paseo-omp-recovery.md) 为准。
+
+## #18 正式配置入口（实现中，尚未现场验收）
+
+Bridge 的“配置 → omp / Paseo”提供启用/恢复、关闭、撤销。支持当前本机默认 Paseo 0.8.0 daemon（loopback 6767），不自动猜测其他 home、远程或认证目标。需先在 Paseo Settings 开启插件及 omp；全局插件开关会影响其他插件，AgentPager 不自动改写。
+
+正式配置保存到本机权限受限的 `~/.config/agentpager/paseo.json`，接入监听仅在 loopback 49463；手机继续使用原 49362 通道及持久配对。插件来自安装 App 的 Resources，包内包含锁定 SDK 依赖，开发仓库不再是正式安装路径。开发模式仍通过 `AGENTPAGER_PASEO_CONFIG` 显式选择原开发配置，禁止把临时配对当作正式持久化验收。
+
+每次实际变更前备份，备份位于同目录 backups 下并限制读取权限。只操作 agentpager-omp；出现同名不同路径时拒绝覆盖。启用核对 running；源文件更新后显式 reload，失败不记为成功。关闭清理手机 omp 呈现并保留配置，不停止用户任务；撤销仅移除自身插件注册和接入配置，保留恢复备份。
+
+诊断“未启用”“连接不可用”“已连接 · 暂无会话”“已连接”来自配置及认证入口当前事实。插件/连接不可用时不伪造空闲或成功；查看诊断时不需要输出 token、完整路径或原始请求。若 Paseo 不在线，关闭先在本机持久化，插件停用失败会明确提示，待连接恢复后可再操作。
+
+本 Session 进度、安装方案和父规格逐项证据见 [#18 记录](updates/2026-09-23-paseo-omp-delivery.md)。现阶段不能宣称已安装或 Redmi 通过。

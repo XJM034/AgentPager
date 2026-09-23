@@ -62,6 +62,9 @@ else
     cp "$构建目录/AgentGridHooks" "$可执行目录/AgentPagerHooks"
 fi
 
+# Bundle the monitor source and locked runtime dependencies; no user configuration changes.
+python3 "$项目根目录/scripts/package-paseo-plugin.py" "$资源目录"
+
 cp "$项目根目录/macos/AppInfo.plist" "$内容目录/Info.plist"
 cp "$项目根目录/assets/brand/AgentPager.icns" "$资源目录/AgentPager.icns"
 cp "$项目根目录/assets/fonts/fusion_pixel_12px_zh_hans.ttf" \

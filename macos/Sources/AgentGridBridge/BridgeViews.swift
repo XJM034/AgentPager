@@ -404,6 +404,34 @@ struct BridgeSettingsView: View {
                 }
                 PixelPanel {
                     VStack(alignment: .leading, spacing: 13) {
+                        Text("omp / Paseo")
+                            .font(.pixel(13, weight: .bold))
+                            .foregroundStyle(PixelTheme.cyan)
+                        InfoRow(label: "监控状态", value: model.paseoStatus,
+                                accent: model.paseoStatus.hasPrefix("已连接") ? PixelTheme.green : PixelTheme.amber)
+                        Text("启用一次即可监控本机 Paseo 中的 omp 会话，无需逐项目设置或提供 GLM Key。等待处理时请回到 Paseo，手机仅显示状态。")
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                        HStack(spacing: 10) {
+                            Button("启用 / 恢复") { Task { await model.configurePaseo(.enable) } }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.cyan))
+                            Button("关闭监控") { Task { await model.configurePaseo(.disable) } }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.amber))
+                            Button("撤销接入") { Task { await model.configurePaseo(.revoke) } }
+                                .buttonStyle(PixelButtonStyle(accent: PixelTheme.red))
+                        }
+                        .disabled(model.paseoOperationInProgress)
+                        if let diagnostic = model.paseoDiagnostic {
+                            Text(diagnostic).foregroundStyle(PixelTheme.amber)
+                        }
+                        Text("只管理 AgentPager 插件，改写前保留本机备份。关闭会清理卡片，保留接入配置；撤销删除自身接入项。两者都不会停止 omp 或更改权限模式。支持 Paseo 0.8.0；需先在 Paseo 设置中开启插件及 omp。")
+                            .font(.pixel(10))
+                            .foregroundStyle(PixelTheme.muted)
+                            .lineSpacing(4)
+                    }
+                }
+                PixelPanel {
+                    VStack(alignment: .leading, spacing: 13) {
                         Text("ZCode")
                             .font(.pixel(13, weight: .bold))
                             .foregroundStyle(PixelTheme.cyan)

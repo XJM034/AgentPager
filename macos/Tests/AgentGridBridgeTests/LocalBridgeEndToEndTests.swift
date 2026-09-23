@@ -1206,3 +1206,169 @@ private func paseoTestPorts() throws -> [UInt16] {
         return UInt16(bigEndian: address.sin_port)
     }
 }
+
+@MainActor
+@Test("关闭监控清理手机卡片，恢复补齐同一会话且不停止插件任务")
+func paseoMonitoringToggleReachesPhone() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let ports = try paseoTestPorts()
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        hookPort: ports[0], webSocketPort: ports[1], advertisedHost: "127.0.0.1",
+        pairingSecretLoader: { Data(repeating: 15, count: 32) },
+        taskPersistence: TaskSnapshotPersistence(fileURL: directory.appendingPathComponent("tasks.json")),
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, usageLoader: { nil },
+        paseoIngress: PaseoIngressConfiguration(port: ports[2], token: String(repeating: "b", count: 64))
+    ), glmCoordinatorFactory: { handler in
+        GLMQuotaCoordinator(keyStore: IntegrationMemoryGLMKeyStore(),
+            quotaFetcher: IntegrationSequencedGLMFetcher(results: []),
+            scheduler: IntegrationNoopGLMScheduler(), onStateChange: handler)
+    })
+    var phone: LocalWebSocketClient!
+    let process = Process()
+    let input = Pipe()
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("integrations/paseo-omp/test/turn-fixture.mjs")
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", fixture.path, String(ports[2]), String(repeating: "b", count: 64)]
+    process.standardInput = input
+    let output = Pipe()
+    process.standardOutput = output
+    process.standardError = FileHandle.nullDevice
+    defer {
+        try? input.fileHandleForWriting.close()
+        if process.isRunning { process.terminate() }
+        phone?.close()
+        model.stop()
+    }
+    try process.run()
+    let ready = try output.fileHandleForReading.read(upToCount: 6)
+    #expect(ready == Data("ready\n".utf8))
+    model.start()
+    try await waitForPaseoTestPort(ports[1])
+    try await waitForPaseoTestPort(ports[2])
+    phone = LocalWebSocketClient(port: ports[1])
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    try input.fileHandleForWriting.write(contentsOf: Data("sync\n".utf8))
+    let initial = try await nextSnapshot(from: phone) { $0.tasks.count == 1 }
+    let identity = try #require(initial.tasks.first?.id)
+    #expect(initial.tasks.first?.lifecycle == .idle)
+    model.setPaseoMonitoring(false)
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    #expect(model.paseoStatus == "未启用")
+    try input.fileHandleForWriting.write(contentsOf: Data("silent-start\n".utf8))
+    model.setPaseoMonitoring(true)
+    try await waitForPaseoTestPort(ports[2])
+    try input.fileHandleForWriting.write(contentsOf: Data("sync\n".utf8))
+    let restored = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .running }
+    #expect(restored.tasks.first?.id == identity)
+    #expect(restored.tasks.first?.capabilities.isEmpty == true)
+    #expect(model.paseoStatus == "已连接")
+    try input.fileHandleForWriting.write(contentsOf: Data("approval\n".utf8))
+    let waiting = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .waitingApproval }
+    model.setPaseoMonitoring(false)
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    model.setPaseoMonitoring(true)
+    try await waitForPaseoTestPort(ports[2])
+    try input.fileHandleForWriting.write(contentsOf: Data("sync\n".utf8))
+    let stillWaiting = try await nextSnapshot(from: phone) { $0.tasks.first?.lifecycle == .waitingApproval }
+    #expect(stillWaiting.tasks.first?.id == waiting.tasks.first?.id)
+    model.setPaseoMonitoring(false)
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    try input.fileHandleForWriting.write(contentsOf: Data("resolve-all\nbarrier\n".utf8))
+    let settled = try await Task.detached { try output.fileHandleForReading.read(upToCount: 8) }.value
+    #expect(settled == Data("settled\n".utf8))
+    model.setPaseoMonitoring(true)
+    try await waitForPaseoTestPort(ports[2])
+    try input.fileHandleForWriting.write(contentsOf: Data("sync\n".utf8))
+    let resolved = try await nextSnapshot(from: phone) { snapshot in
+        #expect(!snapshot.tasks.contains { $0.lifecycle == .waitingApproval || $0.lifecycle == .waitingAnswer })
+        return snapshot.tasks.first?.lifecycle == .running
+    }
+    #expect(resolved.tasks.first?.id == identity)
+    #expect(resolved.tasks.first?.capabilities.isEmpty == true)
+    try input.fileHandleForWriting.write(contentsOf: Data("adapter-restart-empty\n".utf8))
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    #expect(model.paseoStatus == "已连接 · 暂无会话")
+    if let capture = ProcessInfo.processInfo.environment["AGENTPAGER_CAPTURE_OMP_CONFIGURATION"] {
+        try Data(protocolText([initial, restored, waiting, stillWaiting, resolved]).utf8)
+            .write(to: URL(fileURLWithPath: capture))
+    }
+}
+
+
+@MainActor
+@Test("配置入口启用与关闭可跨 Bridge 重建保留，保留第三方配置并备份")
+func paseoConfigurationPersistsThroughBridge() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let daemonConfig = directory.appendingPathComponent("daemon.json")
+    let original = Data(#"{"pluginsEnabled":true,"plugins":{"third-party":{"enabled":true}},"providers":{"omp":{"defaultMode":"full"}}}"#.utf8)
+    try original.write(to: daemonConfig)
+    let integration = PaseoIntegration(
+        directory: directory.appendingPathComponent("managed"),
+        pluginURL: paseoPluginTestURL, daemonConfigURL: daemonConfig,
+        command: { _ in try JSONSerialization.data(withJSONObject: [[
+            "id": "agentpager-omp", "path": paseoPluginTestURL.path,
+            "enabled": true, "status": "running",
+        ]]) }
+    )
+    let ports = try paseoTestPorts()
+    let runtime = BridgeRuntimeConfiguration(hookPort: ports[0], webSocketPort: ports[1],
+        pairingSecretLoader: { Data(repeating: 2, count: 32) },
+        taskPersistence: TaskSnapshotPersistence(fileURL: directory.appendingPathComponent("tasks.json")),
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, usageLoader: { nil }, paseoIngress: nil)
+    let model = BridgeModel(runtimeConfiguration: runtime, paseoIntegration: integration)
+    // Configuration is driven through the same Bridge action the settings button uses.
+    await model.configurePaseo(.enable)
+    let enabled = try #require(try integration.configuration())
+    let backups = try FileManager.default.contentsOfDirectory(atPath: integration.backupDirectory.path)
+    await model.configurePaseo(.enable)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: integration.backupDirectory.path) == backups)
+    await model.configurePaseo(.disable)
+    #expect(try integration.configuration() == nil)
+    let replacement = BridgeModel(runtimeConfiguration: runtime, paseoIntegration: integration)
+    await replacement.configurePaseo(.enable)
+    #expect(try integration.configuration()?.hostID == enabled.hostID)
+    #expect(try integration.configuration()?.token == enabled.token)
+    #expect(try Data(contentsOf: daemonConfig) == original)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: integration.backupDirectory.path).isEmpty == false)
+    let unavailable = PaseoIntegration(directory: integration.directory, pluginURL: integration.pluginURL,
+        daemonConfigURL: daemonConfig, command: { _ in throw PaseoIntegration.Failure.unavailable })
+    let offlineModel = BridgeModel(runtimeConfiguration: runtime, paseoIntegration: unavailable)
+    await offlineModel.configurePaseo(.disable)
+    #expect(try integration.configuration() == nil)
+    await replacement.configurePaseo(.enable)
+    // A replaced registration is no longer ours to remove.
+    try Data(#"{"pluginsEnabled":true,"plugins":{"agentpager-omp":{"path":"/third-party","enabled":true}}}"#.utf8).write(to: daemonConfig)
+    await replacement.configurePaseo(.revoke)
+    #expect(replacement.paseoDiagnostic != nil)
+    #expect(try integration.configuration()?.hostID == enabled.hostID)
+}
+
+@MainActor
+@Test("插件安装返回但未运行时配置入口不能报告成功")
+func paseoFailedPluginIsDiagnosed() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let config = directory.appendingPathComponent("daemon.json")
+    try Data(#"{"pluginsEnabled":true}"#.utf8).write(to: config)
+    let integration = PaseoIntegration(directory: directory.appendingPathComponent("managed"),
+        pluginURL: paseoPluginTestURL, daemonConfigURL: config,
+        command: { _ in Data("[]".utf8) })
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, paseoIngress: nil),
+        paseoIntegration: integration)
+    await model.configurePaseo(.enable)
+    #expect(model.paseoDiagnostic != nil)
+    #expect(model.paseoStatus != "已连接")
+}
+
+private var paseoPluginTestURL: URL {
+    URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("integrations/paseo-omp")
+}

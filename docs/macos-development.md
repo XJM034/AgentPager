@@ -180,3 +180,7 @@ GLM 钥匙串改动还有专门的验收边界：
 ## Paseo–omp 隔离开发
 
 #14 的官方插件与隔离 Bridge 启用、撤销、信任边界和自动化接缝见 [Paseo–omp 开发接入](paseo-omp-development.md)。开发模式通过进程环境显式启用，使用独立端口、临时配对和专属持久化，不扫描真实 Hook 或读取账号额度；不等于安装。正常 Bridge 未配置时不新增入口。
+
+## Paseo 监控的正式资源
+
+打包脚本调用 `scripts/package-paseo-plugin.py`，将插件与锁定公开 SDK 的运行依赖放入 App Resources。打包前按 Paseo 开发说明准备 npm 依赖；脚本只生成包，不安装插件、不写用户配置。安装后的配置入口和恢复边界见 [Paseo 接入说明](paseo-omp-development.md)。普通正式启动沿用原手机钥匙串配对；开发模式临时密钥不能证明正式升级保留配对。

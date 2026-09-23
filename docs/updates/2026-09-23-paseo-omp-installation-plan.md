@@ -43,3 +43,12 @@
 ## 已准备候选的校验值
 
 2026-09-23最终重打：Mac Build26，Team2794UM7L67，严格签名验证通过；主二进制SHA256 `71fa5d3c26dc0b340fb9cff047be48a17d86722e534818be13342668ff89e357`。Android Build26 APK SHA256 `27ef7190df6acb049d468dcab98fd1cddb2b041f0547d9682c16759dcfd7ca95`。安装前仍需再次核对，若后续审查或修改导致产物变化则重新记录。
+
+
+## 本Session追加标签安装结果（Build27）
+
+用户确认原生Codex追加Paseo、OMP保持原样后，沿用已批准目标与备份/恢复方式，
+安装0.3.0/Build27（Mac）与0.3.0-custom/Build27（Redmi）。替换前的Build26 App、APK及
+当前4个数据文件保存到既有私有备份目录下的 `before-origin-build27`；原Build20/21备份保留。
+安装、签名、文件哈希、原配对自动恢复与目录插件reload/running证据见交付记录最新节。
+本次未执行降级回滚；备份存在不等于降级恢复已验收。

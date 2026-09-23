@@ -109,3 +109,18 @@ Paseo日常daemon未重启。当前插件总开关仍关闭、无模型调用，
 最终诊断分支修订后Swift全量180 Core + 21 Bridge测试通过（版本错误测试另含2个参数化场景）；SDK0.8.0与独立0.9.1类型检查、2项manifest兼容性检查通过。双轴增量复核均无剩余确认问题；Spec提出的CLI非零退出诊断分支已补红绿用例并复核。
 
 同身份Build26再次备份、安装并严格签名核验，当前正式二进制SHA256 `9de0297f0fc790243c52ffb0f2b9e5605f88f778186a28a65edec94f5a927a79`。这次仅Swift诊断分支变化，插件源码未再变化；未重启日常Paseo daemon。
+
+
+## 用户追加来源标签：Build27（当前安装）
+
+用户纠正范围后实现：仅 Paseo 原生 Codex/GPT 卡片显示 `Codex · Terminal · Paseo`；OMP保持 `omp · Paseo`，包括选择GPT模型时。新增向后兼容 `isPaseoSession`，三个平台模型及协议文档已同步；仅内存来源关联，不写任务持久化、不改变时间/生命周期/控制能力。通过公开SDK的原生provider sessionId关联，不读私有库或推测来源。
+
+TDD：缺字段编译红灯后实现；实际JS适配器→隔离Bridge→手机WS覆盖原生关联、普通Codex/子会话排除、归档撤销、OMP保持。真实WS输出录为协议fixture，由Android与Windows解析。双轴审查分别发现native容量溢出阻断OMP、旧格式host可绕过长期字典容量限制，均先复现红灯再修复；复审Standards 0、Spec 0。边界明确为前200原生身份、最多200宿主；正式入口绑定唯一配置宿主。
+
+验证：Swift最终182 Core +22 Bridge通过；一次全量运行遇到既有GLM接缝临时端口连接竞态（-1004），重跑全套通过，未隐藏该次失败。Android95单元测试、Lint和Build27 Debug构建通过；SDK0.8.0/独立0.9.1类型检查通过；manifest两项测试通过；临时.NET8.0.425运行Windows Core兼容8/8通过，不代表Windows桌面运行。
+
+实际安装：按本Session已授权方案，先备份当前Mac Build26、Redmi Build26 APK及4个当前数据文件到私有备份子目录 `before-origin-build27`。随后安装Mac 0.3.0/Build27、Redmi 0.3.0-custom/Build27（Custom包名和原证书不变）。Mac严格签名通过，Team2794UM7L67；主二进制SHA256 `cfedd77a0bc7103a4cfd04bf92f8d3826d76de08b574ac68143e7d89d9a7ed04`。Android APK SHA256 `797180a8abdf1bccf1e250c2715adb928ca79f0a2a6a903734f517aa6f2fbcc4`；安装后首次启动前4个数据文件集合/哈希一致，启动后原配对自动恢复，Bridge `/pairing`完整内容哈希与先前相同。目录插件对日常获准目标显式reload，再plugin ls回读running；没有重启日常Paseo。
+
+真实验证：新建Paseo原生codex/gpt-5.5合成会话，读取测试文件、sleep15、回复NATIVE-DONE，真实完成且pending=0；累计第5轮模型调用。Redmi运行中截图已实际查看，同屏普通Codex为 `Codex / Terminal`，该测试为 `Codex / Terminal · Paseo`，OMP为 `omp / Paseo`，文案无遮挡。WS记录原生running/executing→thinking→succeeded，能力为空；手机同时可见Codex/GLM额度。截图含用户其他会话，仅保存在私有临时路径。
+
+本节仅完成新增来源显示与这次实际升级。听音问题已询问用户、尚未收到现场确认；既有#18剩余等待恢复、正式配置关闭/撤销/恢复、隔离进程异常、原来源组合、物理亮度等仍按前节记录继续，不能以该UI修复替代整体验收。#18与父#13均未关闭。未推送或发布。

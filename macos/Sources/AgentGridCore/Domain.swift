@@ -159,6 +159,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
     public var isUnread: Bool
     public var isPinned: Bool
     public var isMuted: Bool
+    public var isPaseoSession: Bool
     public var capabilities: Set<TaskCapability>
 
     public init(
@@ -178,7 +179,8 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         isUnread: Bool = false,
         isPinned: Bool = false,
         isMuted: Bool = false,
-        capabilities: Set<TaskCapability> = []
+        capabilities: Set<TaskCapability> = [],
+        isPaseoSession: Bool = false
     ) {
         self.id = id
         self.source = source
@@ -197,6 +199,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         self.isPinned = isPinned
         self.isMuted = isMuted
         self.capabilities = capabilities
+        self.isPaseoSession = isPaseoSession
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -217,6 +220,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         case isPinned
         case isMuted
         case capabilities
+        case isPaseoSession
     }
 
     public init(from decoder: Decoder) throws {
@@ -240,6 +244,7 @@ public struct TaskSnapshot: Identifiable, Codable, Equatable, Sendable {
         isUnread = try container.decodeIfPresent(Bool.self, forKey: .isUnread) ?? false
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        isPaseoSession = try container.decodeIfPresent(Bool.self, forKey: .isPaseoSession) ?? false
         capabilities = try container.decodeIfPresent(
             Set<TaskCapability>.self,
             forKey: .capabilities

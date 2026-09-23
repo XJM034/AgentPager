@@ -1423,3 +1423,67 @@ func paseoFirstInstallUsesPluginCatalog() throws {
     #expect(try integration.perform(.enable) != nil)
     #expect(FileManager.default.fileExists(atPath: installed.path))
 }
+
+@MainActor
+@Test("实际插件关联原生 Codex 来源并通过手机协议撤销，不改变 OMP")
+func paseoNativeCodexOriginReachesPhone() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let ports = try paseoTestPorts()
+    let model = BridgeModel(runtimeConfiguration: BridgeRuntimeConfiguration(
+        hookPort: ports[0], webSocketPort: ports[1], advertisedHost: "127.0.0.1",
+        pairingSecretLoader: { Data(repeating: 15, count: 32) },
+        taskPersistence: TaskSnapshotPersistence(fileURL: directory.appendingPathComponent("tasks.json")),
+        observesLocalEnvironment: false, startsBackgroundMaintenance: false, usageLoader: { nil },
+        paseoIngress: PaseoIngressConfiguration(port: ports[2], token: String(repeating: "b", count: 64))
+    ), glmCoordinatorFactory: { handler in
+        GLMQuotaCoordinator(keyStore: IntegrationMemoryGLMKeyStore(),
+            quotaFetcher: IntegrationSequencedGLMFetcher(results: []),
+            scheduler: IntegrationNoopGLMScheduler(), onStateChange: handler)
+    })
+    var phone: LocalWebSocketClient!
+    let process = Process()
+    let input = Pipe()
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("integrations/paseo-omp/test/turn-fixture.mjs")
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["node", fixture.path, String(ports[2]), String(repeating: "b", count: 64), "native"]
+    process.standardInput = input
+    let output = Pipe()
+    process.standardOutput = output
+    process.standardError = FileHandle.nullDevice
+    defer {
+        try? input.fileHandleForWriting.close()
+        if process.isRunning { process.terminate() }
+        phone?.close()
+        model.stop()
+    }
+    try process.run()
+    let ready = try output.fileHandleForReading.read(upToCount: 6)
+    #expect(ready == Data("ready\n".utf8))
+    model.start()
+    try await waitForPaseoTestPort(ports[1])
+    try await waitForPaseoTestPort(ports[2])
+    phone = LocalWebSocketClient(port: ports[1])
+    _ = try await nextSnapshot(from: phone) { $0.tasks.isEmpty }
+    try input.fileHandleForWriting.write(contentsOf: Data("sync\n".utf8))
+    let initial = try await nextSnapshot(from: phone) { $0.tasks.count == 1 }
+    #expect(initial.tasks.first?.lifecycle == .idle)
+    let nativeID = "11111111-1111-4111-8111-111111111111"
+    for id in [nativeID, "22222222-2222-4222-8222-222222222222", "standalone-codex"] {
+        _ = try await exchangeHook(source: .codex, port: ports[0], payload: [
+            "session_id": id, "hook_event_name": "SessionStart", "cwd": "/private/tmp/OriginTest", "source": "cli"])
+    }
+    let tagged = try await nextSnapshot(from: phone) { $0.tasks.count == 4 && $0.tasks.contains { $0.isPaseoSession } }
+    #expect(tagged.tasks.filter(\.isPaseoSession).map(\.id) == [nativeID])
+    #expect(tagged.tasks.first { $0.source == .omp }?.isPaseoSession == false)
+    try input.fileHandleForWriting.write(contentsOf: Data("archive-native\n".utf8))
+    let archived = try await nextSnapshot(from: phone) { $0.tasks.count == 4 && !$0.tasks.contains { $0.isPaseoSession } }
+    #expect(archived.tasks.first { $0.id == nativeID }?.lifecycle == tagged.tasks.first { $0.id == nativeID }?.lifecycle)
+    try input.fileHandleForWriting.write(contentsOf: Data("native-overflow\n".utf8))
+    _ = try await nextSnapshot(from: phone) { $0.tasks.first { $0.source == .omp }?.lifecycle == .running }
+    if let capture = ProcessInfo.processInfo.environment["AGENTPAGER_CAPTURE_NATIVE_ORIGIN"] {
+        try Data(protocolText([initial, tagged, archived]).utf8).write(to: URL(fileURLWithPath: capture))
+    }
+}

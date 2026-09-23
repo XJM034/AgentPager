@@ -19,9 +19,11 @@ internal static class Program
 
         Run("omp 与未知来源快照可兼容往返", OmpDiscoveryCompatibility, failures);
 
+        Run("原生 Codex 的 Paseo 标识兼容往返", NativeCodexOriginCompatibility, failures);
+
         if (failures.Count == 0)
         {
-            Console.WriteLine("AgentPager.Core regression tests passed (7/7).");
+            Console.WriteLine("AgentPager.Core regression tests passed (8/8).");
             return 0;
         }
 
@@ -40,6 +42,18 @@ internal static class Program
         {
             failures.Add("FAIL: " + name + "\n" + error);
         }
+    }
+
+    private static void NativeCodexOriginCompatibility()
+    {
+        var snapshots = Require(JsonSerializer.Deserialize<List<StateSnapshotPayload>>(
+            File.ReadAllText(ProtocolFixture("paseo-native-codex-origin.json")), WireJson.Options), "来源样本解析失败");
+        Equal(1, snapshots[1].Tasks.Count(task => task.IsPaseoSession), "仅关联一个原生会话");
+        Equal(AgentSource.CodexCLI, snapshots[1].Tasks.Single(task => task.IsPaseoSession).Source, "不改变原工具");
+        var forwarded = Require(JsonSerializer.Deserialize<List<StateSnapshotPayload>>(
+            JsonSerializer.Serialize(snapshots, WireJson.Options), WireJson.Options), "来源往返失败");
+        Equal(1, forwarded[1].Tasks.Count(task => task.IsPaseoSession), "保留附加来源");
+        Equal(0, forwarded[2].Tasks.Count(task => task.IsPaseoSession), "权威撤销附加来源");
     }
 
     private static void OmpDiscoveryCompatibility()

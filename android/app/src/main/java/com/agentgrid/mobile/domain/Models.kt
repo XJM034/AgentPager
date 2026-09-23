@@ -157,6 +157,7 @@ data class TaskSnapshot(
     val isUnread: Boolean = false,
     val isPinned: Boolean = false,
     val isMuted: Boolean = false,
+    val isPaseoSession: Boolean = false,
     val capabilities: Set<TaskCapability> = emptySet(),
 ) {
     val isTerminal: Boolean

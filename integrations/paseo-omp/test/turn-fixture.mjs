@@ -8,12 +8,15 @@ const delays = [];
 const clock = {setTimeout: (fn, ms) => { delays.push(ms); tick = fn; return 1; }, clearTimeout: () => { tick = undefined; }};
 let update;
 let timeline;
+const nativeID = '11111111-1111-4111-8111-111111111111';
+let overflow = false;
+let native = { id: 'paseo-native', provider: 'codex', status: 'idle', persistence: {provider: 'codex', sessionId: nativeID} };
 let snapshot = { id: 'main', provider: 'omp', cwd: '/private/secret-path/TurnTest',
   title: 'implement secret-prompt', model: 'openai-codex/gpt-5.5', status: 'idle',
   updatedAt: '2026-09-22T08:00:00.000Z', lastUserMessageAt: null, activeTurn: null };
 const client = { agents: {
   subscribe: handler => { update = handler; return () => {}; },
-  list: async () => ({ entries: [{agent: snapshot}, {agent: {...snapshot, id: 'existing-child', labels: {'paseo.parent-agent-id': 'main'}}}], pageInfo: {hasMore: false} }),
+  list: async () => ({ entries: [...(overflow ? Array.from({length: 201}, (_, i) => ({agent: {...native, archivedAt: undefined, id: `native-${i}`, persistence: {provider: 'codex', sessionId: `33333333-3333-4333-8333-${String(i).padStart(12, '0')}`}}})) : []), ...(process.argv[4] === "native" ? [{agent: native}, {agent: {...native, id: "child-native", labels: {"paseo.parent-agent-id": "parent"}, persistence: {provider: "codex", sessionId: "22222222-2222-4222-8222-222222222222"}}}] : []), {agent: snapshot}, {agent: {...snapshot, id: 'existing-child', labels: {'paseo.parent-agent-id': 'main'}}}], pageInfo: {hasMore: false} }),
   ref: id => ({ refresh: async () => ({agent: snapshot}), timeline: {
     subscribe: handler => { if (id === 'main') timeline = handler; return Object.assign(() => {}, {ready: Promise.resolve()}); },
   } }),
@@ -23,6 +26,8 @@ let adapter = startDiscovery({ on: (name, fn) => hooks.set(name, fn) }, client,
 await adapter.ready;
 console.log("ready");
 for await (const command of createInterface({input: process.stdin})) {
+  if (command === 'native-overflow') { overflow = true; snapshot = {...snapshot, status: 'running', activeTurn: {turnId: 'capacity-round', startedAt: '2026-09-22T08:00:01Z'}, updatedAt: '2026-09-22T08:00:01Z'}; await tick?.(); }
+  if (command === 'archive-native') { native = {...native, archivedAt: '2026-09-23T00:00:00Z'}; await tick?.(); }
   if (command === 'sync') await tick?.();
   if (command === 'outcome-race') {
     let release;

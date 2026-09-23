@@ -69,3 +69,19 @@ No new required wire fields or protocol version changes are introduced. Unknown 
 falling back to `unknown` without discarding the snapshot on macOS, Android and Windows.
 `fixtures/paseo-omp-discovery.json` exercises omp and an unknown source in one snapshot.
 Windows adds encoding/decoding only, not a Paseo collector.
+
+## Native Codex launched through Paseo (Issue #18)
+
+`tasks[].isPaseoSession` is an optional boolean, default `false` when absent.
+It annotates an existing Codex task whose ID matches a root, non-archived native
+Codex provider session in the public Paseo catalog. It does not create a task,
+change `source`, lifecycle, timing or capabilities. Android appends `Paseo` to
+the existing origin label; OMP remains `omp · Paseo`, irrespective of its model.
+Old clients ignore the field; new clients accept old payloads. Windows preserves
+it when forwarding. The Bridge rebuilds this annotation from complete catalog
+snapshots, clears it when monitoring is disabled, and does not persist it to disk.
+`fixtures/paseo-native-codex-origin.json` is captured from the actual JS adapter →
+isolated Bridge → phone WebSocket test, including association and archive removal.
+The adapter annotates at most the first 200 eligible native Codex identities in a
+complete catalog read. Overflow does not block OMP monitoring. The ingress keeps
+at most 200 host namespaces; production binds it to the configured local host.

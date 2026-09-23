@@ -59,7 +59,8 @@ public sealed record TaskSnapshot(
     bool IsUnread,
     bool IsPinned,
     bool IsMuted,
-    HashSet<TaskCapability> Capabilities)
+    HashSet<TaskCapability> Capabilities,
+    bool IsPaseoSession = false)
 {
     [JsonIgnore]
     public bool IsTerminal => Lifecycle is AgentLifecycle.Succeeded or AgentLifecycle.Interrupted;

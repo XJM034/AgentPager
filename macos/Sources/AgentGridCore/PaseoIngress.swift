@@ -44,6 +44,7 @@ public struct PaseoDiscovery: Decodable, Sendable {
     let activity: AgentActivity?
     let baseline: Bool?
     let members: [String]?
+    let codexSessionIDs: [String]?
     let snapshotID: String?
     let snapshotPart: Int?
     let snapshotParts: Int?

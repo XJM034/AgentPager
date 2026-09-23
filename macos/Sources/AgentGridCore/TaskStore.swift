@@ -27,6 +27,14 @@ public struct TaskStore: Sendable {
         purge(now: task.updatedAt)
     }
 
+    // Provenance changes must not change task timing, lifecycle or control capabilities.
+    mutating func setPaseoCodexSessions(_ ids: Set<String>) {
+        for index in tasks.indices {
+            tasks[index].isPaseoSession = [.codexCLI, .codexDesktop].contains(tasks[index].source)
+                && ids.contains(tasks[index].id)
+        }
+    }
+
     public mutating func remove(id: String) {
         tasks.removeAll { $0.id == id }
     }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 /** @typedef {import('@getpaseo/client').PaseoAgent} PaseoAgent */
-/** @typedef {ReturnType<typeof summarize> & {connectionID: string, connectionStartedAt: number, revision: number, activity: string | null, baseline?: boolean, members?: string[], snapshotID?: string, snapshotPart?: number, snapshotParts?: number}} Summary */
+/** @typedef {ReturnType<typeof summarize> & {connectionID: string, connectionStartedAt: number, revision: number, activity: string | null, baseline?: boolean, members?: string[], snapshotID?: string, snapshotPart?: number, snapshotParts?: number, codexSessionIDs?: string[]}} Summary */
 /** @typedef {{port: number, token: string, hostID: string}} IngressConfig */
 
 // Category-only titles mirror ZCodeEventReducer.safeTitle; never forward source text.
@@ -31,6 +31,16 @@ function summarize(agent, hostID) {
     status: ['idle', 'initializing', 'running'].includes(agent.status) ? agent.status : 'offline',
     archived: false,
   };
+}
+
+/** Only the public provider session identity is needed to label existing Codex cards.
+ * @param {PaseoAgent} agent */
+function nativeCodexSessionID(agent) {
+  if (agent.provider !== 'codex' || agent.archivedAt || agent.status === 'closed' ||
+      ('parentAgentId' in agent && agent.parentAgentId) || agent.labels?.['paseo.parent-agent-id']?.trim() ||
+      agent.persistence?.provider !== 'codex') return null;
+  const id = agent.persistence.sessionId;
+  return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
 }
 
 /**
@@ -339,6 +349,8 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     if (update.seq != null && update.seq <= catalogSequence) return;
     if (update.seq != null) catalogSequence = update.seq;
     // Import/resume need not emit created; public parent labels still exclude children.
+    // A native identity changed during the list read: discard the partial membership.
+    if (snapshotChanges && (update.kind === 'remove' || update.agent.provider === 'codex')) snapshotInvalid = true;
     if (update.kind === 'remove') retire(update.agentId);
     else publish(update.agent);
   });
@@ -352,6 +364,8 @@ export function startDiscovery(server, client, config, connected = Promise.resol
     try {
       /** @type {PaseoAgent[]} */
       const agents = [];
+      /** @type {Set<string>} */
+      const nativeIDs = new Set();
       /** @type {string | null | undefined} */
       let cursor;
       const cursors = new Set();
@@ -363,6 +377,10 @@ export function startDiscovery(server, client, config, connected = Promise.resol
           ...(!cursor ? { subscribe: { subscriptionId: 'agentpager-omp-discovery' } } : {}),
         });
         if (stopped) return;
+        for (const {agent} of page.entries) {
+          const id = nativeCodexSessionID(agent);
+          if (id && nativeIDs.size < 200) nativeIDs.add(id);
+        }
         agents.push(...page.entries.map(entry => entry.agent).filter(agent => summarize(agent, config.hostID)).slice(0, 200 - agents.length));
         cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor : null;
         if (cursor && cursors.has(cursor)) throw new Error("repeated catalog cursor");
@@ -380,12 +398,14 @@ export function startDiscovery(server, client, config, connected = Promise.resol
         // removes stale Bridge records when the adapter itself has been restarted.
         const ids = [...sessions.keys()];
         const snapshotID = randomUUID();
-        const parts = Math.max(1, Math.ceil(ids.length / 20));
+        const codexIDs = [...nativeIDs];
+        const parts = Math.max(1, Math.ceil(Math.max(ids.length, codexIDs.length) / 20));
         for (let part = 0; part < parts && !stopped; part++) {
           queue.push({hostID: config.hostID, agentID: '', provider: 'omp', projectName: '',
             titleCategory: '', status: 'snapshot', archived: false, activity: null,
             connectionID, connectionStartedAt, revision: ++revision,
-            snapshotID, snapshotPart: part, snapshotParts: parts, members: ids.slice(part * 20, (part + 1) * 20)});
+            snapshotID, snapshotPart: part, snapshotParts: parts,
+            codexSessionIDs: codexIDs.slice(part * 20, (part + 1) * 20), members: ids.slice(part * 20, (part + 1) * 20)});
           if (!active) active = drain();
           await active;
           if (needsSnapshot) break;

@@ -948,7 +948,7 @@ private fun TaskMeta(task: TaskSnapshot, alpha: Float) {
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MetaTag(agentBadge(task.source), agentBadgeColor(task.source), alpha)
-            agentOriginLabel(task.source)?.let { origin ->
+            taskOriginLabel(task)?.let { origin ->
                 MetaTag(origin, AgentGridColors.Muted, alpha)
             }
         }
@@ -1736,6 +1736,13 @@ private fun agentBadgeColor(source: AgentSource): Color = when (source) {
     AgentSource.CLAUDE_CODE -> AgentGridColors.Violet
     AgentSource.ZCODE -> AgentGridColors.Cyan
     else -> AgentGridColors.Blue
+}
+
+internal fun taskOriginLabel(task: TaskSnapshot): String? {
+    val origin = agentOriginLabel(task.source)
+    return if (task.isPaseoSession && task.source in setOf(AgentSource.CODEX_CLI, AgentSource.CODEX_DESKTOP)) {
+        "$origin · Paseo"
+    } else origin
 }
 
 internal fun agentOriginLabel(source: AgentSource): String? = when (source) {

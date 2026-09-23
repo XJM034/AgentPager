@@ -103,8 +103,10 @@ public struct TaskCatalog: Sendable {
         let parts: Int
         var nextPart: Int
         var taskIDs: Set<String>
+        var codexSessionIDs: Set<String>
     }
     private var paseoMemberships: [String: PaseoMembership] = [:]
+    private var paseoCodexSessions: [String: Set<String>] = [:]
     private var paseoHosts: [String: String] = [:]
     private var paseoLastSeen: [String: Date] = [:]
     private var paseoRevisions: [String: (connectionID: String, startedAt: Double, revision: UInt64)] = [:]
@@ -174,6 +176,7 @@ public struct TaskCatalog: Sendable {
         case .disablePaseo:
             for task in store.tasks where task.source == .omp { store.remove(id: task.id) }
             paseoMemberships.removeAll()
+            paseoCodexSessions.removeAll()
             paseoHosts.removeAll()
             paseoLastSeen.removeAll()
             paseoRevisions.removeAll()
@@ -192,17 +195,25 @@ public struct TaskCatalog: Sendable {
                 guard let id = discovery.snapshotID, id.count <= 128,
                       let part = discovery.snapshotPart, let parts = discovery.snapshotParts,
                       (1...10).contains(parts), (0..<parts).contains(part), members.count <= 20,
-                      members.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 128 }) else { break }
+                      members.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 128 }),
+                      (discovery.codexSessionIDs ?? []).count <= 20,
+                      (discovery.codexSessionIDs ?? []).allSatisfy({ $0.utf8.count == 36 && UUID(uuidString: $0) != nil }) else { break }
                 if part == 0 {
                     guard paseoMemberships.count < 200 || paseoMemberships[discovery.hostID] != nil else { break }
-                    paseoMemberships[discovery.hostID] = PaseoMembership(id: id, parts: parts, nextPart: 0, taskIDs: [])
+                    paseoMemberships[discovery.hostID] = PaseoMembership(id: id, parts: parts, nextPart: 0, taskIDs: [], codexSessionIDs: [])
                 }
                 guard var membership = paseoMemberships[discovery.hostID], membership.id == id,
                       membership.parts == parts, membership.nextPart == part else { break }
                 membership.taskIDs.formUnion(members.map { discovery.taskID(for: $0) })
+                membership.codexSessionIDs.formUnion(discovery.codexSessionIDs ?? [])
                 membership.nextPart += 1
                 paseoMemberships[discovery.hostID] = membership
                 if membership.nextPart == parts {
+                    if membership.codexSessionIDs.isEmpty {
+                        paseoCodexSessions.removeValue(forKey: discovery.hostID)
+                    } else if paseoCodexSessions[discovery.hostID] != nil || paseoCodexSessions.count < 200 {
+                        paseoCodexSessions[discovery.hostID] = membership.codexSessionIDs
+                    }
                     // Restored omp records predate this process's ownership map. This
                     // ingress may authorize its configured local host; unknown/other hosts stay isolated.
                     for task in store.tasks where task.source == .omp &&
@@ -461,6 +472,8 @@ public struct TaskCatalog: Sendable {
 
     private mutating func normalize(now: Date) {
         store.purge(now: now)
+        let nativeIDs = paseoCodexSessions.values.reduce(into: Set<String>()) { $0.formUnion($1) }
+        store.setPaseoCodexSessions(nativeIDs)
         _ = store.purgeTerminalSubagents(now: now)
         let taskIDs = Set(store.tasks.map(\.id))
         requestsByID = requestsByID.filter { taskIDs.contains($0.value.taskID) }

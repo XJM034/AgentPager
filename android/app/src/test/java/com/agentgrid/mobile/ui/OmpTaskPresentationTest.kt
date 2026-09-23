@@ -16,6 +16,27 @@ import org.junit.Test
 
 class OmpTaskPresentationTest {
     @Test
+    fun `原生 Codex 的 Paseo 标签只附加到已关联会话且不改变 OMP`() {
+        val fixture = listOf(File("../../protocol/fixtures/paseo-native-codex-origin.json"),
+            File("../protocol/fixtures/paseo-native-codex-origin.json")).first { it.exists() }
+        val snapshots = Json { ignoreUnknownKeys = true }
+            .decodeFromString<List<StateSnapshotPayload>>(fixture.readText())
+        val native = snapshots[1].tasks.single { it.isPaseoSession }
+        assertEquals("Codex", agentBadge(native.source))
+        assertEquals("Terminal · Paseo", taskOriginLabel(native))
+        assertEquals("Terminal", taskOriginLabel(snapshots[1].tasks.single { it.id == "standalone-codex" }))
+        assertEquals("Paseo", taskOriginLabel(snapshots[1].tasks.single { it.source == AgentSource.OMP }))
+        assertEquals("Terminal", taskOriginLabel(snapshots[2].tasks.single { it.id == native.id }))
+        assertEquals(4, snapshots[2].tasks.size)
+        // Old Bridge payloads omit the flag entirely.
+        val legacy = Json { ignoreUnknownKeys = true }.decodeFromString<TaskSnapshot>(
+            """{"id":"legacy","source":"codexCLI","projectName":"Legacy","lifecycle":"idle","startedAt":0,"updatedAt":0}""",
+        )
+        assertFalse(legacy.isPaseoSession)
+        assertEquals("Terminal", taskOriginLabel(legacy))
+    }
+
+    @Test
     fun `关闭恢复的真实 Bridge 输出不会恢复已解决等待或手机操作`() {
         val fixture = listOf(File("../../protocol/fixtures/paseo-omp-configuration.json"),
             File("../protocol/fixtures/paseo-omp-configuration.json")).first { it.exists() }

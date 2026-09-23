@@ -294,3 +294,54 @@ func paseoMembershipPreservesUnownedRestoredTasks() throws {
     catalog.accept(.paseoDiscovery(try JSONDecoder().decode(PaseoDiscovery.self, from: next), authoritativeHostID: "host-a"))
     #expect(catalog.projection().tasks.isEmpty)
 }
+
+@Test("Paseo 原生 Codex 来源只关联已有任务，完整快照和关闭可撤销")
+func nativeCodexPaseoOrigin() throws {
+    let id = "11111111-1111-4111-8111-111111111111"
+    let now = Date.now
+    var catalog = TaskCatalog()
+    func snapshot(_ ids: [String], part: Int = 0, parts: Int = 1) throws -> PaseoDiscovery {
+        let value: [String: Any] = ["hostID": "origin-test", "agentID": "", "provider": "omp",
+            "projectName": "", "titleCategory": "", "status": "snapshot", "archived": false,
+            "members": [], "snapshotID": "snapshot", "snapshotPart": part, "snapshotParts": parts,
+            "codexSessionIDs": ids]
+        return try JSONDecoder().decode(PaseoDiscovery.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+    catalog.accept(.paseoDiscovery(try snapshot([id])))
+    #expect(catalog.projection().tasks.isEmpty)
+    let native = TaskSnapshot(id: id, source: .codexCLI, projectName: "Native", lifecycle: .running,
+                              startedAt: now, updatedAt: now)
+    catalog.accept(.synthetic(native))
+    catalog.accept(.synthetic(TaskSnapshot(id: "other", source: .codexCLI, projectName: "Other", lifecycle: .idle)))
+    #expect(catalog.projection().tasks.first { $0.id == id }?.isPaseoSession == true)
+    #expect(catalog.projection().tasks.first { $0.id == "other" }?.isPaseoSession == false)
+    #expect(catalog.projection().tasks.first { $0.id == id }?.updatedAt == now)
+    catalog.accept(.paseoDiscovery(try snapshot([], parts: 2)))
+    #expect(catalog.projection().tasks.first { $0.id == id }?.isPaseoSession == true)
+    catalog.accept(.paseoDiscovery(try snapshot([], part: 1, parts: 2)))
+    #expect(catalog.projection().tasks.first { $0.id == id }?.isPaseoSession == false)
+    catalog.accept(.paseoDiscovery(try snapshot([id])))
+    catalog.accept(.disablePaseo)
+    #expect(catalog.projection().tasks.count == 2)
+    #expect(catalog.projection().tasks.allSatisfy { !$0.isPaseoSession })
+}
+
+@Test("旧格式来源快照同样限制宿主数量，清空后释放容量")
+func paseoNativeOriginHostCapacity() throws {
+    var catalog = TaskCatalog()
+    let target = "11111111-1111-4111-8111-111111111111"
+    let unrelated = "22222222-2222-4222-8222-222222222222"
+    func input(_ host: String, _ ids: [String]) throws -> PaseoDiscovery {
+        let value: [String: Any] = ["hostID": host, "agentID": "", "provider": "omp", "projectName": "",
+            "titleCategory": "", "status": "snapshot", "archived": false, "members": [],
+            "snapshotID": "one", "snapshotPart": 0, "snapshotParts": 1, "codexSessionIDs": ids]
+        return try JSONDecoder().decode(PaseoDiscovery.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+    catalog.accept(.synthetic(TaskSnapshot(id: target, source: .codexCLI, projectName: "Test", lifecycle: .idle)))
+    for n in 0..<200 { catalog.accept(.paseoDiscovery(try input("host-\(n)", [unrelated]))) }
+    catalog.accept(.paseoDiscovery(try input("overflow", [target])))
+    #expect(catalog.projection().tasks.first?.isPaseoSession == false)
+    catalog.accept(.paseoDiscovery(try input("host-0", [])))
+    catalog.accept(.paseoDiscovery(try input("overflow", [target])))
+    #expect(catalog.projection().tasks.first?.isPaseoSession == true)
+}

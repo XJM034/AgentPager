@@ -408,7 +408,7 @@ struct BridgeSettingsView: View {
                             .font(.pixel(13, weight: .bold))
                             .foregroundStyle(PixelTheme.cyan)
                         InfoRow(label: "监控状态", value: model.paseoStatus,
-                                accent: model.paseoStatus.hasPrefix("已连接") ? PixelTheme.green : PixelTheme.amber)
+                                accent: model.paseoConnectionStatus.isConnected ? PixelTheme.green : PixelTheme.amber)
                         Text("启用一次即可监控本机 Paseo 中的 omp 会话，无需逐项目设置或提供 GLM Key。等待处理时请回到 Paseo，手机仅显示状态。")
                             .foregroundStyle(PixelTheme.muted)
                             .lineSpacing(4)

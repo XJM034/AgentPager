@@ -182,7 +182,8 @@ final class BridgeModel {
         }
     }
     private var rolloutObservation = CodexRolloutObservation()
-    private(set) var paseoStatus = "未启用"
+    private(set) var paseoConnectionStatus = PaseoMonitoringStatus.disabled
+    var paseoStatus: String { paseoConnectionStatus.text }
     private var paseoLastContact: Date?
     private var paseoGeneration = UUID()
     private var paseoMaintenance: Task<Void, Never>?
@@ -336,8 +337,9 @@ final class BridgeModel {
         }
         do {
             let config = try await Task.detached { try integration.perform(action) }.value
+            let needsRestart = runtimeConfiguration.paseoIngress != config || (config != nil && paseoServer == nil)
             runtimeConfiguration.paseoIngress = config
-            setPaseoMonitoring(config != nil)
+            if needsRestart { setPaseoMonitoring(config != nil) }
             paseoDiagnostic = nil
         } catch {
             paseoDiagnostic = (error as? PaseoIntegration.Failure)?.errorDescription ?? "配置操作未完成，已保留备份；请检查 Paseo 连接。"
@@ -352,11 +354,11 @@ final class BridgeModel {
         paseoMaintenance = nil
         paseoLastContact = nil
         guard enabled, hasStarted, let config = runtimeConfiguration.paseoIngress else {
-            paseoStatus = "未启用"
+            paseoConnectionStatus = .disabled
             if let commit = catalog.accept(.disablePaseo) { applyCatalogCommit(commit) }
             return
         }
-        paseoStatus = "连接不可用"
+        paseoConnectionStatus = .unavailable
         let generation = paseoGeneration
         let server = PaseoIngressServer(configuration: config) { [weak self] discovery in
             Task { @MainActor in
@@ -365,7 +367,7 @@ final class BridgeModel {
                 if let commit = self.catalog.accept(.paseoDiscovery(discovery, authoritativeHostID: config.hostID)) {
                     self.applyCatalogCommit(commit)
                 }
-                self.paseoStatus = self.tasks.contains { $0.source == .omp } ? "已连接" : "已连接 · 暂无会话"
+                self.paseoConnectionStatus = self.tasks.contains { $0.source == .omp } ? .connected : .empty
             }
         }
         do { try server.start(); paseoServer = server }
@@ -375,7 +377,7 @@ final class BridgeModel {
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled, let self else { return }
                 if self.paseoLastContact.map({ Date.now.timeIntervalSince($0) > 45 }) ?? true {
-                    self.paseoStatus = "连接不可用"
+                    self.paseoConnectionStatus = .unavailable
                 }
                 if let commit = self.catalog.maintain() { self.applyCatalogCommit(commit) }
             }

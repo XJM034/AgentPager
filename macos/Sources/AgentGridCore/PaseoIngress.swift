@@ -3,7 +3,7 @@ import Foundation
 import Network
 
 /// Opt-in development ingress; its secret is independent of phone pairing.
-public struct PaseoIngressConfiguration: Codable, Sendable {
+public struct PaseoIngressConfiguration: Codable, Equatable, Sendable {
     public let port: UInt16
     public let token: String
     public let hostID: String?

@@ -56,3 +56,15 @@
 首次 Build 26 本地 Mac 包已生成，8 个 SDK 运行依赖随包携带，Apple 团队签名及严格签名验证通过；源代码修订后仍需重打最终包，当前不作为最终安装产物。
 
 bootstrap 核对：根/平台规则已覆盖安装、备份、签名及配对边界，无需重写 AGENTS/CLAUDE；新增打包资源入口写入现有 macOS 开发说明，领域术语和协议未变，无新 ADR/CONTEXT 修改。
+
+## 双轴审查与候选包（等待本 Session 现场授权）
+
+实现提交 `31b0399`。按 code-review 两路独立审查固定 `2118ffb...31b0399`：Standards 0硬性问题/1项P3判断性建议；Spec 0确认实现问题，保留现场验收门槛。已将连接诊断改为枚举，UI不再按中文前缀判断状态；同时重复启用相同配置不会重启现有入口。两路增量复核均0剩余问题。
+
+修改后再跑完整Swift：180 Core + 19 Bridge，199项通过。Android94/Lint/Debug及SDK类型检查通过，之后没有Android/JS修改。共享手机协议字段、枚举和各端编解码没有新增变更，因此没有新增Windows实现或兼容分支。
+
+最终待安装候选：Mac 0.3.0/Build26，com.agentpager.bridge，Team2794UM7L67，严格签名通过，二进制SHA256 `71fa5d3c26dc0b340fb9cff047be48a17d86722e534818be13342668ff89e357`；Android0.3.0-custom/Build26，com.agentgrid.mobile.custom/AgentPager Custom，APK SHA256 `27ef7190df6acb049d468dcab98fd1cddb2b041f0547d9682c16759dcfd7ca95`，Debug签名已验证。
+
+日常Bridge仍为原Build20进程；未安装、未重启、未发起模型调用。官方SDK当前只读查询：pluginsEnabled=false、ompEnabled=true、pluginIDs=[]。Redmi仍未连接。
+
+[具体安装、备份、恢复与验证方案](2026-09-23-paseo-omp-installation-plan.md)已准备并提出本Session授权问题。该计划及本地提交不是实际验收。等待用户授权与连接Redmi后继续本Session现场阶段；#18/#13均不关闭、不推送、不发布。

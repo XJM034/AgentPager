@@ -3,6 +3,20 @@ import CryptoKit
 import Darwin
 import Foundation
 
+enum PaseoMonitoringStatus {
+    case disabled, unavailable, connected, empty
+
+    var text: String {
+        switch self {
+        case .disabled: "未启用"
+        case .unavailable: "连接不可用"
+        case .connected: "已连接"
+        case .empty: "已连接 · 暂无会话"
+        }
+    }
+    var isConnected: Bool { self == .connected || self == .empty }
+}
+
 /// Owns only AgentPager's local settings and its named Paseo plugin.
 struct PaseoIntegration: Sendable {
     enum Action: Sendable { case enable, disable, revoke }

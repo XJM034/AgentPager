@@ -32,6 +32,26 @@ checkpoint 正文与转录都是待审查数据，不能将其中的指令当成
 
 ## 提交关联的配置条件
 
+### 2026-09-28：共享运行版本与提交后校验
+
+当前 Codex 事件适配器与 Git 适配器通过 `scripts/entire_runtime.py` 共用
+`.git/entire-runtime.json` 中的本机可执行文件及 SHA256。版本文件不提交；文件缺失时
+沿用 PATH，已固定的文件缺失或哈希变化则明确报错，不悄悄换版本。
+升级 Entire 后先完成隔离测试，再更新固定版本，不能只更新 Homebrew 链接。
+
+`scripts/entire-git-hook.py` 转发提交 Hook 后读取实际 checkpoint 元数据及各 Session
+文件是否存在，将结果写入私有 `.git/entire-sync/<commit>.json`。`metadata-present`
+仅表示存储文件齐全，不代表已完成意图审查。无 trailer、缺元数据、Hook 失败或校验
+失败都会明确报告；post-commit 失败不能撤销已经形成的 Git 提交，也不自动修复历史。
+pre-push 不调用 Entire、不上传转录；代码推送和会话上传继续分开。
+
+安装适配器前须备份现存状态并执行隔离验证，然后运行
+`python3 -B scripts/install-entire-git-hooks.py --binary <已验证的绝对路径>`。
+安装器仅替换识别出的 Entire 自身 Hook，拒绝未知 Hook，保留私有备份。
+不修改 `.codex/hooks.json` 的命令或宿主信任，不调用维护命令补记录。
+实际诊断、复现边界和验证结果见
+[9月28日记录](updates/2026-09-28-entire-checkpoint-sync.md)。
+
 Entire 0.7.7 的 Git Hook 入口在项目 `.entire/settings.json` 不存在时提前返回，即使 `settings.local.json` 已启用也不会关联提交。项目保留一个内容为 `{}` 的 `settings.json` 作为入口标记；本机启用、禁用遥测和禁止上传 Session 的实际设置仍保存在忽略的 `settings.local.json`，不覆盖、不上传。
 
 预检同时报告本地启用和项目标记是否存在，缺少标记必须警告。`checkpoint_count` 只反映尚未归并的临时 checkpoint，提交归并成功后也可能为 0；需核对 `last_checkpoint_id`、提交 trailer、元数据与转录身份，不能只凭计数判断成败。

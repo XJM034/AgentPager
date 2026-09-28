@@ -26,6 +26,7 @@ GIT = '/usr/bin/git'
 ALLOWED_CODEX = {'session-start', 'user-prompt-submit', 'post-tool-use', 'stop'}
 ALLOWED_GIT = {'prepare-commit-msg', 'commit-msg', 'post-commit'}
 WRAPPER = Path(__file__).resolve().with_name('entire-codex-hook.py')
+GIT_WRAPPER = None
 
 def clean_env():
     env = {k: v for k, v in os.environ.items()
@@ -68,15 +69,15 @@ def run_case(name, commit_before_stop, desktop=False, project_marker=False, use_
             '#!/usr/bin/python3\n'
             'import json,os,subprocess,sys\n'
             'from pathlib import Path\n'
-            'assert sys.argv[1:3]==["hooks","codex"]\n'
-            'assert sys.argv[3] in ' + repr(ALLOWED_CODEX) + '\n'
+            'assert sys.argv[1:3] in [["hooks","codex"],["hooks","git"]]\n'
+            'assert sys.argv[3] in ' + repr(ALLOWED_CODEX | ALLOWED_GIT) + '\n'
             'data=sys.stdin.read()\n'
             'ids={k:os.environ[k] for k in ["CODEX_SESSION_ID","CODEX_THREAD_ID"] if k in os.environ}\n'
             'env={k:v for k,v in os.environ.items() if not k.startswith(("GIT_","CODEX_","ENTIRE_"))}\n'
             'env.update(' + repr(isolation) + ')\n'
             'env.update(ids)\n'
             'p=subprocess.run(' + repr([str(ENTIRE)]) + '+sys.argv[1:],input=data,text=True,env=env,cwd=' + repr(str(repo)) + ',capture_output=True,timeout=23,start_new_session=True)\n'
-            'record={"argv":sys.argv[1:],"validated_ids":ids,"payload":json.loads(data),"exit_code":p.returncode,"stdout":p.stdout,"stderr":p.stderr}\n'
+            'record={"argv":sys.argv[1:],"validated_ids":ids,"payload":json.loads(data) if sys.argv[2]=="codex" else None,"exit_code":p.returncode,"stdout":p.stdout,"stderr":p.stderr}\n'
             'with Path(' + repr(str(evidence / 'wrapper-forwarding.jsonl')) + ').open("a") as f: f.write(json.dumps(record)+"\\n")\n'
             'sys.stdout.write(p.stdout)\n'
             'sys.stderr.write(p.stderr)\n'
@@ -148,6 +149,10 @@ def run_case(name, commit_before_stop, desktop=False, project_marker=False, use_
         # Local enabled/telemetry/push settings still provide identical values.
         save(repo / '.entire/settings.json', {})
 
+    if GIT_WRAPPER and use_wrapper:
+        save(repo / '.git/entire-runtime.json', {'binary': str(launcher),
+            'sha256': hashlib.sha256(launcher.read_bytes()).hexdigest()})
+
     append('session_meta', {'id': sid, 'timestamp': ts(), 'cwd': str(repo),
                             'originator': 'synthetic-replay', 'source': 'cli'})
     hook('session-start', source='startup')
@@ -167,7 +172,7 @@ def run_case(name, commit_before_stop, desktop=False, project_marker=False, use_
                 'env={k:v for k,v in os.environ.items() if not k.startswith(("GIT_","CODEX_","ENTIRE_"))}\n'
                 'env.update(' + repr({k: v for k, v in env.items()
                                      if k.startswith(('GIT_', 'CODEX_', 'ENTIRE_'))}) + ')\n'
-                'argv=' + repr([str(ENTIRE), 'hooks', 'git', verb]) + '+sys.argv[1:]\n'
+                'argv=' + repr([sys.executable, str(GIT_WRAPPER), verb] if GIT_WRAPPER else [str(ENTIRE), 'hooks', 'git', verb]) + '+sys.argv[1:]\n'
                 'p=subprocess.run(argv,cwd=' + repr(str(repo)) + ',env=env,text=True,capture_output=True,timeout=25,start_new_session=True)\n'
                 'path=Path(' + repr(str(evidence / ('git-hook-' + verb + '.jsonl'))) + ')\n'
                 'with path.open("a") as f: f.write(json.dumps({"argv":argv,"exit_code":p.returncode,"stdout":p.stdout,"stderr":p.stderr})+"\\n")\n'
@@ -233,7 +238,7 @@ def run_case(name, commit_before_stop, desktop=False, project_marker=False, use_
         p.stem: [json.loads(line)['exit_code'] for line in p.read_text().splitlines()]
         for p in evidence.glob('git-hook-*.jsonl')}
     if use_wrapper:
-        forwards = [json.loads(line) for line in (evidence / 'wrapper-forwarding.jsonl').read_text().splitlines()]
+        forwards = [json.loads(line) for line in (evidence / 'wrapper-forwarding.jsonl').read_text().splitlines() if json.loads(line)['argv'][1] == 'codex']
         result['wrapper_actual_forward_count'] = len(forwards)
         result['wrapper_forward_ids_match'] = all(
             f['validated_ids'] == {'CODEX_SESSION_ID': sid, 'CODEX_THREAD_ID': sid} for f in forwards)
@@ -241,6 +246,10 @@ def run_case(name, commit_before_stop, desktop=False, project_marker=False, use_
         result['wrapper_payloads_preserved'] = all(
             f['payload'] == json.loads((evidence / (f['argv'][2] + '-input.json')).read_text())
             for f in forwards)
+    if GIT_WRAPPER:
+        reports = list((repo / '.git/entire-sync').glob('*.json'))
+        result['sync_report_present'] = bool(reports) and all(
+            json.loads(p.read_text()).get('status') == 'metadata-present' for p in reports)
     if trailer:
         prefix = trailer[:2] + '/' + trailer[2:] + '/0/'
         meta_raw = command([GIT, 'show', 'refs/heads/entire/checkpoints/v1:' + prefix + 'metadata.json'],
@@ -272,6 +281,8 @@ def run_case(name, commit_before_stop, desktop=False, project_marker=False, use_
         'expected_counter_after_stop': result['after_stop']['checkpoint_count'] == (
             0 if commit_before_stop else 1),
     }
+    if GIT_WRAPPER:
+        checks['sync_report_present'] = result.get('sync_report_present', False)
     if project_marker:
         checks['last_checkpoint_id_matches_trailer'] = result['after_commit']['last_checkpoint_id'] == trailer
         checks['metadata_identity_matches'] = result['metadata_identity_matches']
@@ -288,13 +299,17 @@ def run_case(name, commit_before_stop, desktop=False, project_marker=False, use_
     return result
 
 def main():
-    global RUN, ENTIRE, WRAPPER
+    global RUN, ENTIRE, WRAPPER, GIT_WRAPPER
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--wrapper', type=Path, default=WRAPPER)
     parser.add_argument('--entire', type=Path, default=ENTIRE)
     parser.add_argument('--desktop-only', action='store_true')
+    parser.add_argument('--git-wrapper', type=Path)
     args = parser.parse_args()
+    if args.git_wrapper and not args.desktop_only:
+        parser.error('--git-wrapper currently requires --desktop-only')
     WRAPPER = args.wrapper.resolve()
+    GIT_WRAPPER = args.git_wrapper.resolve() if args.git_wrapper else None
     ENTIRE = args.entire.resolve()
     if not WRAPPER.is_file() or not ENTIRE.is_file():
         parser.error('wrapper and Entire executable must exist; no install/download is attempted')

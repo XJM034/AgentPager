@@ -8,7 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
+from entire_runtime import resolve_runtime
 import subprocess
 import sys
 
@@ -53,9 +53,10 @@ def main():
         print(json.dumps({"systemMessage": f"Entire tracking skipped safely: {exc}. "
                           "Review remains diff-only until session/checkpoint evidence is verified."}))
         return 0
-    binary = shutil.which("entire")
-    if binary is None:
-        print(json.dumps({"systemMessage": "Entire tracking unavailable: CLI is missing. No configuration was changed."}))
+    try:
+        binary = resolve_runtime(cwd)
+    except (ValueError, OSError, KeyError, subprocess.SubprocessError):
+        print(json.dumps({"systemMessage": "Entire tracking unavailable: runtime missing or changed. No configuration was changed."}))
         return 0
     try:
         result = subprocess.run([binary, "hooks", "codex", args.event],

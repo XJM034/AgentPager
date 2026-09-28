@@ -104,6 +104,9 @@ public struct TaskStore: Sendable {
                now.timeIntervalSince(task.updatedAt) >= syntheticRetention {
                 return true
             }
+            if task.source == .omp && [.idle, .offline].contains(task.lifecycle) {
+                return now.timeIntervalSince(task.updatedAt) > retention
+            }
             guard task.isTerminal, let completedAt = task.completedAt else {
                 return false
             }
@@ -115,8 +118,11 @@ public struct TaskStore: Sendable {
         }
 
         let removable = tasks
-            .filter(\.isTerminal)
-            .sorted { $0.updatedAt < $1.updatedAt }
+            .filter { $0.isTerminal || ($0.source == .omp && [.idle, .offline].contains($0.lifecycle)) }
+            .sorted {
+                if $0.isTerminal != $1.isTerminal { return !$0.isTerminal }
+                return $0.updatedAt < $1.updatedAt
+            }
             .map(\.id)
 
         for id in removable where tasks.count > capacity {

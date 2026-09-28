@@ -102,6 +102,12 @@ object TaskDashboardProjector {
                         else -> Unit
                     }
                 }
+                if (task.lifecycle == AgentLifecycle.IDLE || task.lifecycle == AgentLifecycle.OFFLINE) {
+                    return@mapNotNull null
+                }
+                if (task.isTerminal && (task.completedAt ?: task.updatedAt) + idleDelayMillis <= now) {
+                    return@mapNotNull null
+                }
                 // 只裁剪手机展示副本，保留 Bridge 原始状态与主任务完成语义。
                 if (task.source == AgentSource.CODEX_CLI ||
                     task.source == AgentSource.CODEX_DESKTOP
@@ -166,8 +172,8 @@ object TaskDashboardProjector {
             nextRefreshAt = listOfNotNull(
                 nextDashboardAt.takeIf { effectiveManualOverride == null },
                 normalizedTasks.asSequence()
-                    .filter { it.source == AgentSource.ZCODE && it.lifecycle == AgentLifecycle.IDLE }
-                    .map { it.updatedAt + idleDelayMillis }
+                    .filter { it.isTerminal || (it.source == AgentSource.ZCODE && it.lifecycle == AgentLifecycle.IDLE) }
+                    .map { (it.completedAt ?: it.updatedAt) + idleDelayMillis }
                     .filter { it > now }
                     .minOrNull(),
             ).minOrNull(),

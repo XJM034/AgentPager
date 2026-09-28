@@ -47,7 +47,9 @@ class OmpTaskPresentationTest {
             AgentLifecycle.WAITING_APPROVAL, AgentLifecycle.WAITING_APPROVAL, AgentLifecycle.RUNNING)
         snapshots.forEachIndexed { index, snapshot ->
             val projection = TaskDashboardProjector.project(snapshot, null, snapshot.tasks.single().updatedAt)
-            val task = projection.visibleTasks.single()
+            val task = snapshot.tasks.single()
+            if (index == 0) assertTrue(projection.visibleTasks.isEmpty())
+            else assertEquals(listOf(task), projection.visibleTasks)
             assertEquals(identity, task.id)
             assertEquals(expected[index], task.lifecycle)
             assertTrue(task.capabilities.isEmpty())
@@ -66,9 +68,11 @@ class OmpTaskPresentationTest {
         val identity = snapshots.first().tasks.single().id
         val tracker = TaskSoundTracker()
         var projection: TaskDashboardProjection? = null
-        snapshots.forEach { snapshot ->
+        val visibleCounts = listOf(0, 0, 0, 1, 0, 1, 1, 1, 1)
+        snapshots.forEachIndexed { index, snapshot ->
             projection = TaskDashboardProjector.project(snapshot, projection, snapshot.tasks.maxOf { it.updatedAt })
-            assertTrue(projection!!.visibleTasks.any { it.id == identity })
+            assertEquals(visibleCounts[index], projection!!.visibleTasks.size)
+            if (visibleCounts[index] == 1) assertEquals(identity, projection!!.visibleTasks.single().id)
             assertNotEquals(ArcadeSoundCue.TASK_COMPLETE, tracker.nextCue(snapshot.tasks))
             assertNull(tracker.nextCue(snapshot.tasks))
             assertTrue(snapshot.tasks.all { it.completedAt == null && it.capabilities.isEmpty() })
@@ -96,7 +100,7 @@ class OmpTaskPresentationTest {
             val task = snapshot.tasks.single()
             assertTrue(task.capabilities.isEmpty())
             projection = TaskDashboardProjector.project(snapshot, projection, task.updatedAt)
-            assertEquals(task.id, projection?.focusedTaskID)
+            assertEquals(if (index == 0) null else task.id, projection?.focusedTaskID)
             assertEquals(expected[index], tracker.nextCue(projection!!.visibleTasks))
             assertNull(tracker.nextCue(projection!!.visibleTasks))
             texts[index]?.let { assertEquals(it, taskActivitySummary(task)) }
@@ -128,7 +132,7 @@ class OmpTaskPresentationTest {
             val task = snapshot.tasks.single()
             assertEquals(identity, task.id)
             projection = TaskDashboardProjector.project(snapshot, projection, task.updatedAt)
-            assertEquals(identity, projection?.focusedTaskID)
+            assertEquals(if (index == 0) null else identity, projection?.focusedTaskID)
             assertEquals(expected[index], tracker.nextCue(projection!!.visibleTasks))
             assertNull(tracker.nextCue(projection!!.visibleTasks))
             assertEquals(if (task.lifecycle == AgentLifecycle.RUNNING) 0.8f else 0.2f,
@@ -158,7 +162,7 @@ class OmpTaskPresentationTest {
     }
 
     @Test
-    fun `omp 未输入空闲会话可见且明确标记来源 不制造完成音`() {
+    fun `omp 未输入空闲会话不占列表 来源标记保持且不制造完成音`() {
         val source = Json.decodeFromString<AgentSource>("\"omp\"")
         assertEquals("omp", source.wireName)
         assertEquals("omp", agentBadge(source))
@@ -170,8 +174,8 @@ class OmpTaskPresentationTest {
         val projection = TaskDashboardProjector.project(
             tasks = listOf(task), preferredFocusedTaskID = null, previous = null, now = 200_000,
         )
-        assertEquals(listOf(task), projection.visibleTasks)
-        assertEquals(AgentLifecycle.IDLE, projection.focusedTask?.lifecycle)
+        assertTrue(projection.visibleTasks.isEmpty())
+        assertNull(projection.focusedTask)
         assertEquals("空闲", taskActivitySummary(task))
         assertNull(projection.focusedTask?.completedAt)
         assertTrue(task.capabilities.isEmpty())

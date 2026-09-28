@@ -216,3 +216,22 @@ func repeatedCodexTitleSyncDoesNotDuplicateProjectPrefix() {
     #expect(!secondChanged)
     #expect(store.tasks[0].title == "AgentGrid · 更新手机标题")
 }
+
+@Test("OMP 非活跃缓存到期清理且容量不足先让位，不驱逐活跃或刚完成")
+func inactiveOmpCacheIsBounded() {
+    let now = Date.now
+    let stale = TaskSnapshot(id: "stale", source: .omp, projectName: "Test", lifecycle: .offline,
+        startedAt: now, updatedAt: now.addingTimeInterval(-3601))
+    var store = TaskStore(tasks: [stale])
+    store.purge(now: now)
+    #expect(store.tasks.isEmpty)
+    let idle = TaskSnapshot(id: "idle", source: .omp, projectName: "Test", lifecycle: .idle,
+        startedAt: now, updatedAt: now)
+    let running = TaskSnapshot(id: "active", source: .codexCLI, projectName: "Test", lifecycle: .running,
+        startedAt: now, updatedAt: now)
+    let done = TaskSnapshot(id: "done", source: .codexCLI, projectName: "Test", lifecycle: .succeeded,
+        startedAt: now, updatedAt: now, completedAt: now)
+    store = TaskStore(tasks: [running, done, idle], capacity: 2)
+    store.purge(now: now)
+    #expect(Set(store.tasks.map(\.id)) == ["active", "done"])
+}

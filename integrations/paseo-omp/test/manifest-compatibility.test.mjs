@@ -6,9 +6,10 @@ import { assertPluginCompatibility } from '@getpaseo/protocol/plugin-requirement
 const manifest = JSON.parse(readFileSync(new URL('../paseo-plugin.json', import.meta.url), 'utf8'));
 const check = version => assertPluginCompatibility({ ...manifest, version, runtime: 'daemon' });
 
-test('Paseo accepts the monitor on both explicitly supported daemon releases', () => {
+test('Paseo accepts the monitor on all explicitly supported daemon releases', () => {
   doesNotThrow(() => check('0.8.0'));
   doesNotThrow(() => check('0.9.1'));
+  doesNotThrow(() => check('0.9.2'));
 });
 
 test('unknown releases remain gated until their contract is verified', () => {

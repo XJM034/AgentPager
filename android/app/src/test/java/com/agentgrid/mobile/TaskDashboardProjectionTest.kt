@@ -18,8 +18,8 @@ class TaskDashboardProjectionTest {
         val approval = task("approval", AgentLifecycle.WAITING_APPROVAL, 10)
         val running = task("running", AgentLifecycle.RUNNING, 30)
         val starting = task("starting", AgentLifecycle.STARTING, 40)
-        val succeededB = task("b", AgentLifecycle.SUCCEEDED, 20, isUnread = true)
-        val succeededA = task("a", AgentLifecycle.SUCCEEDED, 20)
+        val succeededB = task("b", AgentLifecycle.SUCCEEDED, 20, completedAt = NOW, isUnread = true)
+        val succeededA = task("a", AgentLifecycle.SUCCEEDED, 20, completedAt = NOW)
 
         val before = project(
             listOf(succeededB, starting, succeededA, running, approval),

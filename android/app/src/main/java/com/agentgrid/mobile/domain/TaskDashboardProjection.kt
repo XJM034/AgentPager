@@ -182,10 +182,13 @@ object TaskDashboardProjector {
 
     private val TaskSnapshot.isCodexMemoryTask: Boolean
         get() = (source == AgentSource.CODEX_CLI || source == AgentSource.CODEX_DESKTOP) &&
-            projectName.equals("memories", ignoreCase = true) &&
+            (projectName.equals("memories", ignoreCase = true) ||
+                projectName.equals("memories_v2", ignoreCase = true)) &&
             listOfNotNull(userPrompt, title.substringAfter(" · ", title)).any {
-                it.trimStart { char -> char.isWhitespace() || char == '#' }
-                    .startsWith("Memory Writing Agent:", ignoreCase = true)
+                val text = it.trimStart { char -> char.isWhitespace() || char == '#' }
+                text.startsWith("Memory Writing Agent:", ignoreCase = true) ||
+                    // Bridge titles can truncate "summaries" after its first letter.
+                    text.startsWith("Consolidate the supplied rollout s", ignoreCase = true)
             }
 
     private fun normalize(tasks: List<TaskSnapshot>): List<TaskSnapshot> =

@@ -324,6 +324,33 @@ class TaskDashboardProjectionTest {
     }
 
     @Test
+    fun `新版 Codex memory 包含截断标题和旧运行记录也隐藏`() {
+        for (source in listOf(AgentSource.CODEX_CLI, AgentSource.CODEX_DESKTOP)) {
+            val memory = task("memory-v2", AgentLifecycle.RUNNING, NOW).copy(
+                source = source, projectName = "memories_v2",
+                title = "memories_v2 · Consolidate the supplied rollout s",
+                userPrompt = "Consolidate the supplied rollout summaries into `memory_summary.md`",
+                startedAt = NOW - 4 * 60 * 60 * 1000,
+            )
+            for (candidate in listOf(memory, memory.copy(userPrompt = null),
+                memory.copy(lifecycle = AgentLifecycle.SUCCEEDED, completedAt = NOW))) {
+                val projection = TaskDashboardProjector.project(
+                    StateSnapshotPayload(listOf(candidate), focusedTaskID = candidate.id),
+                    previous = null, now = NOW,
+                )
+                assertTrue(projection.orderedTasks.isEmpty())
+                assertNull(projection.focusedTaskID)
+                assertNull(projection.automaticallyExpandedTaskID)
+                assertNull(TaskSoundTracker().nextCue(projection.orderedTasks))
+            }
+            val ordinary = memory.copy(title = "memories_v2 · 修复搜索功能", userPrompt = "修复搜索功能")
+            assertFalse(project(listOf(ordinary)).orderedTasks.isEmpty())
+            assertFalse(project(listOf(memory.copy(projectName = "my-app"))).orderedTasks.isEmpty())
+            assertFalse(project(listOf(memory.copy(source = AgentSource.CLAUDE_CODE))).orderedTasks.isEmpty())
+        }
+    }
+
+    @Test
     fun `ZCode 审批和回答仍显示并自动展开`() {
         for (lifecycle in listOf(AgentLifecycle.WAITING_APPROVAL, AgentLifecycle.WAITING_ANSWER)) {
             val waiting = task("zcode", lifecycle, 10).copy(source = AgentSource.ZCODE)
